@@ -117,6 +117,10 @@ type Config struct {
 
 	// Push sends Web Push notifications (notifications.go); nil = off.
 	Push PushService
+
+	// ChangeLink puts "Fix" links to a change-management tool on host
+	// pages (changelink.go); zero = off.
+	ChangeLink ChangeLink
 }
 
 // CSP is the Content-Security-Policy sent with every response.

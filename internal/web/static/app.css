@@ -966,6 +966,8 @@ dl.conn dd { margin: 0; min-width: 0; }
 .section-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .section-head h2 { margin-right: auto; }
 a.button.handoff-btn, a.button.handoff-all { padding: 5px 12px; font-size: 13px; }
+.change-link { margin: 8px 0; }
+a.button.change-btn { padding: 5px 12px; font-size: 13px; }
 .site-handoff { margin: 0 0 12px; }
 .ai-handoff { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
 .repo-row { gap: 6px 10px; }

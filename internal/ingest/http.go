@@ -70,11 +70,13 @@ type Handler struct {
 	lookupTimeout time.Duration
 
 	// OnStored, if set, is called after a new snapshot is stored (e.g. to
-	// recompute the host's findings). It must not block.
-	OnStored func(store.IngestHost)
+	// recompute the host's findings), with the snapshot's id. It must not
+	// block.
+	OnStored func(store.IngestHost, int64)
 	// OnSeen, if set, is called after an unchanged report is recorded as a
-	// heartbeat (e.g. to run the reboot rules). It must not block.
-	OnSeen func(store.IngestHost)
+	// heartbeat (e.g. to run the reboot rules), with the latest snapshot's
+	// id. It must not block.
+	OnSeen func(store.IngestHost, int64)
 	// IPs, if set, says what's known about privilege sessions' sources.
 	IPs *ipinfo.Resolver
 
@@ -286,10 +288,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.recordLogins(r.Context(), log, host, r)                    // opt-in login watch (logins.go)
 	}
 	if res.Status == http.StatusCreated && h.OnStored != nil {
-		h.OnStored(host)
+		h.OnStored(host, res.SnapshotID)
 	}
 	if res.Unchanged && h.OnSeen != nil {
-		h.OnSeen(host)
+		h.OnSeen(host, res.SnapshotID)
 	}
 	respond(w, res.Status, res.Message)
 }

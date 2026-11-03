@@ -696,6 +696,7 @@ func (s *Store) SetFindings(ctx context.Context, hostID int64, fs []Finding, at 
 
 // ReportFinding is an open finding joined with advisory, KEV and EPSS data.
 type ReportFinding struct {
+	ID            int64 // findings.id: stable while the finding exists, and kept if it reopens
 	AdvisoryID    string
 	CVEs          []string
 	Summary       string
@@ -721,7 +722,7 @@ type ReportFinding struct {
 // available, then by severity, EPSS and CVSS.
 func (s *Store) OpenFindings(ctx context.Context, hostID int64) ([]ReportFinding, error) {
 	rows, err := s.rd.QueryContext(ctx, `
-		SELECT f.advisory_id, a.summary, a.severity, coalesce(a.cvss_score, 0),
+		SELECT f.id, f.advisory_id, a.summary, a.severity, coalesce(a.cvss_score, 0),
 		       f.package_name, f.package_version, f.binaries, coalesce(f.fixed_version, ''), f.fix_pending,
 		       f.first_seen_at, f.site_root, f.ecosystem, f.dev,
 		       coalesce((SELECT group_concat(alias, ' ') FROM advisory_aliases WHERE advisory_id = a.id AND alias LIKE 'CVE-%'), ''),
@@ -740,7 +741,7 @@ func (s *Store) OpenFindings(ctx context.Context, hostID int64) ([]ReportFinding
 		var f ReportFinding
 		var bins, first, cves string
 		var pending, kev, dev int64
-		if err := rows.Scan(&f.AdvisoryID, &f.Summary, &f.Severity, &f.CVSS, &f.Package, &f.Version, &bins,
+		if err := rows.Scan(&f.ID, &f.AdvisoryID, &f.Summary, &f.Severity, &f.CVSS, &f.Package, &f.Version, &bins,
 			&f.FixedVersion, &pending, &first, &f.SiteRoot, &f.Ecosystem, &dev, &cves, &kev, &f.EPSS); err != nil {
 			return nil, err
 		}

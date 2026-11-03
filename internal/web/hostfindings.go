@@ -39,6 +39,9 @@ type pkgGroup struct {
 	Total, Fixable   int
 	FixPending       bool // an update that fixes some of them is already pending
 	Findings         []report.Finding
+	// ChangeURL drafts this package's fix in the change-management tool
+	// ([change_link]); "" when it's off or nothing here is fixable.
+	ChangeURL, ChangeLabel string
 }
 
 type findingsView struct {
@@ -82,6 +85,11 @@ type findingsView struct {
 	// which clears OldKernelFindings (upgrading never does).
 	OldKernelCmd      *command
 	OldKernelFindings int
+	// ChangeURL drafts the fix for every fixable finding shown (ChangeCount)
+	// in the change-management tool ([change_link]); "" when it's off.
+	ChangeURL, ChangeLabel string
+	ChangeCount            int
+	shown                  []report.Finding // every finding after filters, all pages
 }
 
 // oldKernelCommand removes the installed kernel packages older than the
@@ -261,7 +269,7 @@ func buildFindingsView(base, pm string, q url.Values, list []report.Finding, pkg
 		}
 		kept = append(kept, f)
 	}
-	fv.Total = len(kept)
+	fv.Total, fv.shown = len(kept), kept
 	fv.fixCommands(kept, pkgs, k)
 
 	n := len(kept)

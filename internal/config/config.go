@@ -44,6 +44,9 @@ type Config struct {
 	Tailscale      Tailscale      `toml:"tailscale"`       // see tailscale.go
 	Cloudflare     Cloudflare     `toml:"cloudflare"`      // cloudflare.go
 	Bans           Bans           `toml:"bans"`            // bans.go
+
+	ChangeLink    ChangeLink    `toml:"change_link"`    // a "Fix" link to a change-management tool (integrations.go)
+	ReportWebhook ReportWebhook `toml:"report_webhook"` // a signed event per accepted report (integrations.go)
 }
 
 // Agent is one coding agent: a Discord bot that reads a channel and can
@@ -570,6 +573,8 @@ func (c Config) Validate() error {
 	c.Tailscale.validate(add)
 	c.Cloudflare.validate(add)
 	c.Bans.validate(c.Cloudflare, add)
+	c.ChangeLink.validate(add)
+	c.ReportWebhook.validate(add)
 	return errors.Join(errs...)
 }
 

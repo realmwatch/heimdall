@@ -144,6 +144,23 @@ enabled    = false
 tailnet    = "-"     # "-" = the credential's tailnet
 sync_every = "15m"
 
+[change_link]
+# A "Fix" link on each package and patch command of a host's findings, to a
+# change-management tool that drafts the fix there. Heimdall only builds the
+# link; it sends the tool nothing and never runs anything. Placeholders:
+# {org}, {host}, {package} and {finding} (finding ids, comma-separated, the
+# id field in MCP). Off while url is empty. See docs/integrations.md.
+url   = ""
+label = "Fix"
+
+[report_webhook]
+# POST a signed report.received event (org, host, snapshot, time; no
+# inventory or findings) each time a host's report is accepted, so another
+# tool knows when to read the host's findings again. Set it with
+# `sudo heimdall report-webhook set <url>`, which stores the signing secret.
+# Off while url is empty. See docs/integrations.md.
+url = ""
+
 # Coding agents for "Hand off to agent" (off unless listed). Each is a
 # Discord bot that reads a channel and can open pull requests. Heimdall
 # posts a fix request for one site's vulnerable Composer/npm packages to

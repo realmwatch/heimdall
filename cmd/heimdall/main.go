@@ -72,6 +72,8 @@ Commands:
   notify test [destination]    Send a labelled test message (all destinations, or one)
   notify set-webhook <slack|discord|webhook> <name>
                                Store a Slack, Discord or webhook URL (never echoed)
+  report-webhook set <url>|test
+                               A signed event per accepted report (no inventory): set the URL and secret, send a test
   plan create|list|show|add|rm|done|undo|close
                                Patch plans: batch hosts, tick them off, auto-verify
   sso setup                    Set up Entra ID single sign-on (asks, writes, restarts)
@@ -149,18 +151,19 @@ var commands = map[string]command{
 
 	"cloudflare": group("cloudflare", map[string]command{
 		"set-token": cmdCloudflareSetToken, "status": cmdCloudflareStatus, "sync": cmdCloudflareSync, "token-url": cmdCloudflareTokenURL}),
-	"surface": cmdSurface,                  // surface.go
-	"bans":    group("bans", bansCommands), // bans.go
-	"sso":     group("sso", map[string]command{"setup": cmdSSOSetup, "set-secret": cmdSSOSetSecret}),
-	"ai":      group("ai", map[string]command{"set-key": cmdAISetKey, "status": cmdAIStatus, "test": cmdAITest}),
-	"ip":      group("ip", ipCommands), // ip.go
-	"upgrade": cmdUpgrade,
-	"restart": cmdRestart,
-	"mcp":     group("mcp", map[string]command{"set-name": cmdMCPSetName}), // mcpname.go
-	"ingest":  group("ingest", map[string]command{"cert": cmdIngestCert}),
-	"serve":   cmdServe,
-	"import":  cmdImport,
-	"version": func(a *app, _ []string) error { _, err := fmt.Fprintln(a.stdout, version); return err },
+	"surface":        cmdSurface,                  // surface.go
+	"bans":           group("bans", bansCommands), // bans.go
+	"sso":            group("sso", map[string]command{"setup": cmdSSOSetup, "set-secret": cmdSSOSetSecret}),
+	"ai":             group("ai", map[string]command{"set-key": cmdAISetKey, "status": cmdAIStatus, "test": cmdAITest}),
+	"ip":             group("ip", ipCommands), // ip.go
+	"upgrade":        cmdUpgrade,
+	"restart":        cmdRestart,
+	"mcp":            group("mcp", map[string]command{"set-name": cmdMCPSetName}),                                           // mcpname.go
+	"report-webhook": group("report-webhook", map[string]command{"set": cmdReportWebhookSet, "test": cmdReportWebhookTest}), // reporthook.go
+	"ingest":         group("ingest", map[string]command{"cert": cmdIngestCert}),
+	"serve":          cmdServe,
+	"import":         cmdImport,
+	"version":        func(a *app, _ []string) error { _, err := fmt.Fprintln(a.stdout, version); return err },
 
 	"tailscale": group("tailscale", map[string]command{"set-key": cmdTailscaleSetKey, "status": cmdTailscaleStatus, "sync": cmdTailscaleSync}),
 	"offenders": cmdOffenders, // failed logins (offenders.go)
