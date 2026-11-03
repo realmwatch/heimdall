@@ -92,7 +92,7 @@ To check your code against a known value: `printf '1700000000.{}' | openssl dgst
 
 A tool reads Heimdall through [MCP](mcp.md), like any assistant: it uses a token belonging to a Heimdall user with the **viewer** role on the orgs it works with. MCP is read-only for every user.
 
-- **`finding`** takes up to 200 finding ids, the `id` field on the findings from `host` and `patch_priorities`. For each it returns whether the finding is open or resolved, when it was last seen and resolved, the package, and the installed and fixed versions. A finding keeps its id from report to report while it's open, and again if it comes back. Ids in orgs the user can't see are listed under `not_found`.
+- **`finding`** takes up to 200 finding ids, the `id` field on the findings from `host` and `patch_priorities`. For each it returns whether the finding is open or resolved, when it was last seen and resolved, the package, and the installed and fixed versions. `package` is the source package that advisories name (`openssl`, `linux`); `binaries` lists the installed binary packages built from it (`libssl3`, `openssl`), which are what a package manager upgrades. A finding keeps its id from report to report while it's open, and again if it comes back. Ids in orgs the user can't see are listed under `not_found`.
 - **`host`** takes `machine` instead of `host`: the hex SHA-256 of `heimdall-machine:` followed by the contents of `/etc/machine-id`, which the collector reports. On Windows it's the `MachineGuid` registry value instead of the machine ID. A tool with its own agent on the server can compute the same hash and find the host without matching hostnames. `host` also returns the hash it has for a host.
 
 A typical loop:

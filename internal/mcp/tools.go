@@ -128,7 +128,7 @@ func (s *Server) registerTools() {
 	})
 	s.add("finding", tool{
 		description: "Findings by id (the id field of host and patch_priorities findings), open or resolved: " +
-			"whether each is still open, when it was last seen and resolved, and its package and versions. " +
+			"whether each is still open, when it was last seen and resolved, its package (the source package, with the installed binary packages built from it) and versions. " +
 			"Use it to check that a fix took effect after the host's next report.",
 		schema: obj(map[string]any{"ids": map[string]any{"type": "array", "items": map[string]any{"type": "integer"},
 			"description": fmt.Sprintf("Finding ids (at most %d)", store.MaxFindingIDs)}}, "ids"),
@@ -150,7 +150,7 @@ func (s *Server) registerTools() {
 				found[f.ID] = true
 				m := map[string]any{"id": f.ID, "org": f.Org, "host": f.Host, "status": "open",
 					"advisory": f.Advisory, "cves": nonNil(f.CVEs), "severity": f.Severity, "kev": f.KEV,
-					"package": f.Package, "installed": f.Version, "ecosystem": f.Ecosystem,
+					"package": f.Package, "binaries": nonNil(f.Binaries), "installed": f.Version, "ecosystem": f.Ecosystem,
 					"first_seen": stamp(f.FirstSeen), "last_seen": stamp(f.LastSeen)}
 				if f.Fixed != "" {
 					m["fixed"] = f.Fixed

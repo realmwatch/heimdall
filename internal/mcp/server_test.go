@@ -174,7 +174,8 @@ func TestFindingAndMachineTools(t *testing.T) {
 	if err := e.st.PutAdvisory(ctx, store.Advisory{ID: "CVE-2099-0001", Modified: time.Now(), Severity: "high", Raw: []byte(`{}`)}); err != nil {
 		t.Fatal(err)
 	}
-	f := []store.Finding{{AdvisoryID: "CVE-2099-0001", Ecosystem: "Debian:12", Package: "openssl", Version: "1", FixedVersion: "2"}}
+	f := []store.Finding{{AdvisoryID: "CVE-2099-0001", Ecosystem: "Debian:12", Package: "openssl", Version: "1", FixedVersion: "2",
+		Binaries: []string{"libssl3"}}}
 	for _, h := range []store.IngestHost{own, other} {
 		if _, _, err := e.st.SetFindings(ctx, h.ID, f, time.Now()); err != nil {
 			t.Fatal(err)
@@ -186,7 +187,8 @@ func TestFindingAndMachineTools(t *testing.T) {
 	res := e.tool("finding", map[string]any{"ids": []int64{ownF[0].ID, otherF[0].ID}})
 	d := res["data"].(map[string]any)
 	list := d["findings"].([]any)
-	if len(list) != 1 || list[0].(map[string]any)["status"] != "open" || list[0].(map[string]any)["host"] != "web-acme" {
+	if len(list) != 1 || list[0].(map[string]any)["status"] != "open" || list[0].(map[string]any)["host"] != "web-acme" ||
+		fmt.Sprint(list[0].(map[string]any)["binaries"]) != "[libssl3]" {
 		t.Errorf("findings %v", list)
 	}
 	if nf := d["not_found"].([]any); len(nf) != 1 || nf[0] != float64(otherF[0].ID) {

@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -26,9 +27,10 @@ type FindingStatus struct {
 	Severity   string
 	KEV        bool
 	Package    string
-	Version    string // installed when last seen
-	Fixed      string // "" if no fix published
-	SiteRoot   string // "" for OS packages
+	Binaries   []string // installed binary packages built from Package (OS findings)
+	Version    string   // installed when last seen
+	Fixed      string   // "" if no fix published
+	SiteRoot   string   // "" for OS packages
 	Ecosystem  string
 	FirstSeen  time.Time
 	LastSeen   time.Time
@@ -51,7 +53,7 @@ func (s *Store) FindingsByID(ctx context.Context, ids []int64) ([]FindingStatus,
 	}
 	rows, err := s.rd.QueryContext(ctx, `
 		SELECT f.id, h.org_id, o.slug, h.name, f.advisory_id, coalesce(a.severity, ''),
-		       f.package_name, f.package_version, coalesce(f.fixed_version, ''), f.site_root, f.ecosystem,
+		       f.package_name, coalesce(f.binaries, '[]'), f.package_version, coalesce(f.fixed_version, ''), f.site_root, f.ecosystem,
 		       f.first_seen_at, f.last_seen_at, coalesce(f.resolved_at, ''),
 		       coalesce((SELECT group_concat(alias, ' ') FROM advisory_aliases WHERE advisory_id = f.advisory_id AND alias LIKE 'CVE-%'), ''),
 		       EXISTS (SELECT 1 FROM kev_entries k
@@ -69,11 +71,12 @@ func (s *Store) FindingsByID(ctx context.Context, ids []int64) ([]FindingStatus,
 	var out []FindingStatus
 	for rows.Next() {
 		var f FindingStatus
-		var first, last, resolved, cves string
-		if err := rows.Scan(&f.ID, &f.OrgID, &f.Org, &f.Host, &f.Advisory, &f.Severity, &f.Package, &f.Version,
+		var first, last, resolved, cves, bins string
+		if err := rows.Scan(&f.ID, &f.OrgID, &f.Org, &f.Host, &f.Advisory, &f.Severity, &f.Package, &bins, &f.Version,
 			&f.Fixed, &f.SiteRoot, &f.Ecosystem, &first, &last, &resolved, &cves, &f.KEV); err != nil {
 			return nil, err
 		}
+		json.Unmarshal([]byte(bins), &f.Binaries)
 		f.FirstSeen, f.LastSeen = parseTime(first), parseTime(last)
 		if resolved != "" {
 			f.ResolvedAt = parseTime(resolved)

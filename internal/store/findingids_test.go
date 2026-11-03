@@ -13,7 +13,8 @@ func TestFindingIDsStayStableAndResolve(t *testing.T) {
 	t.Parallel()
 	s, ctx := newStore(t), t.Context()
 	h := addFindingHost(t, s, "acme", "web-01", "DEBIAN-CVE-2099-0001", "CVE-2099-0001")
-	fs := []Finding{{AdvisoryID: "DEBIAN-CVE-2099-0001", Ecosystem: "Debian:12", Package: "openssl", Version: "1", FixedVersion: "2"}}
+	fs := []Finding{{AdvisoryID: "DEBIAN-CVE-2099-0001", Ecosystem: "Debian:12", Package: "openssl", Version: "1", FixedVersion: "2",
+		Binaries: []string{"libssl3", "openssl"}}}
 	if _, _, err := s.SetFindings(ctx, h.ID, fs, newsNow); err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +36,7 @@ func TestFindingIDsStayStableAndResolve(t *testing.T) {
 		t.Fatalf("FindingsByID %+v %v", got, err)
 	}
 	if f := got[0]; f.Org != "acme" || f.Host != "web-01" || f.Package != "openssl" || f.Fixed != "2" || !f.ResolvedAt.IsZero() ||
-		len(f.CVEs) != 1 || f.CVEs[0] != "CVE-2099-0001" {
+		len(f.CVEs) != 1 || f.CVEs[0] != "CVE-2099-0001" || strings.Join(f.Binaries, ",") != "libssl3,openssl" {
 		t.Errorf("open finding %+v", f)
 	}
 
