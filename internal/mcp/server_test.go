@@ -5,6 +5,7 @@ package mcp
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -98,7 +99,7 @@ func TestProtocol(t *testing.T) {
 		t.Errorf("notification: %d", w.Code)
 	}
 	tools := e.call("tools/list", nil)["result"].(map[string]any)["tools"].([]any)
-	if len(tools) != 9 {
+	if len(tools) != 10 {
 		t.Errorf("%d tools", len(tools))
 	}
 	if errObj, _ := e.call("nope", nil)["error"].(map[string]any); errObj["code"] != float64(-32601) {
@@ -162,5 +163,56 @@ func TestToolsRespectScope(t *testing.T) {
 	res = e.tool("search", map[string]any{"query": "<script>"})
 	if _, ok := res["data"].(map[string]any)["error"]; !ok {
 		t.Errorf("bad query: %v", res)
+	}
+}
+
+func TestFindingAndMachineTools(t *testing.T) {
+	e := newEnv(t)
+	ctx := t.Context()
+	own, _ := e.st.HostByName(ctx, "acme", "web-acme")
+	other, _ := e.st.HostByName(ctx, "globex", "web-globex")
+	if err := e.st.PutAdvisory(ctx, store.Advisory{ID: "CVE-2099-0001", Modified: time.Now(), Severity: "high", Raw: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	f := []store.Finding{{AdvisoryID: "CVE-2099-0001", Ecosystem: "Debian:12", Package: "openssl", Version: "1", FixedVersion: "2"}}
+	for _, h := range []store.IngestHost{own, other} {
+		if _, _, err := e.st.SetFindings(ctx, h.ID, f, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ownF, _ := e.st.OpenFindings(ctx, own.ID)
+	otherF, _ := e.st.OpenFindings(ctx, other.ID)
+
+	res := e.tool("finding", map[string]any{"ids": []int64{ownF[0].ID, otherF[0].ID}})
+	d := res["data"].(map[string]any)
+	list := d["findings"].([]any)
+	if len(list) != 1 || list[0].(map[string]any)["status"] != "open" || list[0].(map[string]any)["host"] != "web-acme" {
+		t.Errorf("findings %v", list)
+	}
+	if nf := d["not_found"].([]any); len(nf) != 1 || nf[0] != float64(otherF[0].ID) {
+		t.Errorf("another org's finding should look missing: %v", d["not_found"])
+	}
+	if _, _, err := e.st.SetFindings(ctx, own.ID, nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	res = e.tool("finding", map[string]any{"ids": []int64{ownF[0].ID}})
+	if got := res["data"].(map[string]any)["findings"].([]any)[0].(map[string]any); got["status"] != "resolved" || got["resolved_at"] == nil {
+		t.Errorf("resolved finding %v", got)
+	}
+	res = e.tool("finding", map[string]any{"ids": []any{"x"}})
+	if _, ok := res["data"].(map[string]any)["error"]; !ok {
+		t.Errorf("bad ids: %v", res)
+	}
+
+	m := strings.Repeat("ab", 32)
+	e.st.RecordMachine(ctx, own.ID, m)
+	e.st.RecordMachine(ctx, other.ID, strings.Repeat("cd", 32))
+	res = e.tool("host", map[string]any{"machine": m})
+	if d := res["data"].(map[string]any); d["machine"] != m || d["host"] != "web-acme" {
+		t.Errorf("host by machine: %v", d)
+	}
+	res = e.tool("host", map[string]any{"org": "globex", "machine": strings.Repeat("cd", 32)})
+	if d := res["data"].(map[string]any); !strings.Contains(fmt.Sprint(d["error"]), "not found") {
+		t.Errorf("other org's host by machine: %v", d)
 	}
 }

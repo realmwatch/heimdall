@@ -29,6 +29,9 @@ ExecStart=/usr/local/bin/heimdall -c /etc/heimdall/heimdall.toml serve
 # `sudo heimdall notify set-webhook <kind> <name>` stores each URL in
 # /etc/heimdall/notify-<kind>-<name> and adds its line here, e.g.
 #LoadCredential=heimdall-notify-slack-ops:/etc/heimdall/notify-slack-ops
+# The report webhook ([report_webhook]): `sudo heimdall report-webhook set
+# <url>` stores its signing secret and uncomments this line.
+#LoadCredential=heimdall-report-webhook:/etc/heimdall/report-webhook-secret
 Restart=on-failure
 RestartSec=5s
 

@@ -123,10 +123,21 @@ func postMultipart(ctx context.Context, hc *http.Client, retry Retry, rawURL, wh
 }
 
 func postBody(ctx context.Context, hc *http.Client, retry Retry, rawURL, what string, body []byte, contentType string) error {
+	return postBodyWith(ctx, hc, retry, rawURL, what, body, contentType, nil)
+}
+
+// postBodyWith is postBody with extra request headers, built for each
+// attempt (a signature over a fresh timestamp, say).
+func postBodyWith(ctx context.Context, hc *http.Client, retry Retry, rawURL, what string, body []byte, contentType string,
+	header func() http.Header) error {
 	var last error
 	n := retry.attempts()
 	for i := range n {
-		retryAfter, retryable, err := postOnce(ctx, hc, rawURL, body, contentType)
+		var h http.Header
+		if header != nil {
+			h = header()
+		}
+		retryAfter, retryable, err := postOnce(ctx, hc, rawURL, body, contentType, h)
 		if err == nil {
 			return nil
 		}
@@ -155,7 +166,7 @@ func (e *statusError) Error() string {
 	return fmt.Sprintf("HTTP %d", e.Status)
 }
 
-func postOnce(ctx context.Context, hc *http.Client, rawURL string, body []byte, contentType string) (retryAfter time.Duration, retryable bool, err error) {
+func postOnce(ctx context.Context, hc *http.Client, rawURL string, body []byte, contentType string, header http.Header) (retryAfter time.Duration, retryable bool, err error) {
 	ctx, cancel := context.WithTimeout(ctx, attemptTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, bytes.NewReader(body))
@@ -164,6 +175,9 @@ func postOnce(ctx context.Context, hc *http.Client, rawURL string, body []byte, 
 	}
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("User-Agent", "heimdall-notify")
+	for k, v := range header {
+		req.Header[k] = v
+	}
 	resp, err := hc.Do(req)
 	if err != nil {
 		// *url.Error embeds the URL, which may contain a secret.

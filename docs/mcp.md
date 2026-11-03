@@ -123,7 +123,8 @@ The Desktop extension and Claude Code run on your own machine, so they reach the
 |---|---|
 | `search` | Fleet search: `openssl < 3.0.13`, `php = 8.1`, `laravel < 11`, `php-fpm = 8.2`, `composer:vendor/pkg < x`, `CVE-…`, `site:…`, `host:…` |
 | `patch_priorities` | Open findings across visible hosts: known-exploited first, then fixable, severity, EPSS |
-| `host` | One host: OS and lifecycle, runtimes, findings, sites, containers |
+| `host` | One host: OS and lifecycle, runtimes, findings (each with its `id`), sites, containers, and its machine ID hash. Pass `machine` (the hash) instead of `host` to find a host by machine; see [integrations](integrations.md#reading-findings) |
+| `finding` | Findings by id, open or resolved: status, last seen, resolved at, package and versions. Checks that a fix took effect; see [integrations](integrations.md#reading-findings) |
 | `sites` | Laravel/PHP apps: versions, lifecycle, `require.php` mismatches, findings |
 | `anomalies` | Open tripwire alerts |
 | `changes` | What changed between a host's last two check-ins |

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/realmwatch/heimdall/internal/history"
 	"github.com/realmwatch/heimdall/internal/report"
@@ -99,10 +100,15 @@ func (s *Server) registerTools() {
 		},
 	})
 	s.add("host", tool{
-		description: "One host: OS and lifecycle, runtimes, finding counts and top findings, sites, containers, last check-in.",
-		schema:      obj(map[string]any{"host": str("Hostname"), "org": orgArg}, "host"),
+		description: "One host: OS and lifecycle, runtimes, finding counts and top findings, sites, containers, last check-in, " +
+			"and its machine ID hash. Name it by hostname, or by machine (the hex SHA-256 of \"heimdall-machine:\" and /etc/machine-id).",
+		schema: obj(map[string]any{"host": str("Hostname"), "machine": str("Machine ID hash, instead of host"), "org": orgArg}),
 		run: func(ctx context.Context, c caller, a map[string]any) (any, error) {
-			h, err := s.visibleHost(ctx, c, arg(a, "org"), arg(a, "host"))
+			h, err := s.hostArg(ctx, c, a)
+			if err != nil {
+				return nil, err
+			}
+			machine, err := s.st.HostMachine(ctx, h.ID)
 			if err != nil {
 				return nil, err
 			}
@@ -114,10 +120,56 @@ func (s *Server) registerTools() {
 				if rh.Name == h.Name {
 					truncated := len(rh.Findings) > maxItems
 					rh.Findings = first(rh.Findings, maxItems)
-					return map[string]any{"host": rh, "findings_truncated": truncated}, nil
+					return map[string]any{"host": rh, "machine": machine, "findings_truncated": truncated}, nil
 				}
 			}
-			return map[string]any{"host": h.Name, "org": h.OrgSlug, "status": "registered, never reported"}, nil
+			return map[string]any{"host": h.Name, "org": h.OrgSlug, "machine": machine, "status": "registered, never reported"}, nil
+		},
+	})
+	s.add("finding", tool{
+		description: "Findings by id (the id field of host and patch_priorities findings), open or resolved: " +
+			"whether each is still open, when it was last seen and resolved, and its package and versions. " +
+			"Use it to check that a fix took effect after the host's next report.",
+		schema: obj(map[string]any{"ids": map[string]any{"type": "array", "items": map[string]any{"type": "integer"},
+			"description": fmt.Sprintf("Finding ids (at most %d)", store.MaxFindingIDs)}}, "ids"),
+		run: func(ctx context.Context, c caller, a map[string]any) (any, error) {
+			ids, err := idsArg(a, "ids")
+			if err != nil {
+				return nil, err
+			}
+			list, err := s.st.FindingsByID(ctx, ids)
+			if err != nil {
+				return nil, fmt.Errorf("%w: %v", errUser, err)
+			}
+			out := []map[string]any{}
+			found := map[int64]bool{}
+			for _, f := range list {
+				if !c.scope.CanView(f.OrgID) {
+					continue // other orgs' findings look missing
+				}
+				found[f.ID] = true
+				m := map[string]any{"id": f.ID, "org": f.Org, "host": f.Host, "status": "open",
+					"advisory": f.Advisory, "cves": nonNil(f.CVEs), "severity": f.Severity, "kev": f.KEV,
+					"package": f.Package, "installed": f.Version, "ecosystem": f.Ecosystem,
+					"first_seen": stamp(f.FirstSeen), "last_seen": stamp(f.LastSeen)}
+				if f.Fixed != "" {
+					m["fixed"] = f.Fixed
+				}
+				if f.SiteRoot != "" {
+					m["site"] = f.SiteRoot
+				}
+				if !f.ResolvedAt.IsZero() {
+					m["status"], m["resolved_at"] = "resolved", stamp(f.ResolvedAt)
+				}
+				out = append(out, m)
+			}
+			var missing []int64
+			for _, id := range ids {
+				if !found[id] {
+					missing = append(missing, id)
+				}
+			}
+			return map[string]any{"findings": out, "not_found": nonNil(missing)}, nil
 		},
 	})
 	s.add("sites", tool{
@@ -190,22 +242,67 @@ func (s *Server) registerTools() {
 	s.registerThreatTools() // threats.go
 }
 
+// hostArg resolves a tool's host or machine argument to a host the caller
+// may see.
+func (s *Server) hostArg(ctx context.Context, c caller, a map[string]any) (store.IngestHost, error) {
+	m := arg(a, "machine")
+	if m == "" || arg(a, "host") != "" {
+		return s.visibleHost(ctx, c, arg(a, "org"), arg(a, "host"))
+	}
+	org, err := s.orgArg(ctx, c, arg(a, "org"))
+	if err != nil {
+		return store.IngestHost{}, err
+	}
+	if store.NormalizeMachine(m) == "" {
+		return store.IngestHost{}, fmt.Errorf("%w: machine must be a hex SHA-256 machine ID hash", errUser)
+	}
+	h, err := s.st.HostByMachine(ctx, org, m)
+	if err != nil {
+		return h, err
+	}
+	if !c.scope.CanView(h.OrgID) {
+		return store.IngestHost{}, store.ErrNotFound
+	}
+	return h, nil
+}
+
+// idsArg reads an array of positive integer ids (JSON numbers).
+func idsArg(a map[string]any, k string) ([]int64, error) {
+	raw, _ := a[k].([]any)
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("%w: %s is required", errUser, k)
+	}
+	if len(raw) > store.MaxFindingIDs {
+		return nil, fmt.Errorf("%w: at most %d %s", errUser, store.MaxFindingIDs, k)
+	}
+	ids := make([]int64, 0, len(raw))
+	for _, v := range raw {
+		f, ok := v.(float64)
+		if !ok || f < 1 || f != float64(int64(f)) {
+			return nil, fmt.Errorf("%w: %s must be positive integers", errUser, k)
+		}
+		ids = append(ids, int64(f))
+	}
+	return ids, nil
+}
+
+func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339) }
+
+func nonNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
+}
+
 // visibleHost resolves a host the caller may see; others look missing.
 func (s *Server) visibleHost(ctx context.Context, c caller, org, name string) (store.IngestHost, error) {
 	if name == "" {
 		return store.IngestHost{}, fmt.Errorf("%w: host is required", errUser)
 	}
-	if org == "" {
-		visible, err := s.st.VisibleOrgSlugs(ctx, c.scope)
-		if err != nil {
-			return store.IngestHost{}, err
-		}
-		if len(visible) != 1 {
-			return store.IngestHost{}, fmt.Errorf("%w: org is required (you can see %d orgs)", errUser, len(visible))
-		}
-		for slug := range visible {
-			org = slug
-		}
+	org, err := s.orgArg(ctx, c, org)
+	if err != nil {
+		return store.IngestHost{}, err
 	}
 	h, err := s.st.HostByName(ctx, org, name)
 	if err != nil {
@@ -215,6 +312,24 @@ func (s *Server) visibleHost(ctx context.Context, c caller, org, name string) (s
 		return store.IngestHost{}, store.ErrNotFound
 	}
 	return h, nil
+}
+
+// orgArg is org, or the caller's only visible org when org is "".
+func (s *Server) orgArg(ctx context.Context, c caller, org string) (string, error) {
+	if org != "" {
+		return org, nil
+	}
+	visible, err := s.st.VisibleOrgSlugs(ctx, c.scope)
+	if err != nil {
+		return "", err
+	}
+	if len(visible) != 1 {
+		return "", fmt.Errorf("%w: org is required (you can see %d orgs)", errUser, len(visible))
+	}
+	for slug := range visible {
+		org = slug
+	}
+	return org, nil
 }
 
 func first[T any](s []T, n int) []T {

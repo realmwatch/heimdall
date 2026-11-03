@@ -143,6 +143,7 @@ type Counts struct {
 func (c Counts) Attention() int { return c.Fixable + c.Watch }
 
 type Finding struct {
+	ID            int64     `json:"id"` // stable while the finding exists (a change-management link's {finding})
 	Advisory      string    `json:"advisory"`
 	CVEs          []string  `json:"cves"`
 	Severity      string    `json:"severity"`
@@ -295,7 +296,7 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 					status, server = ks.Status(f.Binaries), co[f.Package]
 				}
 				host.Findings = append(host.Findings, Finding{
-					Advisory: f.AdvisoryID, CVEs: nonNil(f.CVEs), Severity: f.Severity, CVSS: f.CVSS,
+					ID: f.ID, Advisory: f.AdvisoryID, CVEs: nonNil(f.CVEs), Severity: f.Severity, CVSS: f.CVSS,
 					KEV: f.KEV, KEVRansomware: f.KEVRansomware, Package: f.Package, Version: f.Version,
 					Binaries: nonNil(f.Binaries), Fixed: f.FixedVersion, FixPending: f.FixPending,
 					Summary: f.Summary, FirstSeen: f.FirstSeen, Site: f.SiteRoot, Ecosystem: f.Ecosystem, Dev: f.Dev,

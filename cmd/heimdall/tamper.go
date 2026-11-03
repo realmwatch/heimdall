@@ -32,7 +32,7 @@ import (
 func startTamperChecks(ctx context.Context, cfg config.Config, s *store.Store, h *ingest.Handler,
 	tripwires *anomaly.Engine, log *slog.Logger) {
 	seen := make(chan store.IngestHost, 256)
-	h.OnSeen = func(host store.IngestHost) {
+	h.OnSeen = func(host store.IngestHost, _ int64) {
 		select {
 		case seen <- host:
 		default: // queue full; the host's next report runs the rules

@@ -19,6 +19,7 @@ var rootCommands = map[string]bool{"upgrade": true, "restart": true, "sso": true
 	// set-webhook adds a LoadCredential line to the unit; test reads the
 	// root-owned files it stores.
 	"notify set-webhook": true, "notify test": true,
+	"report-webhook set": true, "report-webhook test": true, // write, then read, the root-owned secret file
 	// Store a root-owned key file and add its LoadCredential line.
 	"tailscale set-key": true, "cloudflare set-token": true, "ip-services set-key": true, "bans set-token": true,
 	"mcp set-name": true} // edits the root-owned config, as sso setup does

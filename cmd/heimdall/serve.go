@@ -58,17 +58,26 @@ func cmdServe(a *app, args []string) error {
 	// Findings: recompute a host right after it reports, and sync every
 	// feed on a schedule. Both run in one goroutine so they never overlap.
 	syncer := newSyncer(cfg, s, log)
-	reported := make(chan store.IngestHost, 256)
-	h.OnStored = func(host store.IngestHost) {
+	reported := make(chan reportedHost, 256)
+	h.OnStored = func(host store.IngestHost, snapshotID int64) {
 		select {
-		case reported <- host:
+		case reported <- reportedHost{host, snapshotID}:
 		default: // queue full; the next scheduled sync catches up
 		}
 	}
 	tripwires := &anomaly.Engine{Store: s, Now: time.Now, Log: log}
 	startTamperChecks(a.ctx, cfg, s, h, tripwires, log) // fast silence alerts; rules for unchanged reports
+	// The report webhook (reporthook.go): unchanged reports right away,
+	// new snapshots once their findings are recomputed (runFindings).
+	reportEvents := startReportHook(a.ctx, cfg, log)
+	if seen := h.OnSeen; reportEvents != nil && seen != nil {
+		h.OnSeen = func(host store.IngestHost, snapshotID int64) {
+			seen(host, snapshotID)
+			reportEvents.Notify(host, snapshotID, false)
+		}
+	}
 	newsSync := newNewsSyncer(cfg, s, log)
-	go runFindings(a.ctx, syncer, newsSync, tripwires, cfg.Hosts.StaleAfter.Duration, reported,
+	go runFindings(a.ctx, syncer, newsSync, tripwires, cfg.Hosts.StaleAfter.Duration, reported, reportEvents,
 		cfg.Feeds.SyncInterval.Duration, cfg.News.Interval.Duration, log)
 	if every := cfg.Notify.Every.Duration; every > 0 {
 		go func() {
@@ -228,6 +237,7 @@ func newUIServer(cfg config.Config, s *store.Store, log *slog.Logger, aiSvc *ai.
 		IPs:          ips,
 		Cloudflare:   cfg.Cloudflare.Enabled,
 		Tailnet:      cfg.Tailscale.Enabled,
+		ChangeLink:   web.ChangeLink{URL: cfg.ChangeLink.URL, Label: cfg.ChangeLink.LinkLabel()},
 	}
 	wcfg.Bans = bansService // set by startBans (bans.go)
 	if pushService != nil { // set by startPush (push.go)
@@ -258,8 +268,14 @@ func newUIServer(cfg config.Config, s *store.Store, log *slog.Logger, aiSvc *ai.
 
 // runFindings runs every feed sync and findings update in one goroutine, so
 // they never overlap. news may be nil (threat news off).
+// reportedHost is a host whose new snapshot was just stored.
+type reportedHost struct {
+	host       store.IngestHost
+	snapshotID int64
+}
+
 func runFindings(ctx context.Context, syncer *findings.Syncer, news *findings.NewsSyncer, tripwires *anomaly.Engine,
-	staleAfter time.Duration, reported <-chan store.IngestHost, every, newsEvery time.Duration, log *slog.Logger) {
+	staleAfter time.Duration, reported <-chan reportedHost, events *reportEvents, every, newsEvery time.Duration, log *slog.Logger) {
 	first := time.NewTimer(10 * time.Second) // let the listener come up first
 	defer first.Stop()
 	tick := time.NewTicker(every)
@@ -316,7 +332,8 @@ func runFindings(ctx context.Context, syncer *findings.Syncer, news *findings.Ne
 			} else if n > 0 {
 				log.Info("expired sessions removed", "count", n)
 			}
-		case host := <-reported:
+		case rep := <-reported:
+			host := rep.host
 			if raised, err := tripwires.OnSnapshot(ctx, host); err != nil {
 				log.Warn("anomaly rules failed", "host", host.Name, "err", err)
 			} else {
@@ -335,6 +352,7 @@ func runFindings(ctx context.Context, syncer *findings.Syncer, news *findings.Ne
 			if err := news.MatchHost(ctx, host.ID); err != nil {
 				log.Warn("news matching failed", "host", host.Name, "err", err)
 			}
+			events.Notify(host, rep.snapshotID, true) // after the findings, so a receiver reads the new ones
 		}
 	}
 }

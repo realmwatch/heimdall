@@ -286,6 +286,7 @@ func (s *server) hostPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 	body.Commands = upgradeCommands(body.PackageMgr, body.Pending)
 	body.OSView = buildFindingsView("/hosts/"+url.PathEscape(host.OrgSlug)+"/"+url.PathEscape(host.Name), packageManager(inv), r.URL.Query(),
 		body.OSFindings, report.PackagesOf(inv), kernelInfo{Running: body.Report.Kernel, Newer: body.Report.NewerKernel})
+	s.cfg.ChangeLink.addChangeLinks(&body.OSView, host.OrgSlug, host.Name) // changelink.go
 	for _, f := range body.OSFindings {
 		if f.NotRunning {
 			body.OSView.OldKernelFindings++
