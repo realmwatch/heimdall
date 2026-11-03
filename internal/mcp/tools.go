@@ -85,7 +85,8 @@ func (s *Server) registerTools() {
 				return nil, err
 			}
 			type item struct {
-				Org, Host string
+				Org  string `json:"org"`
+				Host string `json:"host"`
 				report.Finding
 			}
 			var items []item

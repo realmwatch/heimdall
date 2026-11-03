@@ -191,6 +191,10 @@ func TestFindingAndMachineTools(t *testing.T) {
 		fmt.Sprint(list[0].(map[string]any)["binaries"]) != "[libssl3]" {
 		t.Errorf("findings %v", list)
 	}
+	pp := e.tool("patch_priorities", map[string]any{"org": "acme"})["data"].(map[string]any)["findings"].([]any)
+	if len(pp) == 0 || pp[0].(map[string]any)["host"] != "web-acme" || pp[0].(map[string]any)["org"] != "acme" {
+		t.Errorf("patch_priorities items name host and org in lowercase: %v", pp)
+	}
 	if nf := d["not_found"].([]any); len(nf) != 1 || nf[0] != float64(otherF[0].ID) {
 		t.Errorf("another org's finding should look missing: %v", d["not_found"])
 	}
