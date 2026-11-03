@@ -84,11 +84,7 @@ func (s *Server) registerTools() {
 			if err != nil {
 				return nil, err
 			}
-			type item struct {
-				Org  string `json:"org"`
-				Host string `json:"host"`
-				report.Finding
-			}
+			type item = priorityItem
 			var items []item
 			for _, h := range r.Hosts {
 				for _, f := range h.Findings {
@@ -363,4 +359,11 @@ func sortItems[T any](items []T, f func(T) report.Finding) {
 		b1, b2, b3, b4 := key(f(b))
 		return cmp.Or(cmp.Compare(a1, b1), cmp.Compare(a2, b2), cmp.Compare(a3, b3), cmp.Compare(a4, b4))
 	})
+}
+
+// priorityItem is one patch_priorities finding, with its host.
+type priorityItem struct {
+	Org  string `json:"org"`
+	Host string `json:"host"`
+	report.Finding
 }

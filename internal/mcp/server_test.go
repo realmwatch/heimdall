@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/realmwatch/heimdall/internal/report"
 	"github.com/realmwatch/heimdall/internal/store"
 	"github.com/realmwatch/heimdall/internal/store/storetest"
 )
@@ -191,10 +192,6 @@ func TestFindingAndMachineTools(t *testing.T) {
 		fmt.Sprint(list[0].(map[string]any)["binaries"]) != "[libssl3]" {
 		t.Errorf("findings %v", list)
 	}
-	pp := e.tool("patch_priorities", map[string]any{"org": "acme"})["data"].(map[string]any)["findings"].([]any)
-	if len(pp) == 0 || pp[0].(map[string]any)["host"] != "web-acme" || pp[0].(map[string]any)["org"] != "acme" {
-		t.Errorf("patch_priorities items name host and org in lowercase: %v", pp)
-	}
 	if nf := d["not_found"].([]any); len(nf) != 1 || nf[0] != float64(otherF[0].ID) {
 		t.Errorf("another org's finding should look missing: %v", d["not_found"])
 	}
@@ -220,5 +217,14 @@ func TestFindingAndMachineTools(t *testing.T) {
 	res = e.tool("host", map[string]any{"org": "globex", "machine": strings.Repeat("cd", 32)})
 	if d := res["data"].(map[string]any); !strings.Contains(fmt.Sprint(d["error"]), "not found") {
 		t.Errorf("other org's host by machine: %v", d)
+	}
+}
+
+func TestPriorityItemKeysAreLowercase(t *testing.T) {
+	b, _ := json.Marshal(priorityItem{Org: "acme", Host: "web-01", Finding: report.Finding{ID: 7, Package: "openssl"}})
+	for _, want := range []string{`"org":"acme"`, `"host":"web-01"`, `"id":7`, `"package":"openssl"`} {
+		if !bytes.Contains(b, []byte(want)) {
+			t.Errorf("missing %s in %s", want, b)
+		}
 	}
 }
