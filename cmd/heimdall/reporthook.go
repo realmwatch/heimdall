@@ -23,10 +23,11 @@ import (
 
 // The report webhook's signing secret: systemd credential
 // heimdall-report-webhook, stored by `heimdall report-webhook set`.
-const (
-	reportHookCredential  = "heimdall-report-webhook"
-	defaultReportHookFile = "/etc/heimdall/report-webhook-secret"
-)
+const reportHookCredential = "heimdall-report-webhook"
+
+// defaultReportHookFile is where `report-webhook set` stores the secret. A
+// seam for tests.
+var defaultReportHookFile = "/etc/heimdall/report-webhook-secret"
 
 // reportHookHTTPClient builds the webhook's client: HTTPS to its URL's
 // host only. A seam for tests.
@@ -186,7 +187,7 @@ func cmdReportWebhookTest(a *app, args []string) error {
 	if err != nil {
 		return err
 	}
-	hook, err := reportHook(cfg, keyFallback(false))
+	hook, err := reportHook(cfg, isRoot())
 	if err != nil {
 		return err
 	}
