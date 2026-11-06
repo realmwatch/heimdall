@@ -5,6 +5,7 @@ package config
 import (
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -15,8 +16,12 @@ import (
 type ChangeLink struct {
 	// URL is an https template with {org}, {host}, {package} and
 	// {finding} placeholders (finding ids, comma-separated); "" is off.
-	URL   string `toml:"url"`
-	Label string `toml:"label"` // the link's text; "" is "Fix"
+	URL string `toml:"url"`
+	// UpdatesURL is an https template with {org} and {host} placeholders,
+	// for "Install all updates": the tool drafts every pending update on
+	// the host, so no finding ids are involved. "" is off.
+	UpdatesURL string `toml:"updates_url"`
+	Label      string `toml:"label"` // a package link's text; "" is "Fix"
 }
 
 // DefaultChangeLabel is ChangeLink.Label when it isn't set.
@@ -24,6 +29,9 @@ const DefaultChangeLabel = "Fix"
 
 // ChangePlaceholders are the placeholders a ChangeLink URL may use.
 var ChangePlaceholders = []string{"{org}", "{host}", "{package}", "{finding}"}
+
+// UpdatesPlaceholders are the placeholders a ChangeLink UpdatesURL may use.
+var UpdatesPlaceholders = []string{"{org}", "{host}"}
 
 // LinkLabel is Label, or DefaultChangeLabel.
 func (c ChangeLink) LinkLabel() string {
@@ -39,22 +47,23 @@ func (c ChangeLink) validate(add func(string, ...any)) {
 	if n := utf8.RuneCountInString(c.Label); n > 24 || strings.ContainsFunc(c.Label, func(r rune) bool { return r < ' ' || r == 0x7f }) {
 		add("change_link.label: at most 24 printable characters")
 	}
-	if c.URL == "" {
+	validateLinkTemplate("change_link.url", c.URL, ChangePlaceholders, add)
+	validateLinkTemplate("change_link.updates_url", c.UpdatesURL, UpdatesPlaceholders, add)
+}
+
+func validateLinkTemplate(key, tmpl string, placeholders []string, add func(string, ...any)) {
+	if tmpl == "" {
 		return
 	}
-	for _, p := range bracesRe.FindAllString(c.URL, -1) {
-		known := false
-		for _, k := range ChangePlaceholders {
-			known = known || p == k
-		}
-		if !known {
-			add("change_link.url: unknown placeholder %s (use %s)", p, strings.Join(ChangePlaceholders, ", "))
+	for _, p := range bracesRe.FindAllString(tmpl, -1) {
+		if !slices.Contains(placeholders, p) {
+			add("%s: unknown placeholder %s (use %s)", key, p, strings.Join(placeholders, ", "))
 			return
 		}
 	}
-	filled := bracesRe.ReplaceAllString(c.URL, "x")
+	filled := bracesRe.ReplaceAllString(tmpl, "x")
 	if u, err := url.Parse(filled); err != nil || !httpsOrLoopback(u) || u.User != nil || u.Fragment != "" {
-		add("change_link.url: must be an https URL (plain http only for loopback), with no credentials or #fragment")
+		add("%s: must be an https URL (plain http only for loopback), with no credentials or #fragment", key)
 	}
 }
 

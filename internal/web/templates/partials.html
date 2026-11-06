@@ -38,6 +38,10 @@
 </details>{{end}}
 {{end}}
 
+{{/* installbtns: the links that draft a host's updates in the
+     change-management tool (a findingsView). */}}
+{{define "installbtns"}}{{if or .ChangeURL .UpdatesURL}}<p class="change-link">{{with .ChangeURL}}<a class="button change-btn" href="{{.}}" target="_blank" rel="noopener noreferrer">Install security updates · {{$.ChangeCount}} finding{{if ne $.ChangeCount 1}}s{{end}}</a> {{end}}{{with .UpdatesURL}}<a class="button change-btn" href="{{.}}" target="_blank" rel="noopener noreferrer">Install all updates · {{$.UpdatesCount}} package{{if ne $.UpdatesCount 1}}s{{end}}</a> {{end}}<span class="muted small">Opens your change-management tool to draft the change. Heimdall sends it nothing.</span></p>{{end}}{{end}}
+
 {{/* osfindings: a host's OS findings by package (default) or one by one,
      filtered and a page at a time (a findingsView). */}}
 {{define "osfindings"}}{{$calm := and .Focus (not .Total)}}
@@ -67,7 +71,7 @@
 </div>{{end}}
 {{if and .RebootCmd (not .RebootFirst)}}{{template "rebootcmd" .}}{{end}}
 {{if .NotInCache}}<p class="muted small not-in-cache"><strong>{{.NotInCache}} finding{{if ne .NotInCache 1}}s{{end}} fixed upstream, not yet in this host's package cache.</strong> A fix is published, but no pending update installs it, so {{if eq .NotInCache 1}}it isn't{{else}}they aren't{{end}} in the command{{if not .FixCmd}} (there's nothing to upgrade yet){{end}}. The collector reads the package manager's existing cache without refreshing it: either the host's package sources don't offer the fix yet, or the cache is old. Run {{if eq .PM "rpm"}}<code>sudo dnf makecache</code>{{else if eq .PM "apk"}}<code>sudo apk update</code>{{else}}<code>sudo apt-get update</code>{{end}} on the host first; its next report shows which.</p>{{end}}
-{{with .ChangeURL}}<p class="change-link"><a class="button change-btn" href="{{.}}" target="_blank" rel="noopener noreferrer">{{$.ChangeLabel}} {{$.ChangeCount}} finding{{if ne $.ChangeCount 1}}s{{end}}</a> <span class="muted small">Opens your change-management tool to draft the fix. Heimdall sends it nothing.</span></p>{{end}}
+{{template "installbtns" .}}
 {{with .OldKernelCmd}}<div class="cmd fix-cmd">
   <div class="cmd-label">Remove old kernels that aren't running <span class="muted small">· clears {{$.OldKernelFindings}} finding{{if ne $.OldKernelFindings 1}}s{{end}} marked "not running"</span></div>
   <div class="codebox"><pre id="{{.ID}}">{{.Text}}</pre><button type="button" class="copy" data-copy="{{.ID}}" hidden>Copy</button></div>

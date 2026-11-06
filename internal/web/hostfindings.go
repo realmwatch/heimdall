@@ -89,6 +89,10 @@ type findingsView struct {
 	// in the change-management tool ([change_link]); "" when it's off.
 	ChangeURL, ChangeLabel string
 	ChangeCount            int
+	// UpdatesURL drafts all the host's pending updates (UpdatesCount) in
+	// the tool ([change_link] updates_url); "" when it's off or none.
+	UpdatesURL   string
+	UpdatesCount int
 	shown                  []report.Finding // every finding after filters, all pages
 }
 
