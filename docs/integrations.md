@@ -15,26 +15,29 @@ None of these lets anyone change anything through Heimdall. The hub still never 
 [change_link]
 url   = "https://changes.example.com/new?org={org}&host={host}&package={package}&findings={finding}"
 label = "Fix"
+updates_url = "https://changes.example.com/updates?org={org}&host={host}"
 ```
 
-With `url` set, a host page gets **Fix** links next to its findings:
+With `url` set, a host page gets links next to its findings:
 
-- **Fix N findings**, under the patch command: every finding shown with a fix released, after the severity and fixable filters.
+- **Install security updates**, under the patch command and in Pending updates: every finding shown with a fix released, after the severity and fixable filters.
 - **Fix \<package\>**, in each package's row: that package's fixable findings.
+
+With `updates_url` set, a host with pending updates also gets **Install all updates**, in the same two places. It names the host and no findings: the tool asks the server what's pending and drafts that. Each link is independent, so either can be on alone. `updates_url` takes only `{org}` and `{host}`. On a hub set up earlier, add the line under `[change_link]` yourself; `heimdall config update` only adds whole sections.
 
 | Placeholder | Becomes |
 | --- | --- |
 | `{org}` | The org's slug |
 | `{host}` | The host's name |
-| `{package}` | The package, on a package's link; empty on the "Fix N findings" link |
+| `{package}` | The package, on a package's link; empty on the "Install security updates" link |
 | `{finding}` | Finding ids, comma-separated, most important first (at most 200) |
 
 Each value is URL-escaped. The link opens in a new tab, with no referrer.
 
 - **The link carries pointers, not data.** Heimdall sends the tool nothing. The tool should look the findings up itself (see [Reading findings](#reading-findings)), and should treat the link's parameters as untrusted, as it would any URL someone could send its users.
 - **OS packages only, for now.** Site (Composer and npm) findings don't get Fix links yet.
-- `url` must be `https`, or plain `http` for loopback. Unknown placeholders are refused when the config loads.
-- `label` is the link's text: at most 24 characters, "Fix" by default.
+- `url` and `updates_url` must be `https`, or plain `http` for loopback. Unknown placeholders are refused when the config loads.
+- `label` is a package link's text: at most 24 characters, "Fix" by default.
 
 ## Report webhook
 

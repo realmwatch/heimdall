@@ -7,6 +7,24 @@ import (
 	"testing"
 )
 
+func TestChangeLinkUpdatesURL(t *testing.T) {
+	for _, tc := range []struct{ url, want string }{
+		{"https://changes.example.com/updates?org={org}&host={host}", ""},
+		{"https://changes.example.com/updates?f={finding}", "change_link.updates_url: unknown placeholder {finding}"},
+		{"http://changes.example.com/updates", "change_link.updates_url: must be an https URL"},
+	} {
+		c := Default()
+		c.ChangeLink.UpdatesURL = tc.url
+		err := c.Validate()
+		if tc.want == "" && err != nil {
+			t.Errorf("%s: %v", tc.url, err)
+		}
+		if tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
+			t.Errorf("%s: got %v, want %s", tc.url, err, tc.want)
+		}
+	}
+}
+
 func TestChangeLinkAndReportWebhook(t *testing.T) {
 	for _, tc := range []struct {
 		link, label, hook string

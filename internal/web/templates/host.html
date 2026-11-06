@@ -167,6 +167,7 @@
 <section>
   <h2>Pending updates</h2>
   {{if .Pending}}
+  {{template "installbtns" .OSView}}
   {{range .Commands}}
   <div class="cmd">
     <div class="cmd-label">{{.Label}}</div>

@@ -11,12 +11,13 @@ import (
 	"github.com/realmwatch/heimdall/internal/store"
 )
 
-// ChangeLink is [change_link]: a "Fix" link from a host's findings to a
-// change-management tool, which drafts the fix there. The hub only builds
-// the URL; it never calls the tool. Zero is off.
+// ChangeLink is [change_link]: links from a host's page to a
+// change-management tool, which drafts the change there. The hub only
+// builds the URLs; it never calls the tool. Zero is off.
 type ChangeLink struct {
-	URL   string // template with {org}, {host}, {package} and {finding}
-	Label string // e.g. "Fix"
+	URL        string // template with {org}, {host}, {package} and {finding}
+	UpdatesURL string // template with {org} and {host}: every pending update
+	Label      string // a package link's text, e.g. "Fix"
 }
 
 // link fills the template, escaping each value. ids are the findings to
@@ -50,9 +51,20 @@ func fixableIDs(list []report.Finding) []int64 {
 	return ids
 }
 
+// updatesLink fills the "Install all updates" template, or is "" with
+// nothing pending.
+func (c ChangeLink) updatesLink(org, host string, pending int) string {
+	if c.UpdatesURL == "" || pending == 0 {
+		return ""
+	}
+	return strings.NewReplacer("{org}", url.QueryEscape(org), "{host}", url.QueryEscape(host)).Replace(c.UpdatesURL)
+}
+
 // addChangeLinks puts the change-management links on an OS findings view:
-// one for every fixable finding shown, and one per package.
-func (c ChangeLink) addChangeLinks(fv *findingsView, org, host string) {
+// one for every fixable finding shown, one per package, and one for all of
+// the host's pending updates.
+func (c ChangeLink) addChangeLinks(fv *findingsView, org, host string, pending int) {
+	fv.UpdatesURL, fv.UpdatesCount = c.updatesLink(org, host, pending), pending
 	if c.URL == "" {
 		return
 	}

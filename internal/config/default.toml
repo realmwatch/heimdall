@@ -152,6 +152,9 @@ sync_every = "15m"
 # id field in MCP). Off while url is empty. See docs/integrations.md.
 url   = ""
 label = "Fix"
+# "Install all updates" on a host's page: a link with {org} and {host} that
+# drafts every pending update on the host. Off while empty.
+updates_url = ""
 
 [report_webhook]
 # POST a signed report.received event (org, host, snapshot, time; no
