@@ -93,7 +93,7 @@ type findingsView struct {
 	// the tool ([change_link] updates_url); "" when it's off or none.
 	UpdatesURL   string
 	UpdatesCount int
-	shown                  []report.Finding // every finding after filters, all pages
+	shown        []report.Finding // every finding after filters, all pages
 }
 
 // oldKernelCommand removes the installed kernel packages older than the
