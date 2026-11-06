@@ -67,3 +67,31 @@ func TestReportWebhookSetAndTest(t *testing.T) {
 		t.Errorf("test event: %v %s", got, body)
 	}
 }
+
+// `sudo heimdall report-webhook test` isn't the service: it has no systemd
+// credential, so as root it reads the file `set` stored.
+func TestReportWebhookTestReadsStoredSecretAsRoot(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+	oldClient, oldFile, oldRoot := reportHookHTTPClient, defaultReportHookFile, isRoot
+	defer func() { reportHookHTTPClient, defaultReportHookFile, isRoot = oldClient, oldFile, oldRoot }()
+	reportHookHTTPClient = func(string) *http.Client { return srv.Client() }
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "heimdall.toml")
+	defaultReportHookFile = filepath.Join(dir, "secret")
+	os.WriteFile(defaultReportHookFile, []byte(strings.Repeat("a", 64)+"\n"), 0o600)
+	os.WriteFile(cfgPath, []byte("database = \"h.db\"\n\n[notify]\nevery = \"0\"\n\n[report_webhook]\nurl = \""+srv.URL+"/hooks\"\n"), 0o600)
+	t.Setenv("HEIMDALL_REPORT_WEBHOOK_FILE", "")
+	t.Setenv("CREDENTIALS_DIRECTORY", "")
+
+	var out, errb bytes.Buffer
+	isRoot = func() bool { return true }
+	if err := run(t.Context(), []string{"-c", cfgPath, "report-webhook", "test"}, &out, &errb); err != nil {
+		t.Fatalf("as root: %v %s", err, errb.String())
+	}
+	isRoot = func() bool { return false }
+	if err := run(t.Context(), []string{"-c", cfgPath, "report-webhook", "test"}, &out, &errb); err == nil || !strings.Contains(err.Error(), "missing secret") {
+		t.Fatalf("not root: %v", err)
+	}
+}

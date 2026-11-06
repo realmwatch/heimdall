@@ -91,12 +91,17 @@ expect 'config' sudo heimdall config update
 step "Key commands under sudo (stored as root, LoadCredential added)"
 printf 'smoke-cloudflare-token-0123456789\n' | sudo heimdall cloudflare set-token --stdin
 printf 'tskey-api-smoke0123456789\n' | sudo heimdall tailscale set-key --stdin
+sudo heimdall report-webhook set https://127.0.0.1:9/hooks >/dev/null
+# Nothing listens there, so the send fails; it must get that far, past the secret.
+if out=$(sudo heimdall report-webhook test 2>&1); then fail "report-webhook test reached nothing, yet passed"; fi
+case $out in *'missing secret'*) fail "report-webhook test can't read the stored secret: $out" ;; esac
 for f in /etc/heimdall/cloudflare-token /etc/heimdall/tailscale-key; do
 	[ "$(sudo stat -c '%U %a' "$f")" = "root 600" ] || fail "$f is $(sudo stat -c '%U %a' "$f"), want root 600"
 done
 grep -q '^LoadCredential=heimdall-cloudflare:/etc/heimdall/cloudflare-token$' /etc/systemd/system/heimdall.service || fail "no cloudflare LoadCredential"
 grep -q '^LoadCredential=heimdall-tailscale:/etc/heimdall/tailscale-key$' /etc/systemd/system/heimdall.service || fail "no tailscale LoadCredential"
 expect 'running' sudo heimdall restart
+! sudo journalctl -u heimdall --no-pager | grep -q 'report webhook off' || fail "the service can't read the report webhook's secret"
 
 step "status reads the root-owned key, then uses the hub's database"
 # Turned on in the file only (no restart), so the running hub never calls
