@@ -37,6 +37,7 @@ Each value is URL-escaped. The link opens in a new tab, with no referrer.
 - **The link carries pointers, not data.** Heimdall sends the tool nothing. The tool should look the findings up itself (see [Reading findings](#reading-findings)), and should treat the link's parameters as untrusted, as it would any URL someone could send its users.
 - **OS packages only, for now.** Site (Composer and npm) findings don't get Fix links yet.
 - `url` and `updates_url` must be `https`, or plain `http` for loopback. Unknown placeholders are refused when the config loads.
+- `agent_service`, if set, is the systemd service your tool runs on servers (ending in `-agent`, without `.service`). The host list then gets a column showing where it's installed. It reads the `X-Heimdall-Agents` header from collector 0.5.5 or later, and shows `?` for older collectors and hosts without systemd.
 - `label` is a package link's text: at most 24 characters, "Fix" by default.
 
 ## Report webhook

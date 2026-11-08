@@ -628,3 +628,7 @@ make test-collector     # run on every supported distro, then validate (incl. a 
 ```
 
 To add a distro, add a line to `collector/test/run-containers.sh`.
+
+## Installed agents
+
+On systemd hosts, each push lists the installed services named `*-agent`, in an `X-Heimdall-Agents` header: `v1 a-agent,b-agent`, or `v1 -` for none. It sends names only, and no header if systemctl can't answer. The hub uses it for the host list's agent column (`[change_link] agent_service`).

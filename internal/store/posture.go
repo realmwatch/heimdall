@@ -323,10 +323,20 @@ type HostState struct {
 	PendingUpdates   int
 	PendingSecurity  int
 	Triggers         string // the collector's raw trigger state ("" if it doesn't report one)
-	News             int    // threat-news incidents confirmed on the host
-	PackageManager   string
+	// Agents is the *-agent services reported: comma-separated, "-" for
+	// none, "" if its collector doesn't report them.
+	Agents         string
+	News           int // threat-news incidents confirmed on the host
+	PackageManager string
 	// The privilege watch's last reported state and detail ("" if never).
 	PrivilegeState, PrivilegeDetail string
+}
+
+// SetHostAgents stores the *-agent services a host's collector reported
+// (comma-separated, "-" for none).
+func (s *Store) SetHostAgents(ctx context.Context, hostID int64, agents string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE hosts SET agents = ? WHERE id = ?`, agents, hostID)
+	return err
 }
 
 // HostStates returns the latest-report state of every host that has
@@ -334,7 +344,7 @@ type HostState struct {
 func (s *Store) HostStates(ctx context.Context) (map[int64]HostState, error) {
 	rows, err := s.rd.QueryContext(ctx, `
 		SELECT h.id, coalesce(h.last_seen_at, s.received_at), s.collector_version, s.reboot_required,
-		       coalesce(h.triggers, ''),
+		       coalesce(h.triggers, ''), coalesce(h.agents, ''),
 		       (SELECT count(*) FROM packages p WHERE p.snapshot_id = s.id AND p.pending_version IS NOT NULL),
 		       (SELECT count(*) FROM packages p WHERE p.snapshot_id = s.id AND p.pending_security = 1),
 		       (SELECT count(*) FROM news_matches m WHERE m.host_id = h.id AND m.kind = 'confirmed'),
@@ -351,7 +361,7 @@ func (s *Store) HostStates(ctx context.Context) (map[int64]HostState, error) {
 		var st HostState
 		var received string
 		var reboot sql.NullInt64
-		if err := rows.Scan(&id, &received, &st.CollectorVersion, &reboot, &st.Triggers,
+		if err := rows.Scan(&id, &received, &st.CollectorVersion, &reboot, &st.Triggers, &st.Agents,
 			&st.PendingUpdates, &st.PendingSecurity, &st.News, &st.PackageManager, &st.PrivilegeState, &st.PrivilegeDetail); err != nil {
 			return nil, err
 		}

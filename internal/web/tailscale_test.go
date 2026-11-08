@@ -76,3 +76,46 @@ func TestHostPageTailnet(t *testing.T) {
 		t.Error("not matched by report address")
 	}
 }
+
+func TestHostListFlagColumns(t *testing.T) {
+	t.Parallel()
+	off := newEnv(t, "http://127.0.0.1:8080", nil)
+	off.seed()
+	if body := off.get("/hosts", signedIn(off)).Body.String(); strings.Contains(body, "h-flag") {
+		t.Error("icon columns shown with neither feature configured")
+	}
+
+	e := newEnvCfg(t, "http://127.0.0.1:8080", nil, func(c *Config) {
+		c.Tailnet = true
+		c.ChangeLink.AgentService = "my-agent"
+	})
+	e.seed()
+	ctx := t.Context()
+	page := func() string { t.Helper(); return e.get("/hosts", signedIn(e)).Body.String() }
+	if body := page(); !strings.Contains(body, `title="my-agent installed"`) || !strings.Contains(body, "needs collector 0.5.5") {
+		t.Error("agent column missing, or an unreported state not shown as unknown")
+	}
+	host, err := e.st.HostByName(ctx, "acme", "web-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.SetHostAgents(ctx, host.ID, "other-agent,my-agent"); err != nil {
+		t.Fatal(err)
+	}
+	devs := []store.TailnetDevice{{ID: "n1", Name: "web-01.tail1234.ts.net", Hostname: "web-01", Addresses: []string{"100.64.0.5"}}}
+	if err := e.st.ReplaceTailnetDevices(ctx, devs, "oauth", time.Time{}, testNow); err != nil {
+		t.Fatal(err)
+	}
+	body := page()
+	for _, want := range []string{`title="my-agent is installed"`, `title="On the tailnet"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("host list missing %s", want)
+		}
+	}
+	if err := e.st.SetHostAgents(ctx, host.ID, "-"); err != nil {
+		t.Fatal(err)
+	}
+	if body := page(); !strings.Contains(body, `title="my-agent isn&#39;t installed"`) && !strings.Contains(body, `title="my-agent isn't installed"`) {
+		t.Error("a host without the agent isn't shown as missing it")
+	}
+}

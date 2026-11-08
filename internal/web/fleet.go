@@ -47,8 +47,26 @@ type fleetHost struct {
 	HasPrivilege bool
 
 	OffTailnet bool // reported, and no tailnet device matches it (tailscale.go)
+	// Tailnet and Agent are the host list's icon columns.
+	Tailnet, Agent hostFlag
 
 	SSH sshView
+}
+
+// hostFlag is one icon cell in the host list: State is "on", "off" or ""
+// when it isn't known.
+type hostFlag struct{ State, Title string }
+
+// agentFlag says whether a host reports the agent service; raw is
+// store.HostState.Agents.
+func agentFlag(raw, service string) hostFlag {
+	switch {
+	case raw == "":
+		return hostFlag{Title: "Not known: needs collector 0.5.5 or later, on systemd"}
+	case slices.Contains(strings.Split(raw, ","), service):
+		return hostFlag{State: "on", Title: service + " is installed"}
+	}
+	return hostFlag{State: "off", Title: service + " isn't installed"}
 }
 
 // lifeItem is one lifecycle on a host: its OS, a runtime, or a site's PHP
@@ -175,6 +193,9 @@ func (s *server) fleet(r *http.Request, v *auth.Viewer, org string) ([]fleetHost
 			}
 			if t, err := triggers.Parse(st.Triggers); err == nil {
 				row.ChangeWatch = t.ChangeWatch()
+			}
+			if svc := s.cfg.ChangeLink.AgentService; svc != "" {
+				row.Agent = agentFlag(st.Agents, svc)
 			}
 			row.Privilege, row.HasPrivilege = coverageOf(st.PackageManager, st.PrivilegeState, st.PrivilegeDetail)
 			ssh, ok := sshs[h.ID]
@@ -566,6 +587,21 @@ type hostsBody struct {
 	ClearTag string // the list without the tag filter
 	Shown    int    // hosts in env/tag, before the "only" filter
 	Total    int    // every visible host
+	// The icon columns, each shown only when its feature is configured.
+	ShowTailnet  bool
+	AgentService string
+}
+
+// RowSpan is the columns a host without a report spans, after the host's.
+func (b hostsBody) RowSpan() int {
+	n := 12
+	if b.ShowTailnet {
+		n++
+	}
+	if b.AgentService != "" {
+		n++
+	}
+	return n
 }
 
 type chip struct {
@@ -637,7 +673,7 @@ func (s *server) hostsPage(w http.ResponseWriter, r *http.Request, v *auth.Viewe
 		}
 	}
 	body := hostsBody{Org: org, Orgs: orgs, ShowOrgs: len(orgs) > 1, Env: q.env, Tag: q.tag, Only: q.only,
-		Sort: q.sort, Total: len(fleet)}
+		Sort: q.sort, Total: len(fleet), ShowTailnet: s.cfg.Tailnet, AgentService: s.cfg.ChangeLink.AgentService}
 
 	// Environments: counted before the other filters, like before.
 	envCount := map[string]int{}

@@ -18,6 +18,8 @@ type ChangeLink struct {
 	URL        string // template with {org}, {host}, {package} and {finding}
 	UpdatesURL string // template with {org} and {host}: every pending update
 	Label      string // a package link's text, e.g. "Fix"
+	// AgentService is the *-agent service the host list looks for; "" = no column.
+	AgentService string
 }
 
 // link fills the template, escaping each value. ids are the findings to
