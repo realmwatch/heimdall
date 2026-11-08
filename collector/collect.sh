@@ -28,7 +28,7 @@ export LC_ALL=C
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
-VERSION=0.5.4
+VERSION=0.5.5
 FORMAT=heimdall.snapshot/v4
 
 die() { printf 'heimdall-collect: %s\n' "$*" >&2; exit 1; }
@@ -1335,6 +1335,19 @@ triggers_state() {
 	printf 'cron=%s; hook=%s' "$cron" "$hook"
 }
 
+# agents_state: the systemd services named *-agent installed here, so the hub
+# can show which hosts run a tool's agent (sent as X-Heimdall-Agents, never
+# in the snapshot). "v1 a-agent,b-agent", "v1 -" for none, and nothing when
+# this host has no systemd or systemctl couldn't answer.
+agents_state() {
+	[ -d /run/systemd/system ] && have systemctl || return 0
+	units=$(systemctl list-unit-files --type=service --no-legend --no-pager '*-agent.service' 2>&1) || true
+	case $units in *'Failed to'*) return 0 ;; esac
+	names=$(printf '%s\n' "$units" | awk '$1 ~ /^[a-z0-9][a-z0-9_.-]*-agent\.service$/ { sub(/\.service$/, "", $1); print $1 }' | sort -u | head -n 16 | tr '\n' ',')
+	names=${names%,}
+	printf 'v1 %s' "${names:--}"
+}
+
 # load_env: run by hand (`sudo -u heimdall heimdall-collect --push`), load
 # the installed collect.env the way the systemd unit's EnvironmentFile
 # does, so it needs no settings of its own. Only a file owned by root (or
@@ -1418,6 +1431,10 @@ EOF
 	triggers_header=
 	tr_state=$(triggers_state | tr -cd 'a-z,=; -' | cut -c1-240)
 	[ -z "$tr_state" ] || triggers_header="header = \"X-Heimdall-Triggers: $tr_state\""
+	# The *-agent services installed here.
+	agents_header=
+	ag_state=$(agents_state | tr -cd 'a-z0-9._,v -' | cut -c1-1000)
+	[ -z "$ag_state" ] || agents_header="header = \"X-Heimdall-Agents: $ag_state\""
 	# Each site's git remote, credentials stripped (site_repos). The value
 	# is only paths and URLs, never quotes or backslashes.
 	repos_header="header = \"X-Heimdall-Site-Repos: $(site_repos <"$tmp/snapshot.json" | tr -cd 'A-Za-z0-9._~:/@+, -' | cut -c1-4096)\""
@@ -1436,7 +1453,7 @@ EOF
 	status=$(printf '%s\n' \
 		"header = \"Authorization: Bearer $token\"" \
 		'header = "Content-Type: application/json"' \
-		"$encoding" "$cacert" "$hostname_header" "$machine_header" "$triggers_header" "$repos_header" "$branches_header" "$php_header" "$ssh_header" "$(privilege_config)" "$(logins_config)" |
+		"$encoding" "$cacert" "$hostname_header" "$machine_header" "$triggers_header" "$agents_header" "$repos_header" "$branches_header" "$php_header" "$ssh_header" "$(privilege_config)" "$(logins_config)" |
 		"$curl" --config - --silent --show-error \
 			--proto '=https,http' --tlsv1.2 \
 			--connect-timeout 10 --max-time 120 \

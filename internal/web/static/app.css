@@ -864,6 +864,12 @@ table.host-list .h-os { min-width: 140px; }
 table.host-list .h-os .pill { margin-top: 2px; }
 table.host-list .h-upd, table.host-list .h-coll { white-space: nowrap; }
 table.host-list .ver { font-size: 12px; }
+table.host-list .icon { width: 14px; height: 14px; vertical-align: -2px; }
+table.host-list .h-flag { text-align: center; width: 30px; padding-left: 4px; padding-right: 4px; }
+.h-flag .flag-on { color: var(--ok-fg); }
+.h-flag .flag-off, .h-flag .flag-unknown { color: var(--muted); }
+.pill-icon { padding: 2px 5px; }
+.pill-icon .pill-text { display: none; }
 /* Phones: each host is a compact card; zero counts drop out. */
 @media (max-width: 760px) {
   table.cards-sm thead { display: none; }
@@ -873,6 +879,8 @@ table.host-list .ver { font-size: 12px; }
   table.cards-sm td { display: block; padding: 0; border: 0; text-align: left; }
   table.cards-sm tbody tr:hover td { background: none; }
   table.cards-sm .full { flex-basis: 100%; max-width: none; min-width: 0; }
+  table.host-list .h-flag { width: auto; padding: 0; order: 1; }
+  table.cards-sm .pill-icon .pill-text { display: inline; }
   table.cards-sm td.zero { display: none; }
   table.cards-sm td[data-label]::before { content: attr(data-label) " "; color: var(--muted); font-size: 12px; font-weight: 400; }
   .list-bar { gap: 8px; }

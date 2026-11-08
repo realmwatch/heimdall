@@ -31,7 +31,10 @@
 {{if .Hosts}}
 <div class="scroll"><table class="host-list cards-sm">
   <thead><tr>
-    <th>Host</th><th>OS</th>
+    <th>Host</th>
+    {{if .ShowTailnet}}<th class="h-flag" title="On the tailnet" aria-label="Tailnet">{{template "icon" "tailnet"}}</th>{{end}}
+    {{with .AgentService}}<th class="h-flag" title="{{.}} installed" aria-label="Agent">{{template "icon" "agent"}}</th>{{end}}
+    <th>OS</th>
     <th class="num" title="CISA Known Exploited Vulnerabilities">KEV</th>
     <th class="num" title="Threat-news incidents that match open findings">News</th>
     <th class="num" title="Fixable findings rated critical or high">Crit/high fix</th>
@@ -49,6 +52,8 @@
       <div class="h-meta"><span class="env-chip" title="Environment">{{.EnvSlug}}</span>{{range .ShownTags}}<a class="tag" href="/hosts?tag={{.}}{{with $.Body.Org}}&amp;org={{.}}{{end}}">{{.}}</a>{{end}}{{with .MoreTags}}<span class="tag" title="{{join $tags ", "}}">+{{.}}</span>{{end}}</div>
     </td>
     {{if .Reported}}
+    {{if $.Body.ShowTailnet}}<td class="h-flag{{if not .Tailnet.State}} zero{{end}}" data-label="Tailnet">{{template "hostflag" .Tailnet}}</td>{{end}}
+    {{if $.Body.AgentService}}<td class="h-flag{{if not .Agent.State}} zero{{end}}" data-label="Agent">{{template "hostflag" .Agent}}</td>{{end}}
     <td class="h-os full"><span class="h-os-name">{{.R.OS}}</span>{{$s := lifeState .R.OSLife}}{{if or (eq $s "eol") (eq $s "soon")}} {{template "lifepill" .R.OSLife}}{{end}}{{range .NonOSEOL}} <span class="pill {{if eq .State "eol"}}bad{{else}}warn{{end}}" title="{{if .Life.EOLDate}}end of life {{fullDate .Life.EOLDate}}{{end}}">{{.Label}} {{if eq .State "eol"}}EoL{{else}}EoL in {{.Life.DaysLeft}}d{{end}}</span>{{end}}{{template "sshpill" .SSH}}</td>
     <td class="num{{if not $c.KEV}} zero{{end}}" data-label="KEV">{{if $c.KEV}}<span class="badge kev">{{num $c.KEV}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
     <td class="num{{if not .News}} zero{{end}}" data-label="News">{{if .News}}<a class="badge news" href="/news?affects=me">{{.News}}</a>{{else}}<span class="muted">0</span>{{end}}</td>
@@ -57,13 +62,13 @@
     <td class="num{{if not $c.Watch}} zero{{end}}" data-label="To watch">{{if $c.Watch}}<span class="sub-warn">{{num $c.Watch}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
     <td class="num muted{{if not $c.NoFix}} zero{{end}}" data-label="No fix yet">{{num $c.NoFix}}</td>
     <td class="num muted{{if not $c.NotRunning}} zero{{end}}" data-label="Not running">{{num $c.NotRunning}}</td>
-    <td class="h-upd{{if not (or .Pending .Reboot)}} zero{{end}}" data-label="Updates">{{if .Pending}}{{.Pending}}{{else}}<span class="muted">0</span>{{end}}{{if .PendingSecurity}} <span class="pill bad">{{.PendingSecurity}} security</span>{{end}}{{if $c.RebootPending}} <span class="pill warn" title="{{$c.RebootPending}} finding{{if ne $c.RebootPending 1}}s{{end}} on the running kernel clear after a reboot: a newer kernel is already installed">reboot pending</span>{{else if .Reboot}} <span class="pill warn">reboot</span>{{end}}</td>
+    <td class="h-upd{{if not (or .Pending .Reboot)}} zero{{end}}" data-label="Updates">{{if .Pending}}{{.Pending}}{{else}}<span class="muted">0</span>{{end}}{{if .PendingSecurity}} <span class="pill bad">{{.PendingSecurity}} security</span>{{end}}{{if $c.RebootPending}} <span class="pill warn pill-icon" title="Reboot pending: {{$c.RebootPending}} finding{{if ne $c.RebootPending 1}}s{{end}} on the running kernel clear after a reboot, a newer kernel is already installed" role="img" aria-label="reboot pending">{{template "icon" "reboot"}}<span class="pill-text">reboot pending</span></span>{{else if .Reboot}} <span class="pill warn pill-icon" title="Reboot required" role="img" aria-label="reboot required">{{template "icon" "reboot"}}<span class="pill-text">reboot</span></span>{{end}}</td>
     <td class="nowrap h-seen" data-label="Last report" title="{{time .R.LastSeen}}"><span{{if .Stale}} class="stale"{{end}}>{{ago .R.LastSeen}}</span>{{if .Stale}} <span class="pill warn">stale</span>{{end}}</td>
     <td class="h-coll" data-label="Collector"><span class="ver">{{.Collector}}</span>{{if .CollectorBehind}} <span class="pill muted" title="On the server: sudo heimdall-collect upgrade">behind</span>{{end}}{{if eq .ChangeWatch "off"}} <span class="pill warn" title="Changes are only reported on the schedule">watch off</span>{{end}}{{if and .HasPrivilege (not .Privilege.Full)}} <span class="pill muted" title="{{.Privilege.Why}} On the server: {{.Privilege.Fix}}">{{.Privilege.Label}}</span>{{end}}</td>
     <td class="num{{if not .Anomalies}} zero{{end}}" data-label="Anomalies">{{if .Anomalies}}<a class="pill {{if eq .AnomalyWorst "high"}}bad{{else}}warn{{end}}" href="/anomalies">{{.Anomalies}}</a>{{else}}<span class="muted">0</span>{{end}}</td>
     {{else}}
-    {{if .Awaiting}}<td colspan="12" class="muted h-wait full"><span class="pill warn">waiting for approval</span> enrolled {{ago .CreatedAt}} · <a href="/hosts/enroll#waiting">approve or reject</a></td>
-    {{else}}<td colspan="12" class="muted h-wait full">waiting for first report{{if not .LastSeenAt.IsZero}} · checked in {{ago .LastSeenAt}}{{end}}</td>{{end}}
+    {{if .Awaiting}}<td colspan="{{$.Body.RowSpan}}" class="muted h-wait full"><span class="pill warn">waiting for approval</span> enrolled {{ago .CreatedAt}} · <a href="/hosts/enroll#waiting">approve or reject</a></td>
+    {{else}}<td colspan="{{$.Body.RowSpan}}" class="muted h-wait full">waiting for first report{{if not .LastSeenAt.IsZero}} · checked in {{ago .LastSeenAt}}{{end}}</td>{{end}}
     {{end}}
   </tr>
   {{end}}

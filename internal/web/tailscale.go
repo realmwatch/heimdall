@@ -88,6 +88,10 @@ func (s *server) markOffTailnet(ctx context.Context, hosts []fleetHost) error {
 	for i := range hosts {
 		_, on := matched[hosts[i].ID]
 		hosts[i].OffTailnet = hosts[i].Reported && !on
+		hosts[i].Tailnet = hostFlag{State: "off", Title: "No tailnet device matches this host"}
+		if on {
+			hosts[i].Tailnet = hostFlag{State: "on", Title: "On the tailnet"}
+		}
 	}
 	return nil
 }

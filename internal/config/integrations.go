@@ -22,7 +22,13 @@ type ChangeLink struct {
 	// the host, so no finding ids are involved. "" is off.
 	UpdatesURL string `toml:"updates_url"`
 	Label      string `toml:"label"` // a package link's text; "" is "Fix"
+	// AgentService is the systemd service (named *-agent) the tool runs on
+	// servers. Set, the host list gets a column showing where it's
+	// installed. "" is off.
+	AgentService string `toml:"agent_service"`
 }
+
+var agentServiceRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,121}-agent$`)
 
 // DefaultChangeLabel is ChangeLink.Label when it isn't set.
 const DefaultChangeLabel = "Fix"
@@ -46,6 +52,9 @@ var bracesRe = regexp.MustCompile(`\{[^}]*\}`)
 func (c ChangeLink) validate(add func(string, ...any)) {
 	if n := utf8.RuneCountInString(c.Label); n > 24 || strings.ContainsFunc(c.Label, func(r rune) bool { return r < ' ' || r == 0x7f }) {
 		add("change_link.label: at most 24 printable characters")
+	}
+	if c.AgentService != "" && !agentServiceRe.MatchString(c.AgentService) {
+		add(`change_link.agent_service: a systemd service name ending in -agent, without ".service", e.g. "my-agent"`)
 	}
 	validateLinkTemplate("change_link.url", c.URL, ChangePlaceholders, add)
 	validateLinkTemplate("change_link.updates_url", c.UpdatesURL, UpdatesPlaceholders, add)
