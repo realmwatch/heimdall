@@ -320,7 +320,7 @@ document.addEventListener("DOMContentLoaded", function () {
   });
 });
 
-// Anomalies: a select-all box, shift-click to tick a run of rows, and a
+// Bulk forms (anomalies, adding hosts to a plan): a select-all box, shift-click to tick a run of rows, and a
 // count on the bulk form. Without JavaScript the row boxes still post with
 // the form; only these niceties are missing.
 document.addEventListener("DOMContentLoaded", function () {
@@ -330,11 +330,13 @@ document.addEventListener("DOMContentLoaded", function () {
   var alls = Array.prototype.slice.call(document.querySelectorAll("input[data-bulk-all]"));
   var count = form.querySelector("[data-bulk-count]");
   var hint = count ? count.textContent : "";
+  var one = form.getAttribute("data-bulk-one") || "anomaly";
+  var many = form.getAttribute("data-bulk-many") || "anomalies";
   var buttons = form.querySelectorAll("button[type=submit]");
   var last = null;
   function update() {
     var n = rows.filter(function (r) { return r.checked; }).length;
-    if (count) count.textContent = n ? n + (n === 1 ? " anomaly" : " anomalies") + " selected." : hint;
+    if (count) count.textContent = n ? n + " " + (n === 1 ? one : many) + " selected." : hint;
     alls.forEach(function (all) {
       all.checked = n > 0 && n === rows.length;
       all.indeterminate = n > 0 && n < rows.length;

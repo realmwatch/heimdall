@@ -136,11 +136,10 @@ func (s *server) planAction(w http.ResponseWriter, r *http.Request, v *auth.View
 	var err error
 	if action := r.PathValue("action"); action == "close" || action == "reopen" {
 		err = s.st.ClosePlan(ctx, actor, p.ID, action == "close", s.now())
+	} else if action == "add" {
+		err = s.planAddHosts(r, v, p, actor)
 	} else {
 		org, name := r.PostForm.Get("org"), r.PostForm.Get("host")
-		if ref := r.PostForm.Get("hostref"); ref != "" { // the add form's "org/host" select
-			org, name, _ = strings.Cut(ref, "/")
-		}
 		var host store.IngestHost
 		host, err = s.st.HostByName(ctx, org, name)
 		if err == nil && !v.Scope.CanOperate(host.OrgID) {
@@ -148,9 +147,6 @@ func (s *server) planAction(w http.ResponseWriter, r *http.Request, v *auth.View
 		}
 		if err == nil {
 			switch action {
-			case "add":
-				batch, _ := strconv.Atoi(r.PostForm.Get("batch"))
-				err = s.st.AddToPlan(ctx, actor, p.ID, host, max(batch, 1))
 			case "remove":
 				err = s.st.RemoveFromPlan(ctx, actor, p.ID, host)
 			case "done", "undo":
@@ -167,6 +163,34 @@ func (s *server) planAction(w http.ResponseWriter, r *http.Request, v *auth.View
 		return
 	}
 	http.Redirect(w, r, fmt.Sprintf("/plans/%d", p.ID), http.StatusSeeOther)
+}
+
+// planAddHosts adds the add form's ticked "org/host" boxes to one batch.
+func (s *server) planAddHosts(r *http.Request, v *auth.Viewer, p store.Plan, actor string) error {
+	ctx := r.Context()
+	refs := r.PostForm["hostref"]
+	if len(refs) == 0 {
+		return &store.ValidationError{Field: "host", Msg: "tick at least one"}
+	}
+	seen := make(map[string]bool, len(refs))
+	hosts := make([]store.IngestHost, 0, len(refs))
+	for _, ref := range refs {
+		if seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		org, name, _ := strings.Cut(ref, "/")
+		host, err := s.st.HostByName(ctx, org, name)
+		if err != nil {
+			return err
+		}
+		if !v.Scope.CanOperate(host.OrgID) {
+			return store.ErrNotFound
+		}
+		hosts = append(hosts, host)
+	}
+	batch, _ := strconv.Atoi(r.PostForm.Get("batch"))
+	return s.st.AddHostsToPlan(ctx, actor, p.ID, hosts, max(batch, 1))
 }
 
 func (s *server) orgBySlug(r *http.Request, slug string) (store.Org, error) {

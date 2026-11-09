@@ -24,12 +24,14 @@
 </table></div>
 {{if $can}}
 {{if .Candidates}}<section class="card">
-  <h2>Add a host</h2>
-  <form method="post" action="/plans/{{$id}}/add" class="row">
+  <h2>Add hosts</h2>
+  <form method="post" action="/plans/{{$id}}/add" class="row plan-add" data-bulk data-bulk-one="host" data-bulk-many="hosts">
     <input type="hidden" name="csrf" value="{{$csrf}}">
-    <label>Host <select name="hostref" required>{{range .Candidates}}<option value="{{.OrgSlug}}/{{.Name}}">{{.OrgSlug}}/{{.Name}}</option>{{end}}</select></label>
+    <label class="plan-add-all" hidden><input type="checkbox" data-bulk-all> Select all {{len .Candidates}}</label>
+    <div class="plan-hosts">{{range .Candidates}}<label><input type="checkbox" name="hostref" value="{{.OrgSlug}}/{{.Name}}" data-bulk-row> <span>{{.OrgSlug}}/{{.Name}}</span></label>{{end}}</div>
     <label>Batch <input name="batch" type="number" min="1" max="1000" value="1"></label>
-    <button type="submit">Add</button>
+    <button type="submit">Add selected</button>
+    <span class="muted" data-bulk-count>Tick the hosts to add. Shift-click ticks a run.</span>
   </form>
 </section>{{end}}
 <form method="post" action="/plans/{{$id}}/close"><input type="hidden" name="csrf" value="{{$csrf}}"><button type="submit">Close plan</button></form>

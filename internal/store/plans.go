@@ -167,6 +167,12 @@ func (s *Store) PlanItems(ctx context.Context, planID int64) ([]PlanItem, error)
 // AddToPlan puts a host in a batch (moving it if already in the plan). An
 // org plan only accepts that org's hosts.
 func (s *Store) AddToPlan(ctx context.Context, actor string, planID int64, host IngestHost, batch int) error {
+	return s.AddHostsToPlan(ctx, actor, planID, []IngestHost{host}, batch)
+}
+
+// AddHostsToPlan puts several hosts in one batch: all of them, or none if any
+// can't be added.
+func (s *Store) AddHostsToPlan(ctx context.Context, actor string, planID int64, hosts []IngestHost, batch int) error {
 	if batch < 1 || batch > 1000 {
 		return &ValidationError{"batch", "must be between 1 and 1000"}
 	}
@@ -177,17 +183,24 @@ func (s *Store) AddToPlan(ctx context.Context, actor string, planID int64, host 
 	if !p.ClosedAt.IsZero() {
 		return fmt.Errorf("plan %d is closed", planID)
 	}
-	if p.OrgID != 0 && host.OrgID != p.OrgID {
-		return &ValidationError{"host", fmt.Sprintf("%s isn't in org %s", host.Name, p.OrgSlug)}
+	for _, host := range hosts {
+		if p.OrgID != 0 && host.OrgID != p.OrgID {
+			return &ValidationError{"host", fmt.Sprintf("%s isn't in org %s", host.Name, p.OrgSlug)}
+		}
 	}
 	return s.tx(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO patch_plan_items (plan_id, host_id, batch) VALUES (?, ?, ?)
-			ON CONFLICT (plan_id, host_id) DO UPDATE SET batch = excluded.batch`, planID, host.ID, batch); err != nil {
-			return err
+		for _, host := range hosts {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO patch_plan_items (plan_id, host_id, batch) VALUES (?, ?, ?)
+				ON CONFLICT (plan_id, host_id) DO UPDATE SET batch = excluded.batch`, planID, host.ID, batch); err != nil {
+				return err
+			}
+			if err := audit(ctx, tx, AuditEntry{Actor: actor, Action: "plan.add", OrgID: host.OrgID,
+				Target: fmt.Sprint(planID), Detail: map[string]any{"host": host.Name, "batch": batch}}); err != nil {
+				return err
+			}
 		}
-		return audit(ctx, tx, AuditEntry{Actor: actor, Action: "plan.add", OrgID: host.OrgID,
-			Target: fmt.Sprint(planID), Detail: map[string]any{"host": host.Name, "batch": batch}})
+		return nil
 	})
 }
 
