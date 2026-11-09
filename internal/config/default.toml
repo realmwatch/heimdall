@@ -158,6 +158,10 @@ updates_url = ""
 # "Update collector" on a host whose collector is behind: a link with {org}
 # and {host} that drafts the upgrade. Off while empty.
 collector_url = ""
+# Every other change a host page can propose, such as "Propose removal" on an
+# unused PHP version: a link with {org}, {host}, {action} (php.remove) and
+# {params} (the action's query parameters, php=8.2). Off while empty.
+action_url = ""
 # The systemd service the tool runs on your servers, ending in -agent. Set,
 # the host list shows which hosts have it. Needs collector 0.5.5 or later.
 agent_service = ""

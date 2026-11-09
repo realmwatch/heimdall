@@ -17,6 +17,7 @@ url   = "https://changes.example.com/new?org={org}&host={host}&package={package}
 label = "Fix"
 updates_url = "https://changes.example.com/updates?org={org}&host={host}"
 collector_url = "https://changes.example.com/collector?org={org}&host={host}"
+action_url = "https://changes.example.com/propose?action={action}&org={org}&host={host}&{params}"
 ```
 
 With `url` set, a host page gets links next to its findings:
@@ -28,18 +29,22 @@ With `updates_url` set, a host with pending updates also gets **Install all upda
 
 With `collector_url` set, a host whose collector is behind gets **Update collector** on its page, and its "behind" pill links to the same address. It takes `{org}` and `{host}`. Without it, or with a current collector, nothing changes.
 
+`action_url` is one link for every other change a host page can propose, so a new action doesn't need a new setting. With it set, each version in a host's **Unused PHP** section gets **Propose removal**, with `{action}` as `php.remove` and `{params}` as `php=8.2`. Heimdall can't see cron, supervisor or systemd, so the tool should repeat those checks on the server when the change runs. The version the command line's `php` points at gets no button, because `php` has to be repointed first; its manual commands stay on the page.
+
 | Placeholder | Becomes |
 | --- | --- |
 | `{org}` | The org's slug |
 | `{host}` | The host's name |
 | `{package}` | The package, on a package's link; empty on the "Install security updates" link |
+| `{action}` | What to propose, such as `php.remove`, on `action_url` only |
+| `{params}` | That action's own query parameters, already escaped, on `action_url` only |
 | `{finding}` | Finding ids, comma-separated, most important first (at most 200) |
 
 Each value is URL-escaped. The link opens in a new tab, with no referrer.
 
 - **The link carries pointers, not data.** Heimdall sends the tool nothing. The tool should look the findings up itself (see [Reading findings](#reading-findings)), and should treat the link's parameters as untrusted, as it would any URL someone could send its users.
 - **OS packages only, for now.** Site (Composer and npm) findings don't get Fix links yet.
-- `url`, `updates_url` and `collector_url` must be `https`, or plain `http` for loopback. Unknown placeholders are refused when the config loads.
+- `url`, `updates_url`, `collector_url` and `action_url` must be `https`, or plain `http` for loopback. Unknown placeholders are refused when the config loads.
 - `agent_service`, if set, is the systemd service your tool runs on servers (ending in `-agent`, without `.service`). The host list then gets a column showing where it's installed. It reads the `X-Heimdall-Agents` header from collector 0.5.5 or later, and shows `?` for older collectors and hosts without systemd.
 - `label` is a package link's text: at most 24 characters, "Fix" by default.
 

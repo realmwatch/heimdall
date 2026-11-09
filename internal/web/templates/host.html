@@ -53,12 +53,12 @@
     {{range .Versions}}<div class="rt-ver"><span class="rt-v">{{.Version}}</span><span class="rt-life">{{template "rtsupport" .Life}}</span><span class="rt-use">{{with .Use}}{{if .Unused}}<a class="pill warn" href="#php-unused" title="No site's PHP-FPM uses it and its PHP-FPM isn't running{{if .CLI}}; the command line's php does, and can point to {{.CLITo}}{{end}}">not used</a>{{else if .Sites}}<span class="pill muted" title="{{join .Sites ", "}}">{{len .Sites}} site{{if gt (len .Sites) 1}}s{{end}}</span>{{else if .FPMRunning}}<span class="pill muted" title="Its PHP-FPM is running, though no site Heimdall knows uses it">PHP-FPM running</span>{{else if .CLI}}<span class="pill muted" title="The command line's php, and the only PHP version installed">command line</span>{{end}}{{end}}</span></div>{{end}}
   </div>{{end}}</div></div>{{end}}
 </section>
-{{$unused := false}}{{range .Report.Runtimes}}{{with .Use}}{{if .Unused}}{{$unused = true}}{{end}}{{end}}{{end}}
+{{$phpRemove := .PHPRemove}}{{$unused := false}}{{range .Report.Runtimes}}{{with .Use}}{{if .Unused}}{{$unused = true}}{{end}}{{end}}{{end}}
 {{if $unused}}<section class="card php-unused" id="php-unused" aria-labelledby="php-unused-h">
   <h2 id="php-unused-h">Unused PHP</h2>
   <p class="muted small">Installed, but no site's PHP-FPM uses the versions below and their PHP-FPM isn't running. Removing one takes its packages, and their advisories, off the server. On {{.Name}}, in order:</p>
   {{range .Report.Runtimes}}{{with .Use}}{{if .Unused}}<div class="php-ver">
-    <h3>PHP {{.Minor}} <span class="muted small">{{len .Packages}} package{{if ne (len .Packages) 1}}s{{end}}</span></h3>
+    <h3>PHP {{.Minor}} <span class="muted small">{{len .Packages}} package{{if ne (len .Packages) 1}}s{{end}}</span>{{with index $phpRemove .Minor}} <a class="button change-btn php-remove" href="{{.}}" target="_blank" rel="noopener noreferrer">Propose removal</a>{{end}}</h3>
     <ol class="small">
       <li>Check that nothing calls <code>php{{.Minor}}</code> by name (cron, supervisor or systemd; Heimdall can't see those). It should print nothing:
         <div class="codebox fix-cmd"><pre id="php-{{.Minor}}-check">{{.Check}}</pre><button type="button" class="copy" data-copy="php-{{.Minor}}-check" hidden>Copy</button></div></li>

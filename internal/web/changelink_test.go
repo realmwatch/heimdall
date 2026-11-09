@@ -158,3 +158,22 @@ func TestCollectorLinkOnPages(t *testing.T) {
 		}
 	}
 }
+
+func TestPHPRemoveLinks(t *testing.T) {
+	t.Parallel()
+	runtimes := []report.Runtime{
+		{Name: "php", Use: &report.PHPUse{Minor: "8.2", Unused: true}},
+		{Name: "php", Use: &report.PHPUse{Minor: "8.1", Unused: true, CLI: true, CLITo: "8.4"}},
+		{Name: "php", Use: &report.PHPUse{Minor: "8.4"}},
+		{Name: "node"},
+	}
+	c := ChangeLink{ActionURL: "https://changes.example.com/propose?action={action}&org={org}&host={host}&{params}"}
+	got := c.phpRemoveLinks("a&b", "web 01", runtimes)
+	want := "https://changes.example.com/propose?action=php.remove&org=a%26b&host=web+01&php=8.2"
+	if len(got) != 1 || got["8.2"] != want {
+		t.Errorf("links = %v, want only 8.2 at %q", got, want)
+	}
+	if got := (ChangeLink{}).phpRemoveLinks("acme", "web-01", runtimes); got != nil {
+		t.Errorf("no template got links: %v", got)
+	}
+}
