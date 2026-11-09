@@ -18,6 +18,7 @@ type ChangeLink struct {
 	URL          string // template with {org}, {host}, {package} and {finding}
 	UpdatesURL   string // template with {org} and {host}: every pending update
 	CollectorURL string // template with {org} and {host}: upgrade the collector
+	ActionURL    string // template with {org}, {host}, {action} and {params}: any other change
 	Label        string // a package link's text, e.g. "Fix"
 	// AgentService is the *-agent service the host list looks for; "" = no column.
 	AgentService string
@@ -70,6 +71,32 @@ func (c ChangeLink) collectorLink(org, host string, behind bool) string {
 		return ""
 	}
 	return hostLink(c.CollectorURL, org, host)
+}
+
+// phpRemoveLinks maps each unused PHP version to its removal link. The
+// command line's own version gets none: it has to be repointed first, which
+// is a change of its own.
+func (c ChangeLink) phpRemoveLinks(org, host string, runtimes []report.Runtime) map[string]string {
+	if c.ActionURL == "" {
+		return nil
+	}
+	links := map[string]string{}
+	for _, rt := range runtimes {
+		if rt.Use == nil || !rt.Use.Unused || rt.Use.CLI {
+			continue
+		}
+		links[rt.Use.Minor] = c.actionLink("php.remove", org, host, url.Values{"php": {rt.Use.Minor}})
+	}
+	return links
+}
+
+// actionLink fills the generic action template. A new action needs a button
+// and a handler in the tool, not another setting.
+func (c ChangeLink) actionLink(action, org, host string, params url.Values) string {
+	if c.ActionURL == "" {
+		return ""
+	}
+	return strings.NewReplacer("{action}", url.QueryEscape(action), "{params}", params.Encode()).Replace(hostLink(c.ActionURL, org, host))
 }
 
 // hostLink fills a template that takes {org} and {host}.

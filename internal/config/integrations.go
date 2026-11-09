@@ -24,7 +24,11 @@ type ChangeLink struct {
 	// CollectorURL is an https template with {org} and {host} placeholders,
 	// for "Update collector" on a host whose collector is behind. "" is off.
 	CollectorURL string `toml:"collector_url"`
-	Label        string `toml:"label"` // a package link's text; "" is "Fix"
+	// ActionURL is an https template with {org}, {host}, {action} and
+	// {params} placeholders, for every other change a host page can propose.
+	// {params} is the action's own query parameters. "" is off.
+	ActionURL string `toml:"action_url"`
+	Label     string `toml:"label"` // a package link's text; "" is "Fix"
 	// AgentService is the systemd service (named *-agent) the tool runs on
 	// servers. Set, the host list gets a column showing where it's
 	// installed. "" is off.
@@ -41,6 +45,9 @@ var ChangePlaceholders = []string{"{org}", "{host}", "{package}", "{finding}"}
 
 // UpdatesPlaceholders are the placeholders a ChangeLink UpdatesURL may use.
 var UpdatesPlaceholders = []string{"{org}", "{host}"}
+
+// ActionPlaceholders are the placeholders a ChangeLink ActionURL may use.
+var ActionPlaceholders = []string{"{org}", "{host}", "{action}", "{params}"}
 
 // LinkLabel is Label, or DefaultChangeLabel.
 func (c ChangeLink) LinkLabel() string {
@@ -62,6 +69,7 @@ func (c ChangeLink) validate(add func(string, ...any)) {
 	validateLinkTemplate("change_link.url", c.URL, ChangePlaceholders, add)
 	validateLinkTemplate("change_link.updates_url", c.UpdatesURL, UpdatesPlaceholders, add)
 	validateLinkTemplate("change_link.collector_url", c.CollectorURL, UpdatesPlaceholders, add)
+	validateLinkTemplate("change_link.action_url", c.ActionURL, ActionPlaceholders, add)
 }
 
 func validateLinkTemplate(key, tmpl string, placeholders []string, add func(string, ...any)) {
