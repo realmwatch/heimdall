@@ -34,6 +34,7 @@ type fleetHost struct {
 	PendingSecurity int
 	Collector       string
 	CollectorBehind bool
+	CollectorURL    string // drafts the upgrade in a change-management tool (changelink.go)
 	ChangeWatch     string // "on", "off", or "" when the collector doesn't say
 	News            int    // threat-news incidents confirmed on the host
 	Anomalies       int    // open (unacknowledged)
@@ -190,6 +191,7 @@ func (s *server) fleet(r *http.Request, v *auth.Viewer, org string) ([]fleetHost
 			row.Collector = strings.TrimSpace(st.CollectorVersion)
 			if row.Collector != "" && release {
 				row.CollectorBehind = updates.CollectorBehind(row.Collector)
+				row.CollectorURL = s.cfg.ChangeLink.collectorLink(h.OrgSlug, h.Name, row.CollectorBehind)
 			}
 			if t, err := triggers.Parse(st.Triggers); err == nil {
 				row.ChangeWatch = t.ChangeWatch()

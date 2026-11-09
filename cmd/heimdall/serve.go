@@ -237,7 +237,7 @@ func newUIServer(cfg config.Config, s *store.Store, log *slog.Logger, aiSvc *ai.
 		IPs:          ips,
 		Cloudflare:   cfg.Cloudflare.Enabled,
 		Tailnet:      cfg.Tailscale.Enabled,
-		ChangeLink:   web.ChangeLink{URL: cfg.ChangeLink.URL, UpdatesURL: cfg.ChangeLink.UpdatesURL, Label: cfg.ChangeLink.LinkLabel(), AgentService: cfg.ChangeLink.AgentService},
+		ChangeLink:   web.ChangeLink{URL: cfg.ChangeLink.URL, UpdatesURL: cfg.ChangeLink.UpdatesURL, CollectorURL: cfg.ChangeLink.CollectorURL, Label: cfg.ChangeLink.LinkLabel(), AgentService: cfg.ChangeLink.AgentService},
 	}
 	wcfg.Bans = bansService // set by startBans (bans.go)
 	if pushService != nil { // set by startPush (push.go)

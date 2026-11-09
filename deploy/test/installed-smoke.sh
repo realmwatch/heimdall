@@ -60,7 +60,7 @@ rel=$(mktemp -d)
 for f in SHA256SUMS SHA256SUMS.sigstore.json heimdall-linux-amd64 heimdall.service collect.sh splash.html \
 	heimdall-collect.service heimdall-collect.timer heimdall-collect-boot.timer heimdall-collect-soon.timer \
 	heimdall-collect-changes.service heimdall-collect-changes.path privilege-watch.sh privilege-hook login-watch.sh; do
-	curl -fsSL --proto '=https' -o "$rel/$f" "https://github.com/realmwatch/heimdall/releases/download/$signed/$f" || fail "download $f"
+	curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors --proto '=https' -o "$rel/$f" "https://github.com/realmwatch/heimdall/releases/download/$signed/$f" || fail "download $f"
 done
 bad=$(mktemp -d)
 cp "$rel"/* "$bad/"

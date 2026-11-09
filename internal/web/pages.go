@@ -140,9 +140,10 @@ type hostBody struct {
 	Pending         []store.InventoryPackage
 	PendingSecurity int
 	OSView          findingsView
-	CollectorBehind bool // upgrading the host's collector would change it (updates.CollectorChanged)
-	CollectorKnown  bool // this hub is a release build, so the comparison means something
-	ShowAll         bool // show every finding instead of the first findingsCap
+	CollectorBehind bool   // upgrading the host's collector would change it (updates.CollectorChanged)
+	CollectorURL    string // drafts the upgrade in a change-management tool (changelink.go)
+	CollectorKnown  bool   // this hub is a release build, so the comparison means something
+	ShowAll         bool   // show every finding instead of the first findingsCap
 	Packages        []store.InventoryPackage
 	Commands        []command
 	Anomalies       []store.AnomalyRow
@@ -296,6 +297,7 @@ func (s *server) hostPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 	if v := strings.TrimSpace(sum.CollectorVersion); v != "" && releaseTag.MatchString(s.cfg.Version) {
 		body.CollectorKnown = true
 		body.CollectorBehind = updates.CollectorBehind(v)
+		body.CollectorURL = s.cfg.ChangeLink.collectorLink(host.OrgSlug, host.Name, body.CollectorBehind)
 	}
 	if raw, err := s.st.HostTriggers(ctx, host.ID); err == nil {
 		if t, err := triggers.Parse(raw); err == nil {

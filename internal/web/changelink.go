@@ -15,9 +15,10 @@ import (
 // change-management tool, which drafts the change there. The hub only
 // builds the URLs; it never calls the tool. Zero is off.
 type ChangeLink struct {
-	URL        string // template with {org}, {host}, {package} and {finding}
-	UpdatesURL string // template with {org} and {host}: every pending update
-	Label      string // a package link's text, e.g. "Fix"
+	URL          string // template with {org}, {host}, {package} and {finding}
+	UpdatesURL   string // template with {org} and {host}: every pending update
+	CollectorURL string // template with {org} and {host}: upgrade the collector
+	Label        string // a package link's text, e.g. "Fix"
 	// AgentService is the *-agent service the host list looks for; "" = no column.
 	AgentService string
 }
@@ -59,7 +60,21 @@ func (c ChangeLink) updatesLink(org, host string, pending int) string {
 	if c.UpdatesURL == "" || pending == 0 {
 		return ""
 	}
-	return strings.NewReplacer("{org}", url.QueryEscape(org), "{host}", url.QueryEscape(host)).Replace(c.UpdatesURL)
+	return hostLink(c.UpdatesURL, org, host)
+}
+
+// collectorLink fills the "Update collector" template, or is "" when the
+// host's collector is current.
+func (c ChangeLink) collectorLink(org, host string, behind bool) string {
+	if c.CollectorURL == "" || !behind {
+		return ""
+	}
+	return hostLink(c.CollectorURL, org, host)
+}
+
+// hostLink fills a template that takes {org} and {host}.
+func hostLink(tmpl, org, host string) string {
+	return strings.NewReplacer("{org}", url.QueryEscape(org), "{host}", url.QueryEscape(host)).Replace(tmpl)
 }
 
 // addChangeLinks puts the change-management links on an OS findings view:
