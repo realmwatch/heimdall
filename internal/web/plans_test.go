@@ -78,3 +78,61 @@ func TestPlansRespectScope(t *testing.T) {
 		t.Errorf("no access: %d", w.Code)
 	}
 }
+
+func TestPlanAddsSeveralHosts(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, "http://127.0.0.1:8080", nil)
+	e.seed()
+	ctx := t.Context()
+	if _, _, err := e.st.AddHost(ctx, "test", "acme", "prod", "web-02", nil); err != nil {
+		t.Fatal(err)
+	}
+	e.seedOrg("other", "db-01")
+	if _, err := e.st.CreatePlan(ctx, "test", 0, "acme", "October"); err != nil {
+		t.Fatal(err)
+	}
+	add := func(batch string, refs ...string) int {
+		f := url.Values{"csrf": {auth.CSRFToken(goodToken)}, "batch": {batch}, "hostref": refs}
+		return e.post("/plans/1/add", f, signedIn(e), origin(e.baseURL)).Code
+	}
+	inPlan := func() map[string]int {
+		items, err := e.st.PlanItems(ctx, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]int{}
+		for _, it := range items {
+			got[it.Host.Name] = it.Batch
+		}
+		return got
+	}
+
+	page := e.get("/plans/1", signedIn(e)).Body.String()
+	for _, want := range []string{`value="acme/web-01" data-bulk-row`, `value="acme/web-02" data-bulk-row`, "data-bulk-all"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("add form missing %q", want)
+		}
+	}
+	if code := add("1"); code != http.StatusBadRequest {
+		t.Errorf("nothing ticked: %d", code)
+	}
+	// One bad host means nothing is added.
+	if code := add("1", "acme/web-01", "other/db-01"); code != http.StatusBadRequest {
+		t.Errorf("host from another org: %d", code)
+	}
+	if code := add("1", "acme/web-01", "acme/missing"); code != http.StatusBadRequest {
+		t.Errorf("unknown host: %d", code)
+	}
+	if got := inPlan(); len(got) != 0 {
+		t.Errorf("rejected adds left hosts behind: %v", got)
+	}
+	if code := add("3", "acme/web-01", "acme/web-02", "acme/web-01"); code != http.StatusSeeOther {
+		t.Fatalf("add both: %d", code)
+	}
+	if got := inPlan(); len(got) != 2 || got["web-01"] != 3 || got["web-02"] != 3 {
+		t.Errorf("plan items: %v", got)
+	}
+	if strings.Contains(e.get("/plans/1", signedIn(e)).Body.String(), `value="acme/web-01"`) {
+		t.Error("hosts already in the plan are still offered")
+	}
+}

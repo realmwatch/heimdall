@@ -1191,6 +1191,15 @@ form.row.card.bulk-form label.bulk-all { flex: 1 1 100%; padding-bottom: 0; font
 @media (min-width: 761px) { form.row.card.bulk-form label.bulk-all { display: none; } } /* the table header has one */
 .anomaly-list input[type=checkbox] { width: 1.05rem; height: 1.05rem; margin: 0; vertical-align: middle; }
 
+/* A patch plan's add form: a tick list of the hosts not in the plan yet. */
+.card form.plan-add { align-items: center; }
+.card form.plan-add label.plan-add-all { flex: 1 1 100%; flex-direction: row; align-items: center; gap: 8px; font-weight: 400; }
+.plan-hosts { flex: 1 1 100%; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 2px 16px; max-height: 320px; overflow-y: auto; }
+.card form.plan-add .plan-hosts label { flex-direction: row; align-items: center; gap: 8px; font-weight: 400; padding: 3px 0; min-width: 0; }
+.plan-hosts span { overflow-wrap: anywhere; }
+.plan-add input[type=checkbox] { width: 1.05rem; height: 1.05rem; margin: 0; flex: none; }
+.card form.plan-add button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
+
 /* /cloudflare dangling records: Cloudflare's proxy cloud, grouped by zone. */
 .cf-cloud { display: inline-flex; color: var(--cf-off); }
 .cf-cloud.on { color: var(--cf-on); }
