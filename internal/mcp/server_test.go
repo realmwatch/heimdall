@@ -17,6 +17,7 @@ import (
 	"github.com/realmwatch/heimdall/internal/report"
 	"github.com/realmwatch/heimdall/internal/store"
 	"github.com/realmwatch/heimdall/internal/store/storetest"
+	"github.com/realmwatch/heimdall/internal/updates"
 )
 
 type env struct {
@@ -93,6 +94,9 @@ func (e *env) tool(name string, args map[string]any) map[string]any {
 func TestProtocol(t *testing.T) {
 	e := newEnv(t)
 	init := e.call("initialize", map[string]any{"protocolVersion": "2025-03-26"})
+	if got := init["result"].(map[string]any)["_meta"].(map[string]any)["collector_changed"]; got != updates.CollectorChanged {
+		t.Errorf("collector_changed = %v, want %s", got, updates.CollectorChanged)
+	}
 	if v := init["result"].(map[string]any)["protocolVersion"]; v != "2025-03-26" {
 		t.Errorf("negotiated %v", v)
 	}

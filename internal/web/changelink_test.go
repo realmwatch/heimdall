@@ -3,12 +3,18 @@
 package web
 
 import (
+	"encoding/json"
+	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/realmwatch/heimdall/internal/ingest"
 	"github.com/realmwatch/heimdall/internal/report"
 	"github.com/realmwatch/heimdall/internal/store"
+	"github.com/realmwatch/heimdall/internal/updates"
 )
 
 func TestChangeLink(t *testing.T) {
@@ -93,5 +99,62 @@ func TestHostPageChangeLinks(t *testing.T) {
 	plain.seed()
 	if strings.Contains(plain.get("/hosts/acme/web-01", signedIn(plain)).Body.String(), "change-btn") {
 		t.Error("Fix links with [change_link] off")
+	}
+}
+
+func TestCollectorLink(t *testing.T) {
+	t.Parallel()
+	c := ChangeLink{CollectorURL: "https://changes.example.com/collector?org={org}&host={host}"}
+	if got, want := c.collectorLink("a&b", "web 01", true), "https://changes.example.com/collector?org=a%26b&host=web+01"; got != want {
+		t.Errorf("link = %q, want %q", got, want)
+	}
+	if got := c.collectorLink("acme", "web-01", false); got != "" {
+		t.Errorf("current collector got a link: %q", got)
+	}
+	if got := (ChangeLink{}).collectorLink("acme", "web-01", true); got != "" {
+		t.Errorf("no template got a link: %q", got)
+	}
+}
+
+func TestCollectorLinkOnPages(t *testing.T) {
+	t.Parallel()
+	const tooltip = `title="On the server: sudo heimdall-collect upgrade">behind</span>`
+	const href = `href="https://changes.example.com/collector?org=acme&amp;host=web-01"`
+
+	off := newEnvCfg(t, "http://127.0.0.1:8080", nil, func(c *Config) { c.Version = "v9.0.0" })
+	off.seed() // collector 0.1.0: behind
+	if body := off.get("/hosts", signedIn(off)).Body.String(); !strings.Contains(body, tooltip) || strings.Contains(body, "/collector?") {
+		t.Error("without collector_url the host list should keep the plain pill")
+	}
+	if body := off.get("/hosts/acme/web-01", signedIn(off)).Body.String(); strings.Contains(body, "Update collector") {
+		t.Error("Update collector shown without collector_url")
+	}
+
+	on := newEnvCfg(t, "http://127.0.0.1:8080", nil, func(c *Config) {
+		c.Version = "v9.0.0"
+		c.ChangeLink.CollectorURL = "https://changes.example.com/collector?org={org}&host={host}"
+	})
+	host := on.seed()
+	if body := on.get("/hosts", signedIn(on)).Body.String(); !strings.Contains(body, href) || strings.Contains(body, tooltip) {
+		t.Error("a behind collector's pill should link to collector_url")
+	}
+	if body := on.get("/hosts/acme/web-01", signedIn(on)).Body.String(); !strings.Contains(body, href) || !strings.Contains(body, "Update collector") {
+		t.Error("host page missing Update collector")
+	}
+
+	raw, _ := os.ReadFile("../snapshot/testdata/debian12.json")
+	var snap map[string]any
+	json.Unmarshal(raw, &snap)
+	snap["collected_at"] = testNow.Add(time.Minute).Format(time.RFC3339)
+	snap["collector"].(map[string]any)["version"] = strings.TrimPrefix(updates.CollectorChanged, "v")
+	raw, _ = json.Marshal(snap)
+	acc := ingest.Accepter{Store: on.st, Now: func() time.Time { return testNow.Add(time.Minute) }}
+	if res, err := acc.Accept(t.Context(), host, "push", raw); err != nil || res.Status != http.StatusCreated {
+		t.Fatalf("snapshot: %+v %v", res, err)
+	}
+	for _, path := range []string{"/hosts", "/hosts/acme/web-01"} {
+		if body := on.get(path, signedIn(on)).Body.String(); strings.Contains(body, "/collector?") || strings.Contains(body, "Update collector") {
+			t.Errorf("%s: a current collector got the link", path)
+		}
 	}
 }

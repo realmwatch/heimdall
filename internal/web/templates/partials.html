@@ -199,7 +199,7 @@
 {{- if $c.RebootPending}}<span class="pill warn" title="{{$c.RebootPending}} finding{{if ne $c.RebootPending 1}}s{{end}} on the running kernel clear after a reboot: a newer kernel is already installed">reboot pending</span>{{else if .Reboot}}<span class="pill warn">reboot</span>{{end}}
 {{- if .PendingSecurity}}<span class="pill warn" title="{{.Pending}} updates pending in all">{{.PendingSecurity}} security update{{if ne .PendingSecurity 1}}s{{end}}</span>{{end}}
 {{- if .SitesAttention}}<span class="pill warn">{{.SitesAttention}} site{{if ne .SitesAttention 1}}s{{end}}</span>{{end}}
-{{- if .CollectorBehind}}<span class="pill muted" title="On the server: sudo heimdall-collect upgrade">collector behind</span>{{end}}
+{{- if .CollectorBehind}}{{with .CollectorURL}}<a class="pill muted" href="{{.}}" target="_blank" rel="noopener noreferrer" title="Draft the upgrade in your change-management tool">collector behind</a>{{else}}<span class="pill muted" title="On the server: sudo heimdall-collect upgrade">collector behind</span>{{end}}{{end}}
 {{- if eq .ChangeWatch "off"}}<span class="pill warn" title="Changes are only reported on the schedule">change watch off</span>{{end}}
 </span>{{end}}
 

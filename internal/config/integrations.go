@@ -21,7 +21,10 @@ type ChangeLink struct {
 	// for "Install all updates": the tool drafts every pending update on
 	// the host, so no finding ids are involved. "" is off.
 	UpdatesURL string `toml:"updates_url"`
-	Label      string `toml:"label"` // a package link's text; "" is "Fix"
+	// CollectorURL is an https template with {org} and {host} placeholders,
+	// for "Update collector" on a host whose collector is behind. "" is off.
+	CollectorURL string `toml:"collector_url"`
+	Label        string `toml:"label"` // a package link's text; "" is "Fix"
 	// AgentService is the systemd service (named *-agent) the tool runs on
 	// servers. Set, the host list gets a column showing where it's
 	// installed. "" is off.
@@ -58,6 +61,7 @@ func (c ChangeLink) validate(add func(string, ...any)) {
 	}
 	validateLinkTemplate("change_link.url", c.URL, ChangePlaceholders, add)
 	validateLinkTemplate("change_link.updates_url", c.UpdatesURL, UpdatesPlaceholders, add)
+	validateLinkTemplate("change_link.collector_url", c.CollectorURL, UpdatesPlaceholders, add)
 }
 
 func validateLinkTemplate(key, tmpl string, placeholders []string, add func(string, ...any)) {

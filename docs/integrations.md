@@ -16,6 +16,7 @@ None of these lets anyone change anything through Heimdall. The hub still never 
 url   = "https://changes.example.com/new?org={org}&host={host}&package={package}&findings={finding}"
 label = "Fix"
 updates_url = "https://changes.example.com/updates?org={org}&host={host}"
+collector_url = "https://changes.example.com/collector?org={org}&host={host}"
 ```
 
 With `url` set, a host page gets links next to its findings:
@@ -24,6 +25,8 @@ With `url` set, a host page gets links next to its findings:
 - **Fix \<package\>**, in each package's row: that package's fixable findings.
 
 With `updates_url` set, a host with pending updates also gets **Install all updates**, in the same two places. It names the host and no findings: the tool asks the server what's pending and drafts that. Each link is independent, so either can be on alone. `updates_url` takes only `{org}` and `{host}`. On a hub set up earlier, add the line under `[change_link]` yourself; `heimdall config update` only adds whole sections.
+
+With `collector_url` set, a host whose collector is behind gets **Update collector** on its page, and its "behind" pill links to the same address. It takes `{org}` and `{host}`. Without it, or with a current collector, nothing changes.
 
 | Placeholder | Becomes |
 | --- | --- |
@@ -36,7 +39,7 @@ Each value is URL-escaped. The link opens in a new tab, with no referrer.
 
 - **The link carries pointers, not data.** Heimdall sends the tool nothing. The tool should look the findings up itself (see [Reading findings](#reading-findings)), and should treat the link's parameters as untrusted, as it would any URL someone could send its users.
 - **OS packages only, for now.** Site (Composer and npm) findings don't get Fix links yet.
-- `url` and `updates_url` must be `https`, or plain `http` for loopback. Unknown placeholders are refused when the config loads.
+- `url`, `updates_url` and `collector_url` must be `https`, or plain `http` for loopback. Unknown placeholders are refused when the config loads.
 - `agent_service`, if set, is the systemd service your tool runs on servers (ending in `-agent`, without `.service`). The host list then gets a column showing where it's installed. It reads the `X-Heimdall-Agents` header from collector 0.5.5 or later, and shows `?` for older collectors and hosts without systemd.
 - `label` is a package link's text: at most 24 characters, "Fix" by default.
 

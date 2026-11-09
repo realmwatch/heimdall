@@ -155,6 +155,9 @@ label = "Fix"
 # "Install all updates" on a host's page: a link with {org} and {host} that
 # drafts every pending update on the host. Off while empty.
 updates_url = ""
+# "Update collector" on a host whose collector is behind: a link with {org}
+# and {host} that drafts the upgrade. Off while empty.
+collector_url = ""
 # The systemd service the tool runs on your servers, ending in -agent. Set,
 # the host list shows which hosts have it. Needs collector 0.5.5 or later.
 agent_service = ""
