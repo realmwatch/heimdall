@@ -27,7 +27,7 @@ With `url` set, a host page gets links next to its findings:
 
 With `updates_url` set, a host with pending updates also gets **Install all updates**, in the same two places. It names the host and no findings: the tool asks the server what's pending and drafts that. Each link is independent, so either can be on alone. `updates_url` takes only `{org}` and `{host}`. On a hub set up earlier, add the line under `[change_link]` yourself; `heimdall config update` only adds whole sections.
 
-With `collector_url` set, a host whose collector is behind gets **Update collector** on its page, and its "behind" pill links to the same address. It takes `{org}` and `{host}`. Without it, or with a current collector, nothing changes.
+With `collector_url` set, a host whose collector is behind gets an **update ↗** link in place of its "update available" pill, and its "behind" pill on the host list links to the same address. It takes `{org}` and `{host}`. Without it, or with a current collector, nothing changes.
 
 `action_url` is one link for every other change a host page can propose, so a new action doesn't need a new setting. With it set, each version in a host's **Unused PHP** section gets **Propose removal**, with `{action}` as `php.remove` and `{params}` as `php=8.2`. Heimdall can't see cron, supervisor or systemd, so the tool should repeat those checks on the server when the change runs. The version the command line's `php` points at gets no button, because `php` has to be repointed first; its manual commands stay on the page.
 
