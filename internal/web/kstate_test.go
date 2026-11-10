@@ -49,6 +49,10 @@ func TestKernelCaseHostPages(t *testing.T) {
 			t.Errorf("web-01 page missing %q", want)
 		}
 	}
+	// The pending kernel sits in the Reboot fact, not the OS one.
+	if r, k := strings.Index(local, `<div class="k">Reboot</div>`), strings.Index(local, `reboot pending: `+storetest.KernelNew); r < 0 || k < r || k > strings.Index(local, `<div class="k">Last report</div>`) {
+		t.Error("the reboot pending pill isn't in the Reboot fact")
+	}
 	if got := preText(local, "cmd-reboot"); got != "sudo reboot" {
 		t.Errorf("web-01 reboot command %q", got)
 	}
