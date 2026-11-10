@@ -3,8 +3,9 @@
 <div class="head">
   <h1>Hand off to agent</h1>
 </div>
-<p class="muted handoff-lead">Ask a coding agent to open a pull request that updates {{if gt (len .Sites) 1}}the vulnerable packages of the {{len .Sites}} sites that deploy this repository{{else}}this site's vulnerable packages{{end}}. Check the message below: it's exactly what will be posted.</p>
+<p class="muted handoff-lead">Ask a coding agent to open a pull request that updates {{if gt (len .Sites) 1}}the vulnerable packages of the {{len .Sites}} sites that deploy this repository{{else}}this site's vulnerable packages{{end}}. {{if .Amp}}Check the prompt below: it's exactly what the new Amp thread starts with.{{else}}Check the message below: it's exactly what will be posted.{{end}}</p>
 {{with .Notice}}<p class="notice notice-bad" role="alert">{{.}}</p>{{end}}
+{{if .NeedRepo}}<p class="notice notice-bad" role="alert">{{.Agent}} starts an Amp thread that works in the site's repository, and this site's isn't known. <a href="{{.SiteURL}}#repo">Set it on the site page</a>, then hand off again.</p>{{end}}
 
 <section class="card handoff-card">
   <dl class="handoff-facts">
@@ -14,8 +15,8 @@
       <button type="submit" class="secondary" data-autosubmit-hide>Show message</button>
     </form>{{else}}<strong>{{.Agent}}</strong>{{end}}</dd></div>
     <div><dt>Site</dt><dd><a href="{{.SiteURL}}">{{with .Site}}{{.}}{{else}}{{$.Body.Root}}{{end}}</a> <span class="muted small">on {{.Host}}</span><br><code class="path">{{pathBreak .Root}}</code></dd></div>
-    <div><dt>Repository</dt><dd>{{with .Repo}}{{with $.Body.RepoWeb}}<a href="{{.}}" rel="noopener noreferrer"><code class="path">{{$.Body.Repo}}</code></a>{{else}}<code class="path">{{.}}</code>{{end}} <span class="muted small">{{if $.Body.RepoManual}}set by an operator{{else}}found by the collector{{end}}</span>{{else}}<span class="pill warn">repo unknown</span> <span class="small">The agent will be told the repository is unknown. <a href="{{$.Body.SiteURL}}#repo">Set it on the site page</a> first if you can.</span>{{end}}</dd></div>
-    <div><dt>Packages</dt><dd>{{.Packages}} to update{{if .Omitted}} <span class="muted small">({{.Omitted}} more didn't fit Discord's 2,000-character limit; the attached file lists them all)</span>{{end}}</dd></div>
+    <div><dt>Repository</dt><dd>{{with .Repo}}{{with $.Body.RepoWeb}}<a href="{{.}}" rel="noopener noreferrer"><code class="path">{{$.Body.Repo}}</code></a>{{else}}<code class="path">{{.}}</code>{{end}} <span class="muted small">{{if $.Body.RepoManual}}set by an operator{{else}}found by the collector{{end}}</span>{{else}}<span class="pill warn">repo unknown</span> <span class="small">{{if $.Body.Amp}}Amp needs it.{{else}}The agent will be told the repository is unknown.{{end}} <a href="{{$.Body.SiteURL}}#repo">Set it on the site page</a>{{if not $.Body.Amp}} first if you can{{end}}.</span>{{end}}</dd></div>
+    {{if not .NeedRepo}}<div><dt>Packages</dt><dd>{{.Packages}} to update{{if .Omitted}} <span class="muted small">({{.Omitted}} more didn't fit Discord's 2,000-character limit; the attached file lists them all)</span>{{end}}</dd></div>{{end}}
   </dl>
 
   <h2 class="handoff-h">{{if gt (len .Sites) 1}}Sites on this repository{{else}}Site{{end}}</h2>
@@ -43,16 +44,17 @@
     <button type="submit" class="secondary" data-autosubmit-hide>Show message</button>
   </form>
 
-  <h2 class="handoff-h">The message</h2>
+  {{if not .NeedRepo}}
+  <h2 class="handoff-h">{{if .Amp}}The prompt{{else}}The message{{end}}</h2>
   <pre class="handoff-msg" id="handoff-msg">{{.Content}}</pre>
   <details class="handoff-file">
-    <summary>Attached file: <code>{{.FileName}}</code> <span class="muted small">every site, package and advisory, the site's runtime and the steps</span></summary>
+    <summary>{{if .Amp}}Then, in the prompt{{else}}Attached file{{end}}: <code>{{.FileName}}</code> <span class="muted small">every site, package and advisory, the site's runtime and the steps</span></summary>
     <pre class="handoff-msg" id="handoff-file">{{.File}}</pre>
   </details>
 
   <div class="handoff-note small">
-    <p><strong>What this shares:</strong> the package names, installed and fixed versions and advisories above (in the attached file: with their CVEs, severity and known-exploited status), the site's framework and PHP versions, plus the host and site names, the site's path and repository, {{if gt (len .Sites) 1}}each listed site's host, name, path, branch and installed versions, {{end}}and your display name. That's more than Heimdall's alerts, which carry counts only. Everyone and every bot in that Discord channel can read it.</p>
-    <p><strong>Who it pings:</strong> only {{.Agent}}. The message allows no other mentions.</p>
+    <p><strong>What this shares:</strong> the package names, installed and fixed versions and advisories above (in the attached file: with their CVEs, severity and known-exploited status), the site's framework and PHP versions, plus the host and site names, the site's path and repository, {{if gt (len .Sites) 1}}each listed site's host, name, path, branch and installed versions, {{end}}and your display name. That's more than Heimdall's alerts, which carry counts only. {{if .Amp}}Anyone in your Amp workspace who can see the service account's threads can read it.{{else}}Everyone and every bot in that Discord channel can read it.{{end}}</p>
+    {{if .Amp}}<p><strong>Where it goes:</strong> a new Amp thread, in an orb, started with {{.Agent}}'s API key and working in the repository above. Heimdall links to it once it's started.</p>{{else}}<p><strong>Who it pings:</strong> only {{.Agent}}. The message allows no other mentions.</p>{{end}}
     <p><strong>The agent acts on it.</strong> The wording is fixed and every value comes from Heimdall's own data, never from the AI triage text.</p>
   </div>
 
@@ -64,8 +66,9 @@
     <input type="hidden" name="branch" value="{{.TargetBranch}}">
     <input type="hidden" name="request_id" value="{{.RequestID}}">
     <input type="hidden" name="digest" value="{{.Digest}}">
-    <button type="submit">Post to Discord</button>
+    <button type="submit">{{if .Amp}}Start Amp thread{{else}}Post to Discord{{end}}</button>
     <a class="button secondary" href="{{.SiteURL}}">Cancel</a>
   </form>
+  {{end}}
 </section>
 {{end}}{{end}}

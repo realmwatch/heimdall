@@ -32,6 +32,9 @@ ExecStart=/usr/local/bin/heimdall -c /etc/heimdall/heimdall.toml serve
 # The report webhook ([report_webhook]): `sudo heimdall report-webhook set
 # <url>` stores its signing secret and uncomments this line.
 #LoadCredential=heimdall-report-webhook:/etc/heimdall/report-webhook-secret
+# An Amp agent ([[agents]] kind = "amp"): `sudo heimdall agent set-key
+# <name>` stores its API key and adds its line, e.g.
+#LoadCredential=heimdall-agent-amp:/etc/heimdall/agent-amp
 Restart=on-failure
 RestartSec=5s
 

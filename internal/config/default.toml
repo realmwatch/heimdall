@@ -184,3 +184,11 @@ url = ""
 # name            = "pr-bot"                # shown in the confirm step
 # discord_user_id = "123456789012345678"    # the bot's Discord user ID
 # destination     = "discord:agents"        # a stored Discord webhook
+#
+# Or an Amp agent: each hand-off starts a new Amp thread in an orb, with
+# the Amp CLI and a service account's API key (store it with
+# `sudo heimdall agent set-key <name>`). See docs/deployment.md.
+# [[agents]]
+# name     = "amp"
+# kind     = "amp"
+# amp_path = "/usr/local/bin/amp"           # the default

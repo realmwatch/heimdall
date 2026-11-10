@@ -13,6 +13,7 @@ import (
 
 	"github.com/realmwatch/heimdall/internal/auth"
 	"github.com/realmwatch/heimdall/internal/findings"
+	"github.com/realmwatch/heimdall/internal/handoff"
 	"github.com/realmwatch/heimdall/internal/report"
 	"github.com/realmwatch/heimdall/internal/search"
 	"github.com/realmwatch/heimdall/internal/store"
@@ -923,15 +924,16 @@ type siteBody struct {
 	Others         []report.Site // the host's other sites
 	Notice         string
 	// The site's repository: the one in use, and where it came from.
-	Repo         store.SiteRepo
-	CanOperate   bool   // may set the repository
-	RepoNotice   string // fixed text after saving it
-	RepoError    bool
-	BranchNotice string // fixed text after saving the branch
-	BranchError  bool
-	HandoffURL   string // "Hand off to agent", when allowed and there's something to fix
-	HandoffNote  string // fixed text after a hand-off
-	HandoffError bool
+	Repo          store.SiteRepo
+	CanOperate    bool   // may set the repository
+	RepoNotice    string // fixed text after saving it
+	RepoError     bool
+	BranchNotice  string // fixed text after saving the branch
+	BranchError   bool
+	HandoffURL    string // "Hand off to agent", when allowed and there's something to fix
+	HandoffNote   string // fixed text after a hand-off
+	HandoffError  bool
+	HandoffThread string // the Amp thread a hand-off started
 
 	Cloudflare cloudflareHTML // the Cloudflare card, or "" (cloudflare.go)
 	Surface    surfaceHTML    // "public as ..." line, or "" (surface.go)
@@ -1007,6 +1009,9 @@ func (s *server) sitePage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 	}
 	hn := r.URL.Query().Get("handoff")
 	body.HandoffNote, body.HandoffError = handoffNotices[hn], hn == "failed"
+	if hn == "sent" {
+		body.HandoffThread = handoff.ThreadURL(r.URL.Query().Get("thread"))
+	}
 	body.Cloudflare = s.cloudflareCard(ctx, v, host.OrgID, host.Name, root)
 	body.Surface = s.surfaceLineFor(ctx, v, host.OrgID, host.Name, root)
 	name := root

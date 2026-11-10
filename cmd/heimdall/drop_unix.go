@@ -22,14 +22,16 @@ var rootCommands = map[string]bool{"upgrade": true, "restart": true, "sso": true
 	"report-webhook set": true, "report-webhook test": true, // write, then read, the root-owned secret file
 	// Store a root-owned key file and add its LoadCredential line.
 	"tailscale set-key": true, "cloudflare set-token": true, "ip-services set-key": true, "bans set-token": true,
-	"mcp set-name": true} // edits the root-owned config, as sso setup does
+	"mcp set-name":  true, // edits the root-owned config, as sso setup does
+	"agent set-key": true}
 
 // keyCommands read a root-owned key file and then use the hub's database:
 // they read the key files as root, then drop to the hub user in-process,
 // so the database never gets a root-owned file.
 var keyCommands = map[string]bool{"tailscale status": true, "tailscale sync": true,
 	"cloudflare status": true, "cloudflare sync": true, "ip-services status": true, "ip-services sync": true,
-	"bans status": true, "notify send": true}
+	"bans status": true, "notify send": true,
+	"agent test": true} // runs the Amp CLI as the hub user, so its files are the hub's
 
 // Seams for tests.
 var (
@@ -88,8 +90,10 @@ func dropInProcess(u *user.User) error {
 	for _, id := range tokenServices() {
 		paths = append(paths, serviceTokenFile(id))
 	}
-	if ps, err := filepath.Glob(filepath.Join(notifySecretDir, "notify-*")); err == nil {
-		paths = append(paths, ps...)
+	for _, pat := range []string{"notify-*", "agent-*"} {
+		if ps, err := filepath.Glob(filepath.Join(notifySecretDir, pat)); err == nil {
+			paths = append(paths, ps...)
+		}
 	}
 	for _, p := range paths {
 		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() && fi.Size() <= 4096 {

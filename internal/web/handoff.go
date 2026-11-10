@@ -33,6 +33,27 @@ const handoffEvery = 5 * time.Minute
 // handoffPostTimeout bounds the post to Discord, retry included.
 const handoffPostTimeout = 20 * time.Second
 
+// handoffStartTimeout bounds starting an Amp thread (the CLI starts an
+// orb, prints the thread's URL and exits).
+const handoffStartTimeout = 90 * time.Second
+
+// deliverHandoff posts the message to a Discord agent, or starts an Amp
+// agent's thread and returns its ID.
+func deliverHandoff(ctx context.Context, a handoff.Agent, msg handoff.Message) (string, error) {
+	if a.IsAmp() {
+		ctx, cancel := context.WithTimeout(ctx, handoffStartTimeout)
+		defer cancel()
+		th, err := a.Starter.StartThread(ctx, msg.Thread)
+		if err == nil && !handoff.ThreadIDRe.MatchString(th.ID) {
+			err = errors.New("amp: the thread's ID doesn't look like one")
+		}
+		return th.ID, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, handoffPostTimeout)
+	defer cancel()
+	return "", a.Poster.PostPayloadFile(ctx, msg.Payload, msg.FileName, msg.File)
+}
+
 type handoffLimiter struct {
 	mu   sync.Mutex
 	last map[string]time.Time
@@ -79,7 +100,7 @@ func (l *handoffLimiter) limited(now time.Time, keys ...string) bool {
 // handoffNotices are the fixed messages the site page can show after one.
 var handoffNotices = map[string]string{
 	"sent":   "Handed off. The agent was asked to open a pull request.",
-	"failed": "Couldn't post the hand-off to Discord. The hub log has the details.",
+	"failed": "Couldn't send the hand-off to the agent. The hub log has the details.",
 }
 
 // repoNotices are the fixed messages after saving a site's repository.
@@ -438,6 +459,10 @@ type handoffBody struct {
 	File, FileName       string // the attached JSON, shown for review
 	Notice               string
 	Sent                 bool
+	// Amp: the agent starts an Amp thread (the prompt is Content, then
+	// the file). NeedRepo: it can't, as the site's repository is unknown.
+	Amp, NeedRepo bool
+	Thread        string // after a batch send: the thread's URL
 }
 
 // handoffTarget is what both the confirm page and the send need.
@@ -717,7 +742,7 @@ func (s *server) handoffBody(t handoffTarget, msg handoff.Message, requestID str
 		Target: cmp.Or(target.Mode, handoff.TargetDefault), TargetBranch: tb,
 		Org: t.host.OrgSlug, Host: t.host.Name, Root: t.site.Root, Site: siteName(t.site),
 		SiteURL: siteURL(t.host.OrgSlug, t.host.Name, t.site.Root),
-		Agents:  agentNames(s.cfg.Agents), Agent: t.agent.Name,
+		Agents:  agentNames(s.cfg.Agents), Agent: t.agent.Name, Amp: t.agent.IsAmp(),
 		Repo: repo, RepoWeb: handoff.WebURL(repo), RepoManual: t.repo.Manual != "",
 		Content: msg.Content, Digest: msg.Digest, RequestID: requestID,
 		Packages: msg.Packages, Omitted: msg.Omitted,
@@ -745,12 +770,24 @@ func (s *server) handoffPage(w http.ResponseWriter, r *http.Request, v *auth.Vie
 	}
 	id := handoff.RequestID()
 	msg, err := s.handoffMessage(t, v, id, target)
+	if errors.Is(err, handoff.ErrNoRepo) {
+		s.renderNeedRepo(w, r, v, t, id, target, http.StatusOK)
+		return
+	}
 	if err != nil {
 		s.notFound(w, r, v) // nothing fixable to hand off
 		return
 	}
 	body := s.handoffBody(t, msg, id, target)
 	body.Notice = notice
+	s.render(w, r, status, "handoff", v, "Hand off to agent", "sites", body)
+}
+
+// renderNeedRepo is the confirm page for an Amp agent and a site whose
+// repository is unknown: there's nothing to send until it's set.
+func (s *server) renderNeedRepo(w http.ResponseWriter, r *http.Request, v *auth.Viewer, t handoffTarget, id string, target handoff.Target, status int) {
+	body := s.handoffBody(t, handoff.Message{}, id, target)
+	body.NeedRepo = true
 	s.render(w, r, status, "handoff", v, "Hand off to agent", "sites", body)
 }
 
@@ -780,6 +817,10 @@ func (s *server) handoffSend(w http.ResponseWriter, r *http.Request, v *auth.Vie
 	if !ok {
 		def := handoff.Target{Mode: handoff.TargetDefault}
 		msg, err := s.handoffMessage(t, v, id, def)
+		if errors.Is(err, handoff.ErrNoRepo) {
+			s.renderNeedRepo(w, r, v, t, id, def, http.StatusBadRequest)
+			return
+		}
 		if err != nil {
 			s.notFound(w, r, v)
 			return
@@ -790,6 +831,10 @@ func (s *server) handoffSend(w http.ResponseWriter, r *http.Request, v *auth.Vie
 		return
 	}
 	msg, err := s.handoffMessage(t, v, id, target)
+	if errors.Is(err, handoff.ErrNoRepo) {
+		s.renderNeedRepo(w, r, v, t, id, target, http.StatusBadRequest)
+		return
+	}
 	if err != nil {
 		s.notFound(w, r, v)
 		return
@@ -816,13 +861,13 @@ func (s *server) handoffSend(w http.ResponseWriter, r *http.Request, v *auth.Vie
 		s.render(w, r, http.StatusTooManyRequests, "handoff", v, "Hand off to agent", "sites", body)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), handoffPostTimeout)
-	defer cancel()
-	postErr := t.agent.Poster.PostPayloadFile(ctx, msg.Payload, msg.FileName, msg.File)
-	s.auditHandoff(r, v, t, msg, id, target, postErr, 0)
+	thread, postErr := deliverHandoff(r.Context(), t.agent, msg)
+	s.auditHandoff(r, v, t, msg, id, target, postErr, thread, 0)
 	result := "sent"
 	if postErr != nil {
 		result = "failed"
+	} else if thread != "" {
+		result += "&thread=" + thread
 	}
 	http.Redirect(w, r, body.SiteURL+"&handoff="+result, http.StatusSeeOther)
 }

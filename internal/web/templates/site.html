@@ -17,7 +17,7 @@
   <a class="button secondary head-action" href="{{hostURL .Org .Host}}">Open host</a>
 </div>
 {{with .Notice}}<p class="notice" role="status">{{.}}</p>{{end}}
-{{with .HandoffNote}}<p class="notice{{if $.Body.HandoffError}} notice-bad{{end}}" role="status">{{.}}</p>{{end}}
+{{with .HandoffNote}}<p class="notice{{if $.Body.HandoffError}} notice-bad{{end}}" role="status">{{.}}{{with $.Body.HandoffThread}} <a href="{{.}}" rel="noopener noreferrer">Open the Amp thread ↗</a>{{end}}</p>{{end}}
 
 <section class="facts card site-facts">
   <div class="fact">{{template "icon" "server"}}<div><div class="k">Web server</div><div class="v">{{with .Site.WebServer}}{{.}}{{else}}Listed in HEIMDALL_SITES{{end}}</div></div></div>

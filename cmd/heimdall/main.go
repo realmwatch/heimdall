@@ -79,6 +79,7 @@ Commands:
   sso setup                    Set up Entra ID single sign-on (asks, writes, restarts)
   sso set-secret               Store or rotate the Entra client secret (never echoed)
   ai set-key|status|test       AI analysis with your Azure model: store the key (never echoed), show, test
+  agent set-key|test <name>    An Amp agent ([[agents]] kind = "amp"): store its API key (never echoed), test it
   ip label|show|policy         IP addresses: label yours (add|list|rm), show what's known, tailnet-only SSH policy
   ip-services status|sync|set-key
                                Deploy services' (Forge, Ploi) published addresses: show, fetch now, store a token
@@ -155,6 +156,7 @@ var commands = map[string]command{
 	"bans":           group("bans", bansCommands), // bans.go
 	"sso":            group("sso", map[string]command{"setup": cmdSSOSetup, "set-secret": cmdSSOSetSecret}),
 	"ai":             group("ai", map[string]command{"set-key": cmdAISetKey, "status": cmdAIStatus, "test": cmdAITest}),
+	"agent":          group("agent", map[string]command{"set-key": cmdAgentSetKey, "test": cmdAgentTest}),
 	"ip":             group("ip", ipCommands), // ip.go
 	"upgrade":        cmdUpgrade,
 	"restart":        cmdRestart,

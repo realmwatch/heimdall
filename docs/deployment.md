@@ -118,7 +118,7 @@ Follow the [quick start](../README.md#quick-start), then:
 | Trust the collector release | `hd collector trust --version 0.3.0 <sha256 of collect.sh>` |
 | Slack / Discord alerts and digest | `hd notify set-webhook slack ops` (or `discord alerts`), then `hd notify test`; see [Notifications](#notifications) |
 | Email digest | Set `[notify]` email settings and add `LoadCredential=heimdall-smtp:…` |
-| Hand off to a coding agent (Discord bot) | Add `[[agents]]`, then `hd notify set-webhook discord agents`; see [Hand off to an agent](#hand-off-to-an-agent) |
+| Hand off to a coding agent (Discord bot or Amp) | Add `[[agents]]`, then `hd notify set-webhook discord agents` (or `hd agent set-key <name>` for Amp); see [Hand off to an agent](#hand-off-to-an-agent) |
 
 (`hd` = `sudo heimdall`: on an installed hub it runs as `heimdall-hub` with `/etc/heimdall/heimdall.toml`)
 
@@ -283,9 +283,9 @@ Messages are one embed, coloured by severity: red for silent hosts, high-severit
 
 ## Hand off to an agent
 
-If you run a coding agent as a Discord bot (one that reads a channel and can clone a repository and open pull requests), Heimdall can ask it to fix a site's vulnerable dependencies. A **Hand off to agent** button appears on a site's Composer findings, on each site card on the host page, and on AI triage plan steps that are Composer updates. It's for app dependencies only (Composer, and npm from the site's `package-lock.json` or allowlisted ones inside the site; dev dependencies are left out): OS patching, kernel updates and reboots aren't pull requests, so those steps never get one.
+If you run a coding agent as a Discord bot (one that reads a channel and can clone a repository and open pull requests), or use [Amp](#an-amp-agent), Heimdall can ask it to fix a site's vulnerable dependencies. A **Hand off to agent** button appears on a site's Composer findings, on each site card on the host page, and on AI triage plan steps that are Composer updates. It's for app dependencies only (Composer, and npm from the site's `package-lock.json` or allowlisted ones inside the site; dev dependencies are left out): OS patching, kernel updates and reboots aren't pull requests, so those steps never get one.
 
-It's **off by default** and needs the operator or admin role in the org. Clicking the button opens a confirm step that shows exactly the message that will be posted and, with several agents, lets you pick one. Sending is a POST with the CSRF token, limited to once every 5 minutes per site and agent (and per repository and agent, so two sites that deploy one repository don't get two pull requests), and audit-logged as `handoff.send` (actor, agent, host, site, request ID, package count, the target and its branches, how many sites were listed, and whether Discord accepted it).
+It's **off by default** and needs the operator or admin role in the org. Clicking the button opens a confirm step that shows exactly the message that will be posted and, with several agents, lets you pick one. Sending is a POST with the CSRF token, limited to once every 5 minutes per site and agent (and per repository and agent, so two sites that deploy one repository don't get two pull requests), and audit-logged as `handoff.send` (actor, agent, host, site, request ID, package count, the target and its branches, how many sites were listed, and whether Discord accepted it; for Amp, `"kind": "amp"` and the `thread` it started).
 
 ### Set it up
 
@@ -308,6 +308,39 @@ It's **off by default** and needs the operator or admin role in the org. Clickin
    Because the destination is an agent's, `set-webhook` doesn't add it to `[notify] destinations`, so alerts and digests don't go to the agent's channel. (Run it after adding `[[agents]]`, or pass `--handoff-only`.) An agent whose webhook can't be read is left out and logged at startup.
 
 The site's **repository** goes in the message so the bot knows what to clone. The collector reads it from the site's `.git/config` (see [collector.md](collector.md#site-repositories)). An operator can set or override it on the site page (**Repository**, "set"), which wins over what the collector finds. If no repository is known you can still send: the message says "repo unknown" and asks the bot not to guess.
+
+### An Amp agent
+
+An agent can also be [Amp](https://ampcode.com): each hand-off then starts a **new Amp thread** in an orb (Amp's hosted environment) that works in the site's repository, and the site page links the thread once it has started. Nothing has to stay running, and there's no thread to keep unarchived.
+
+1. **A service account.** Service accounts need a Team workspace with a payment method on file, or Enterprise. A workspace admin creates one under **Workspace Settings**, **Service Accounts**, and turns on **Generate an API Key** (it's shown once). Its threads, and what they cost, belong to the workspace. Connect it to GitHub with access to the repositories it should fix and nothing more: anyone who can prompt its threads can use what it's connected to.
+2. **The Amp CLI on the hub**, outside `/home` (the hub's unit can't see home directories). As your own user:
+   ```sh
+   curl -fsSL https://ampcode.com/install.sh | bash          # installs ~/.amp/bin/amp
+   sudo install -m 0755 ~/.amp/bin/amp /usr/local/bin/amp
+   ```
+   Heimdall turns off its self-update, so update it the same way.
+3. **The config:**
+   ```toml
+   [[agents]]
+   name = "amp"                          # shown in the confirm step and the audit log
+   kind = "amp"
+   # amp_path = "/usr/local/bin/amp"     # the default
+   ```
+4. **Store the key**, check it, and restart:
+   ```sh
+   sudo heimdall agent set-key amp   # paste the key; it's never echoed. Adds LoadCredential=heimdall-agent-amp
+   sudo heimdall agent test amp      # lists the account's latest thread; starts nothing
+   sudo heimdall restart
+   ```
+   An Amp agent whose key or CLI is missing is left out and logged at startup.
+
+How it differs from a Discord bot:
+
+- **The repository must be known.** The orb works in it, so the confirm page asks you to set it on the site page first, and **All N** leaves out (and counts) repositories it doesn't know.
+- **The prompt** is the message's text without the mention, listing every package (a prompt has no 2,000-character limit), then [the request file](#the-attached-file) in a fenced JSON block labelled as data. Its last step asks for the pull request's link instead of a reply. The confirm page shows both, and the digest covers them.
+- **How it's started.** The hub runs `amp --execute --orb-execute --no-archive-after-execute --title "Heimdall hand-off · <repo> · <request ID>" --project <repo>` with the prompt on stdin, and waits up to 90 seconds for the thread's URL, which the CLI prints before it exits while the agent works on. The key reaches it only as `AMP_API_KEY` in its environment, which has nothing else of the hub's; its home is `amp` in the hub's state directory (`/var/lib/heimdall/amp`). The CLI is a Bun binary, and the hub's unit forbids memory that is both writable and executable, so its JavaScript engine runs without its JIT (`BUN_JSC_useJIT=0`); starting a thread is light work.
+- **The result.** The site page says the hand-off was sent and links **Open the Amp thread ↗**; a batch lists each thread. If the CLI fails, the page says so and the hub log has its output (with the key masked). A thread that started counts even if the CLI then failed, so sending again doesn't start a second one.
 
 ### Every site on the repository, and where the pull request goes
 
@@ -376,7 +409,7 @@ The hand-off arrives through a webhook, which Discord marks as a bot message, an
 
 ### Privacy: this sends more than alerts do
 
-Alerts and digests carry counts and `org/host` names only. A hand-off deliberately sends a site's **package names, installed and fixed versions and advisories** (in the attached file: with CVEs, severity and known-exploited status, and the site's framework and PHP versions), plus the host and site names, the site's path, its repository URL and the operator's display name, and for each other site on the repository that you can operate on, its host and site names, path, label, branch and installed versions. Everyone and every bot in that channel can read it. Use a private channel that only you and the bot can see. The confirm step says this too. Nothing is sent until an operator confirms, and nothing is sent on a schedule.
+Alerts and digests carry counts and `org/host` names only. A hand-off deliberately sends a site's **package names, installed and fixed versions and advisories** (in the attached file: with CVEs, severity and known-exploited status, and the site's framework and PHP versions), plus the host and site names, the site's path, its repository URL and the operator's display name, and for each other site on the repository that you can operate on, its host and site names, path, label, branch and installed versions. Everyone and every bot in that channel can read it. Use a private channel that only you and the bot can see. With Amp, anyone in your workspace who can see the service account's threads can read the prompt. The confirm step says this too. Nothing is sent until an operator confirms, and nothing is sent on a schedule.
 
 ### Prompt injection: the bot acts on this
 

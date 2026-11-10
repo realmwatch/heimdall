@@ -4,6 +4,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -80,6 +81,8 @@ type handoffBatchBody struct {
 	Sent         bool
 	SentN, Fails int
 	Skipped      int
+	Amp          bool // the agent starts Amp threads
+	NoRepo       int  // Amp: repositories left out because a site's is unknown
 }
 
 type handoffBatchSite struct{ Org, Host, Root string }
@@ -103,7 +106,7 @@ func (s *server) loadHandoffBatch(ctx context.Context, v *auth.Viewer, f url.Val
 		if err != nil || !ok {
 			return body, false, err
 		}
-		body.Agent = t.agent.Name
+		body.Agent, body.Amp = t.agent.Name, t.agent.IsAmp()
 		// One per repository (or per site without one): another site on
 		// the same repository is covered by the first's pull request.
 		key := handoff.RepoKey(t.repo.Repo())
@@ -125,6 +128,10 @@ func (s *server) loadHandoffBatch(ctx context.Context, v *auth.Viewer, f url.Val
 			}
 		}
 		msg, err := s.handoffMessage(t, v, id, target)
+		if errors.Is(err, handoff.ErrNoRepo) {
+			body.NoRepo++
+			continue
+		}
 		if err != nil {
 			continue // nothing fixable there any more
 		}
@@ -140,7 +147,7 @@ func (s *server) loadHandoffBatch(ctx context.Context, v *auth.Viewer, f url.Val
 		body.Items = append(body.Items, item)
 		body.Query = append(body.Query, handoffBatchSite{orgs[i], hs[i], rs[i]})
 	}
-	return body, len(body.Items) > 0, nil
+	return body, len(body.Items) > 0 || body.NoRepo > 0, nil
 }
 
 // handoffBatchPage is the batch's confirm step: every message that will be
@@ -197,15 +204,13 @@ func (s *server) handoffBatchSend(w http.ResponseWriter, r *http.Request, v *aut
 			body.Skipped++
 			continue
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), handoffPostTimeout)
-		postErr := it.t.agent.Poster.PostPayloadFile(ctx, it.msg.Payload, it.msg.FileName, it.msg.File)
-		cancel()
-		s.auditHandoff(r, v, it.t, it.msg, it.RequestID, it.target, postErr, len(body.Items))
+		thread, postErr := deliverHandoff(r.Context(), it.t.agent, it.msg)
+		s.auditHandoff(r, v, it.t, it.msg, it.RequestID, it.target, postErr, thread, len(body.Items))
 		if postErr != nil {
 			it.Result = "failed"
 			body.Fails++
 		} else {
-			it.Result = "sent"
+			it.Result, it.Thread = "sent", handoff.ThreadURL(thread)
 			body.SentN++
 		}
 	}
@@ -213,9 +218,10 @@ func (s *server) handoffBatchSend(w http.ResponseWriter, r *http.Request, v *aut
 	s.render(w, r, http.StatusOK, "handoffbatch", v, "Hand off to agent", "sites", body)
 }
 
-// auditHandoff logs a hand-off as handoff.send; batch is the number of
-// repositories handed off together (0 for one on its own).
-func (s *server) auditHandoff(r *http.Request, v *auth.Viewer, t handoffTarget, msg handoff.Message, id string, target handoff.Target, postErr error, batch int) {
+// auditHandoff logs a hand-off as handoff.send; thread is the Amp thread
+// it started, and batch the number of repositories handed off together
+// (0 for one on its own).
+func (s *server) auditHandoff(r *http.Request, v *auth.Viewer, t handoffTarget, msg handoff.Message, id string, target handoff.Target, postErr error, thread string, batch int) {
 	branches := target.Branches
 	if target.Mode == handoff.TargetEach {
 		branches = handoff.Branches(t.sites)
@@ -229,9 +235,18 @@ func (s *server) auditHandoff(r *http.Request, v *auth.Viewer, t handoffTarget, 
 	if batch > 0 {
 		detail["batch"] = batch
 	}
+	if t.agent.IsAmp() {
+		detail["kind"] = "amp"
+		if thread != "" {
+			detail["thread"] = thread
+		}
+	}
 	if postErr != nil {
-		s.log.Warn("hand-off not posted", "agent", t.agent.Name, "host", t.host.Name, "site", t.site.Root, "err", postErr)
-		detail["error"] = "post failed"
+		s.log.Warn("hand-off not sent", "agent", t.agent.Name, "host", t.host.Name, "site", t.site.Root, "err", postErr)
+		detail["error"] = "send failed"
+		if !t.agent.IsAmp() {
+			detail["error"] = "post failed"
+		}
 	}
 	if err := s.st.Audit(r.Context(), store.AuditEntry{Actor: actorOf(v), Action: "handoff.send", OrgID: t.host.OrgID,
 		Target: t.host.Name, Detail: detail, IP: clientIP(r)}); err != nil {
