@@ -127,7 +127,7 @@ func TestCollectorLinkOnPages(t *testing.T) {
 		t.Error("without collector_url the host list should keep the plain pill")
 	}
 	if body := off.get("/hosts/acme/web-01", signedIn(off)).Body.String(); strings.Contains(body, "Update collector") {
-		t.Error("Update collector shown without collector_url")
+		t.Error("update collector link shown without collector_url")
 	}
 
 	on := newEnvCfg(t, "http://127.0.0.1:8080", nil, func(c *Config) {
@@ -139,7 +139,7 @@ func TestCollectorLinkOnPages(t *testing.T) {
 		t.Error("a behind collector's pill should link to collector_url")
 	}
 	if body := on.get("/hosts/acme/web-01", signedIn(on)).Body.String(); !strings.Contains(body, href) || !strings.Contains(body, "Update collector") {
-		t.Error("host page missing Update collector")
+		t.Error("host page missing the update collector link")
 	}
 
 	raw, _ := os.ReadFile("../snapshot/testdata/debian12.json")
