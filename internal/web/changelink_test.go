@@ -89,7 +89,7 @@ func TestHostPageChangeLinks(t *testing.T) {
 	id := strconv.FormatInt(fs[0].ID, 10)
 	page := e.get("/hosts/acme/web-01", signedIn(e)).Body.String()
 	for _, want := range []string{
-		`href="https://changes.example.com/new?org=acme&amp;host=web-01&amp;pkg=&amp;finding=` + id + `" target="_blank" rel="noopener noreferrer">Install security updates · 1 finding</a>`,
+		`href="https://changes.example.com/new?org=acme&amp;host=web-01&amp;pkg=&amp;finding=` + id + `" target="_blank" rel="noopener noreferrer">Install security updates · fixes 1 finding</a>`,
 		`href="https://changes.example.com/new?org=acme&amp;host=web-01&amp;pkg=openssl&amp;finding=` + id + `" target="_blank" rel="noopener noreferrer">Fix openssl</a>`,
 	} {
 		if !strings.Contains(page, want) {
@@ -215,5 +215,28 @@ func TestFindAgesTemplate(t *testing.T) {
 	}
 	if got := render(report.Finding{KEVAdded: now.Add(-12 * 24 * time.Hour)}); strings.Contains(got, "·") || !strings.Contains(got, "KEV 12d ago") {
 		t.Errorf("KEV only: %q", got)
+	}
+}
+
+// Both buttons lead with packages, what changes on the host; the
+// security one says how many findings that fixes.
+func TestInstallButtonsCount(t *testing.T) {
+	tmpl := template.Must(template.New("t").Funcs(funcs).ParseFiles("templates/partials.html"))
+	render := func(fv findingsView) string {
+		var b strings.Builder
+		if err := tmpl.ExecuteTemplate(&b, "installbtns", fv); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	got := render(findingsView{ChangeURL: "https://changes.example.com/a", ChangeCount: 3104, FixPkgs: 7,
+		UpdatesURL: "https://changes.example.com/b", UpdatesCount: 16})
+	for _, want := range []string{">Install security updates · 7 packages · fixes 3,104 findings</a>", ">Install all updates · 16 packages</a>"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %q", want, got)
+		}
+	}
+	if got := render(findingsView{ChangeURL: "https://changes.example.com/a", ChangeCount: 1, FixPkgs: 1}); !strings.Contains(got, ">Install security updates · 1 package · fixes 1 finding</a>") {
+		t.Errorf("one: %q", got)
 	}
 }
