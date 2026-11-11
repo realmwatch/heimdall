@@ -36,8 +36,9 @@ type Config struct {
 	Updates  Updates `toml:"updates"`
 	News     News    `toml:"news"`
 	AI       AI      `toml:"ai"`
-	// Agents are coding agents (Discord bots) that "Hand off to agent"
-	// can ask for a pull request. None by default, which hides the button.
+	// Agents are coding agents (Discord bots, or Amp threads) that "Hand
+	// off to agent" can ask for a pull request. None by default, which
+	// hides the button.
 	Agents []Agent `toml:"agents"`
 
 	DeployServices DeployServices `toml:"deploy_services"` // services.go
@@ -49,20 +50,49 @@ type Config struct {
 	ReportWebhook ReportWebhook `toml:"report_webhook"` // a signed event per accepted report (integrations.go)
 }
 
-// Agent is one coding agent: a Discord bot that reads a channel and can
-// open pull requests. Heimdall posts a fix request to the channel's
-// webhook and @mentions only this bot. The webhook URL is a credential,
-// stored with `heimdall notify set-webhook discord <name>`, never here.
+// Agent is one coding agent. Kind "discord" (the default) is a Discord
+// bot that reads a channel and can open pull requests: Heimdall posts a
+// fix request to the channel's webhook and @mentions only this bot. The
+// webhook URL is a credential, stored with `heimdall notify set-webhook
+// discord <name>`, never here. Kind "amp" starts a new Amp thread in an
+// orb with the Amp CLI, signed in with a service account's API key that
+// `heimdall agent set-key <name>` stores, never here.
 type Agent struct {
 	Name          string `toml:"name"`            // shown in the confirm step, e.g. "pr-bot"
-	DiscordUserID string `toml:"discord_user_id"` // the bot's user ID (17-20 digits)
-	Destination   string `toml:"destination"`     // "discord:<name>", a stored webhook
+	Kind          string `toml:"kind"`            // "discord" (the default) or "amp"
+	DiscordUserID string `toml:"discord_user_id"` // discord: the bot's user ID (17-20 digits)
+	Destination   string `toml:"destination"`     // discord: "discord:<name>", a stored webhook
+	AmpPath       string `toml:"amp_path"`        // amp: the Amp CLI (default DefaultAmpPath)
+}
+
+// Agent kinds.
+const (
+	AgentDiscord = "discord"
+	AgentAmp     = "amp"
+)
+
+// DefaultAmpPath is where an amp agent's CLI is installed by default.
+// It must be outside /home: the hub's unit hides home directories.
+const DefaultAmpPath = "/usr/local/bin/amp"
+
+// IsAmp reports whether the agent starts Amp threads.
+func (a Agent) IsAmp() bool { return a.Kind == AgentAmp }
+
+// Amp is the agent's Amp CLI path.
+func (a Agent) Amp() string {
+	if a.AmpPath == "" {
+		return DefaultAmpPath
+	}
+	return a.AmpPath
 }
 
 var (
 	agentNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 	discordIDRe = regexp.MustCompile(`^[0-9]{17,20}$`)
 )
+
+// ValidAgentName reports whether name can be an [[agents]] name.
+func ValidAgentName(name string) bool { return agentNameRe.MatchString(name) }
 
 // MaxAgents caps [[agents]].
 const MaxAgents = 10
@@ -90,6 +120,23 @@ func validateAgents(agents []Agent, add func(string, ...any)) {
 			add("agents[%d].name: %q is listed twice", i, a.Name)
 		}
 		seen[a.Name] = true
+		switch a.Kind {
+		case "", AgentDiscord:
+		case AgentAmp:
+			if a.DiscordUserID != "" || a.Destination != "" {
+				add("agents[%d]: discord_user_id and destination are for kind = \"discord\"; an amp agent has neither", i)
+			}
+			if p := a.AmpPath; p != "" && (!filepath.IsAbs(p) || filepath.Clean(p) != p || strings.HasPrefix(p, "/home/") || strings.ContainsAny(p, " \t\n")) {
+				add("agents[%d].amp_path: must be an absolute path outside /home, e.g. %q", i, DefaultAmpPath)
+			}
+			continue
+		default:
+			add("agents[%d].kind: must be \"discord\" or \"amp\"", i)
+			continue
+		}
+		if a.AmpPath != "" {
+			add("agents[%d].amp_path: is for kind = \"amp\"", i)
+		}
 		if !discordIDRe.MatchString(a.DiscordUserID) {
 			add("agents[%d].discord_user_id: must be the bot's Discord user ID, 17-20 digits", i)
 		}

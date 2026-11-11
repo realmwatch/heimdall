@@ -4,14 +4,14 @@
   <h1>Hand off to agent{{if not .Sent}}: {{len .Items}} {{if eq (len .Items) 1}}repository{{else}}repositories{{end}}{{end}}</h1>
 </div>
 {{if .Sent}}
-<p class="notice{{if or .Fails .Skipped}} notice-bad{{end}}" role="status">Posted {{.SentN}} of {{len .Items}}.{{if .Fails}} {{.Fails}} couldn't be posted to Discord; the hub log has the details.{{end}}{{if .Skipped}} {{.Skipped}} skipped: handed to {{.Agent}} in the last few minutes.{{end}}</p>
+<p class="notice{{if or .Fails .Skipped}} notice-bad{{end}}" role="status">{{if .Amp}}Started {{.SentN}} of {{len .Items}} Amp threads.{{else}}Posted {{.SentN}} of {{len .Items}}.{{end}}{{if .Fails}} {{.Fails}} couldn't be {{if .Amp}}started{{else}}posted to Discord{{end}}; the hub log has the details.{{end}}{{if .Skipped}} {{.Skipped}} skipped: handed to {{.Agent}} in the last few minutes.{{end}}</p>
 <section class="card handoff-card">
   <div class="scroll"><table class="handoff-sites">
     <thead><tr><th>Repository</th><th>Sites</th><th>Result</th></tr></thead>
     <tbody>{{range $it := .Items}}<tr>
       <td>{{with .RepoWeb}}<a href="{{.}}" rel="noopener noreferrer"><code class="path">{{$it.Short}}</code></a>{{else}}<code class="path">{{.Short}}</code>{{end}}</td>
       <td class="small">{{len .Sites}}</td>
-      <td>{{if eq .Result "sent"}}<span class="pill ok">posted</span>{{else if eq .Result "failed"}}<span class="pill bad">not posted</span>{{else}}<span class="pill muted">skipped</span>{{end}}</td>
+      <td>{{if eq .Result "sent"}}<span class="pill ok">{{if $.Body.Amp}}started{{else}}posted{{end}}</span>{{with .Thread}} <a href="{{.}}" rel="noopener noreferrer">Amp thread ↗</a>{{end}}{{else if eq .Result "failed"}}<span class="pill bad">{{if $.Body.Amp}}not started{{else}}not posted{{end}}</span>{{else}}<span class="pill muted">skipped</span>{{end}}</td>
     </tr>{{end}}</tbody>
   </table></div>
   <p><a class="button secondary" href="{{.Back}}">Done</a></p>
@@ -19,6 +19,7 @@
 {{else}}
 <p class="muted handoff-lead">Ask a coding agent to open one pull request per repository below, each updating that repository's vulnerable packages. Each one is the same message its own button would post; check them below.</p>
 {{with .Notice}}<p class="notice notice-bad" role="alert">{{.}}</p>{{end}}
+{{with .NoRepo}}<p class="notice notice-bad" role="alert">{{.}} {{if eq . 1}}repository was{{else}}repositories were{{end}} left out: {{$.Body.Agent}} starts Amp threads that work in a site's repository, and {{if eq . 1}}its site's isn't{{else}}their sites' aren't{{end}} known. Set it on the site page to include {{if eq . 1}}it{{else}}them{{end}}.</p>{{end}}
 
 <section class="card handoff-card">
   <dl class="handoff-facts">
@@ -60,28 +61,28 @@
       </tr>{{end}}</tbody>
     </table></div>
     <details class="handoff-file">
-      <summary>The message{{if .Omitted}} <span class="muted small">({{.Omitted}} packages didn't fit; the attached file lists them all)</span>{{end}}</summary>
+      <summary>{{if $.Body.Amp}}The prompt{{else}}The message{{end}}{{if .Omitted}} <span class="muted small">({{.Omitted}} packages didn't fit; the attached file lists them all)</span>{{end}}</summary>
       <pre class="handoff-msg">{{.Content}}</pre>
-      <p class="muted small">Attached file: <code>{{.FileName}}</code></p>
+      <p class="muted small">{{if $.Body.Amp}}Then, in the prompt{{else}}Attached file{{end}}: <code>{{.FileName}}</code></p>
     </details>
   </section>
   {{end}}
 
   <div class="handoff-note small">
-    <p><strong>What this shares:</strong> for each repository, what its own hand-off shares: the package names, installed and fixed versions and advisories (in the attached files: with their CVEs, severity and known-exploited status), each site's host, name, path, branch, framework and PHP versions, the repository, and your display name. Everyone and every bot in that Discord channel can read it.</p>
-    <p><strong>Who it pings:</strong> only {{.Agent}}, once per repository. The messages allow no other mentions.</p>
+    <p><strong>What this shares:</strong> for each repository, what its own hand-off shares: the package names, installed and fixed versions and advisories (in the attached files: with their CVEs, severity and known-exploited status), each site's host, name, path, branch, framework and PHP versions, the repository, and your display name. {{if .Amp}}Anyone in your Amp workspace who can see the service account's threads can read it.{{else}}Everyone and every bot in that Discord channel can read it.{{end}}</p>
+    {{if .Amp}}<p><strong>Where they go:</strong> one new Amp thread per repository, each in an orb, started with {{.Agent}}'s API key.</p>{{else}}<p><strong>Who it pings:</strong> only {{.Agent}}, once per repository. The messages allow no other mentions.</p>{{end}}
     <p><strong>The agent acts on them.</strong> The wording is fixed and every value comes from Heimdall's own data, never from the AI triage text.</p>
   </div>
 
-  <form method="post" action="" class="actions handoff-send">
+  {{if .Items}}<form method="post" action="" class="actions handoff-send">
     <input type="hidden" name="csrf" value="{{$csrf}}">
     {{range $i, $q := .Query}}<input type="hidden" name="o" value="{{$q.Org}}"><input type="hidden" name="h" value="{{$q.Host}}"><input type="hidden" name="r" value="{{$q.Root}}">{{with index $.Body.Items $i}}<input type="hidden" name="request_id" value="{{.RequestID}}"><input type="hidden" name="digest" value="{{.Digest}}">{{end}}{{end}}
     <input type="hidden" name="back" value="{{.Back}}">
     <input type="hidden" name="agent" value="{{.Agent}}">
     <input type="hidden" name="target" value="{{.Target}}">
-    <button type="submit">Post {{len .Items}} to Discord</button>
+    <button type="submit">{{if .Amp}}Start {{len .Items}} Amp thread{{if gt (len .Items) 1}}s{{end}}{{else}}Post {{len .Items}} to Discord{{end}}</button>
     <a class="button secondary" href="{{.Back}}">Cancel</a>
-  </form>
+  </form>{{else}}<p><a class="button secondary" href="{{.Back}}">Back</a></p>{{end}}
 </section>
 {{end}}
 {{end}}{{end}}

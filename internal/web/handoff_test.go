@@ -292,7 +292,7 @@ func TestHandoffDiscordFailure(t *testing.T) {
 		t.Fatalf("send: %d %s", w.Code, w.Header().Get("Location"))
 	}
 	page := e.get(w.Header().Get("Location"), signedIn(e)).Body.String()
-	if !strings.Contains(page, "post the hand-off to Discord") {
+	if !strings.Contains(page, "send the hand-off to the agent") {
 		t.Error("no failure notice")
 	}
 }

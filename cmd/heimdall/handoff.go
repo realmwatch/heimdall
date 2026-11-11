@@ -26,6 +26,15 @@ var handoffClient = func() *netx.Client { return netx.New(netx.DiscordHosts, "he
 func handoffAgents(cfg config.Config, log *slog.Logger) []handoff.Agent {
 	var out []handoff.Agent
 	for _, a := range cfg.Agents {
+		if a.IsAmp() {
+			s, err := ampAgent(cfg, a, false)
+			if err != nil {
+				log.Error("agent left out", "agent", a.Name, "err", err)
+				continue
+			}
+			out = append(out, handoff.Agent{Name: a.Name, Starter: s})
+			continue
+		}
 		kind, name, _ := config.NotifyDestination(a.Destination)
 		cred, _ := destCredential(kind, name)
 		raw, _, err := credentialFile(cred, "")

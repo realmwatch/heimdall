@@ -43,6 +43,26 @@ destination = "discord:agents"
 	}
 	c = Default()
 	a := Agent{Name: "pr-bot", DiscordUserID: "123456789012345678", Destination: "discord:agents"}
+	c.Agents = []Agent{a, {Name: "amp", Kind: "amp"}, {Name: "amp-2", Kind: "amp", AmpPath: "/opt/amp/bin/amp"}}
+	if err := c.Validate(); err != nil || !c.Agents[1].IsAmp() || c.Agents[1].Amp() != DefaultAmpPath || c.Agents[2].Amp() != "/opt/amp/bin/amp" || c.Agents[0].IsAmp() {
+		t.Errorf("amp agents: %v", err)
+	}
+	for _, bad := range []Agent{
+		{Name: "amp", Kind: "amp", DiscordUserID: "123456789012345678"},
+		{Name: "amp", Kind: "amp", Destination: "discord:agents"},
+		{Name: "amp", Kind: "amp", AmpPath: "amp"},
+		{Name: "amp", Kind: "amp", AmpPath: "/home/me/.amp/bin/amp"},
+		{Name: "amp", Kind: "amp", AmpPath: "/usr/local/bin/../bin/amp"},
+		{Name: "amp", Kind: "copilot"},
+		{Name: "pr-bot", DiscordUserID: "123456789012345678", Destination: "discord:agents", AmpPath: "/usr/local/bin/amp"},
+	} {
+		c := Default()
+		c.Agents = []Agent{bad}
+		if err := c.Validate(); err == nil {
+			t.Errorf("accepted %+v", bad)
+		}
+	}
+	c = Default()
 	c.Agents = []Agent{a, a}
 	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "twice") {
 		t.Errorf("duplicate agent: %v", err)
