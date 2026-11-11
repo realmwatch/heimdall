@@ -40,7 +40,7 @@
 
 {{/* installbtns: the links that draft a host's updates in the
      change-management tool (a findingsView). */}}
-{{define "installbtns"}}{{if or .ChangeURL .UpdatesURL}}<p class="change-link">{{with .ChangeURL}}<a class="button change-btn" href="{{.}}" target="_blank" rel="noopener noreferrer">Install security updates · {{$.ChangeCount}} finding{{if ne $.ChangeCount 1}}s{{end}}</a> {{end}}{{with .UpdatesURL}}<a class="button change-btn" href="{{.}}" target="_blank" rel="noopener noreferrer">Install all updates · {{$.UpdatesCount}} package{{if ne $.UpdatesCount 1}}s{{end}}</a> {{end}}<span class="muted small">Opens your change-management tool to draft the change. Heimdall sends it nothing.</span></p>{{end}}{{end}}
+{{define "installbtns"}}{{if or .ChangeURL .UpdatesURL}}<p class="change-link">{{with .ChangeURL}}<a class="button change-btn" href="{{.}}" target="_blank" rel="noopener noreferrer">Install security updates · {{with $.FixPkgs}}{{num .}} package{{if ne . 1}}s{{end}} · {{end}}fixes {{num $.ChangeCount}} finding{{if ne $.ChangeCount 1}}s{{end}}</a> {{end}}{{with .UpdatesURL}}<a class="button change-btn" href="{{.}}" target="_blank" rel="noopener noreferrer">Install all updates · {{num $.UpdatesCount}} package{{if ne $.UpdatesCount 1}}s{{end}}</a> {{end}}<span class="muted small">Opens your change-management tool to draft the change. Heimdall sends it nothing.</span></p>{{end}}{{end}}
 
 {{/* osfindings: a host's OS findings by package (default) or one by one,
      filtered and a page at a time (a findingsView). */}}
