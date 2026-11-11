@@ -20,6 +20,7 @@
 <p class="muted handoff-lead">Ask a coding agent to open one pull request per repository below, each updating that repository's vulnerable packages. Each one is the same message its own button would post; check them below.</p>
 {{with .Notice}}<p class="notice notice-bad" role="alert">{{.}}</p>{{end}}
 {{with .NoRepo}}<p class="notice notice-bad" role="alert">{{.}} {{if eq . 1}}repository was{{else}}repositories were{{end}} left out: {{$.Body.Agent}} starts Amp threads that work in a site's repository, and {{if eq . 1}}its site's isn't{{else}}their sites' aren't{{end}} known. Set it on the site page to include {{if eq . 1}}it{{else}}them{{end}}.</p>{{end}}
+{{with .NoProject}}<p class="notice notice-bad" role="alert">{{.}} {{if eq . 1}}repository was{{else}}repositories were{{end}} left out: no Amp project is chosen for {{if eq . 1}}it{{else}}them{{end}}, and a thread never starts without its repository. Open {{if eq . 1}}its site's{{else}}each one's{{end}} own hand-off to pick the project.</p>{{end}}
 
 <section class="card handoff-card">
   <dl class="handoff-facts">

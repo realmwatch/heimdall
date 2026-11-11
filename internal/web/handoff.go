@@ -460,9 +460,23 @@ type handoffBody struct {
 	Notice               string
 	Sent                 bool
 	// Amp: the agent starts an Amp thread (the prompt is Content, then
-	// the file). NeedRepo: it can't, as the site's repository is unknown.
-	Amp, NeedRepo bool
-	Thread        string // after a batch send: the thread's URL
+	// the file). NeedRepo: it can't, as the site's repository is unknown;
+	// NeedProject: it can't, as no Amp project is chosen (ProjectNote says
+	// why).
+	Amp, NeedRepo, NeedProject bool
+	Thread                     string // after a batch send: the thread's URL
+	// The Amp project the thread starts in: Project is its namespace/name
+	// and ProjectPicked whether an operator picked it (else it matched the
+	// repository). Projects are the ones the agent can start threads in,
+	// for the picker.
+	Project, ProjectID, ProjectNote string
+	ProjectPicked                   bool
+	Projects                        []handoffProject
+}
+
+// handoffProject is one choice in the Amp project picker.
+type handoffProject struct {
+	ID, Ref, Repo string
 }
 
 // handoffTarget is what both the confirm page and the send need.
@@ -476,6 +490,58 @@ type handoffTarget struct {
 	// confirm page shows for them.
 	sites []handoff.Site
 	rows  []handoffSiteRow
+	// An Amp agent's project (zero when none is chosen: projectNote says
+	// why), whether an operator picked it, and every project it can see.
+	project       handoff.Project
+	projectPicked bool
+	projectNote   string
+	projects      []handoff.Project
+}
+
+// ampProjectsTimeout bounds listing an Amp agent's projects.
+const ampProjectsTimeout = time.Minute
+
+// resolveAmpProject chooses the Amp project an Amp hand-off's thread starts
+// in: the one an operator picked for the repository, else the one project
+// whose repository it is. With neither (or the CLI failing) there's none,
+// and the page says why: a thread never starts without the repository.
+func (s *server) resolveAmpProject(ctx context.Context, t *handoffTarget) error {
+	key := handoff.RepoKey(t.repo.Repo())
+	if !t.agent.IsAmp() || key == "" {
+		return nil
+	}
+	lctx, cancel := context.WithTimeout(ctx, ampProjectsTimeout)
+	defer cancel()
+	ps, err := t.agent.Starter.Projects(lctx)
+	if err != nil {
+		s.log.Warn("listing Amp projects failed", "agent", t.agent.Name, "err", err)
+		t.projectNote = "Couldn't list " + t.agent.Name + "'s Amp projects, so there's nowhere to start the thread. The hub log has the details."
+		return nil
+	}
+	t.projects = slices.SortedFunc(slices.Values(ps), func(a, b handoff.Project) int { return strings.Compare(a.Ref(), b.Ref()) })
+	picked, err := s.st.AmpProject(ctx, t.host.OrgID, key, t.agent.Name)
+	if err != nil {
+		return err
+	}
+	if picked != "" {
+		for _, p := range ps {
+			if p.ID == picked {
+				t.project, t.projectPicked = p, true
+				return nil
+			}
+		}
+		t.projectNote = "The Amp project picked for this repository isn't one " + t.agent.Name + " can start threads in any more. Pick another."
+		return nil
+	}
+	switch m := handoff.MatchProjects(ps, t.repo.Repo()); len(m) {
+	case 1:
+		t.project = m[0]
+	case 0:
+		t.projectNote = "None of " + t.agent.Name + "'s Amp projects uses this repository. Pick the project its threads should start in, or give the service account access to the right one."
+	default:
+		t.projectNote = strconv.Itoa(len(m)) + " of " + t.agent.Name + "'s Amp projects use this repository. Pick the one its threads should start in."
+	}
+	return nil
 }
 
 // handoffSiteRow is one site on the confirm page.
@@ -680,6 +746,9 @@ func (s *server) loadHandoff(ctx context.Context, v *auth.Viewer, org, hostName,
 	if err := s.handoffSites(ctx, v, &t); err != nil {
 		return t, false, err
 	}
+	if err := s.resolveAmpProject(ctx, &t); err != nil {
+		return t, false, err
+	}
 	return t, true, nil
 }
 
@@ -698,7 +767,7 @@ func (s *server) handoffMessage(t handoffTarget, v *auth.Viewer, requestID strin
 		SitePath: t.site.Root, Repo: t.repo.Repo(), Findings: handoffFindings(t.h, t.site.Root),
 		RequestID: requestID, RequestedBy: v.DisplayName,
 		Link:  strings.TrimSuffix(s.cfg.BaseURL, "/") + siteURL(t.host.OrgSlug, t.host.Name, t.site.Root),
-		Facts: siteFacts(t.site),
+		Facts: siteFacts(t.site), AmpProject: t.project,
 	})
 }
 
@@ -737,7 +806,12 @@ func (s *server) handoffBody(t handoffTarget, msg handoff.Message, requestID str
 			r.Gets = "listed for the agent only"
 		}
 	}
+	projects := make([]handoffProject, len(t.projects))
+	for i, p := range t.projects {
+		projects[i] = handoffProject{ID: p.ID, Ref: p.Ref(), Repo: handoff.RepoShort(p.RepositoryURL)}
+	}
 	return handoffBody{
+		Project: t.project.Ref(), ProjectID: t.project.ID, ProjectPicked: t.projectPicked, ProjectNote: t.projectNote, Projects: projects,
 		Sites: rows, Branches: handoff.Branches(t.sites), Unknown: unknown,
 		Target: cmp.Or(target.Mode, handoff.TargetDefault), TargetBranch: tb,
 		Org: t.host.OrgSlug, Host: t.host.Name, Root: t.site.Root, Site: siteName(t.site),
@@ -770,8 +844,7 @@ func (s *server) handoffPage(w http.ResponseWriter, r *http.Request, v *auth.Vie
 	}
 	id := handoff.RequestID()
 	msg, err := s.handoffMessage(t, v, id, target)
-	if errors.Is(err, handoff.ErrNoRepo) {
-		s.renderNeedRepo(w, r, v, t, id, target, http.StatusOK)
+	if s.renderBlocked(w, r, v, t, id, target, err, http.StatusOK) {
 		return
 	}
 	if err != nil {
@@ -783,12 +856,19 @@ func (s *server) handoffPage(w http.ResponseWriter, r *http.Request, v *auth.Vie
 	s.render(w, r, status, "handoff", v, "Hand off to agent", "sites", body)
 }
 
-// renderNeedRepo is the confirm page for an Amp agent and a site whose
-// repository is unknown: there's nothing to send until it's set.
-func (s *server) renderNeedRepo(w http.ResponseWriter, r *http.Request, v *auth.Viewer, t handoffTarget, id string, target handoff.Target, status int) {
+// renderBlocked renders the confirm page when an Amp hand-off can't be
+// sent (err is handoff.ErrNoRepo or handoff.ErrNoProject): there's nothing
+// to send until the repository or project is set. It reports whether it
+// rendered.
+func (s *server) renderBlocked(w http.ResponseWriter, r *http.Request, v *auth.Viewer, t handoffTarget, id string, target handoff.Target, err error, status int) bool {
+	noRepo, noProject := errors.Is(err, handoff.ErrNoRepo), errors.Is(err, handoff.ErrNoProject)
+	if !noRepo && !noProject {
+		return false
+	}
 	body := s.handoffBody(t, handoff.Message{}, id, target)
-	body.NeedRepo = true
+	body.NeedRepo, body.NeedProject = noRepo, noProject
 	s.render(w, r, status, "handoff", v, "Hand off to agent", "sites", body)
+	return true
 }
 
 // badTargetNotice: a target branch that isn't one of the sites' branches.
@@ -817,8 +897,7 @@ func (s *server) handoffSend(w http.ResponseWriter, r *http.Request, v *auth.Vie
 	if !ok {
 		def := handoff.Target{Mode: handoff.TargetDefault}
 		msg, err := s.handoffMessage(t, v, id, def)
-		if errors.Is(err, handoff.ErrNoRepo) {
-			s.renderNeedRepo(w, r, v, t, id, def, http.StatusBadRequest)
+		if s.renderBlocked(w, r, v, t, id, def, err, http.StatusBadRequest) {
 			return
 		}
 		if err != nil {
@@ -831,8 +910,7 @@ func (s *server) handoffSend(w http.ResponseWriter, r *http.Request, v *auth.Vie
 		return
 	}
 	msg, err := s.handoffMessage(t, v, id, target)
-	if errors.Is(err, handoff.ErrNoRepo) {
-		s.renderNeedRepo(w, r, v, t, id, target, http.StatusBadRequest)
+	if s.renderBlocked(w, r, v, t, id, target, err, http.StatusBadRequest) {
 		return
 	}
 	if err != nil {
@@ -843,7 +921,7 @@ func (s *server) handoffSend(w http.ResponseWriter, r *http.Request, v *auth.Vie
 	if f.Get("digest") != msg.Digest {
 		// The findings, repository, sites or target changed since the page
 		// was shown: the digest covers the whole message and file.
-		body.Notice = "The message changed since you opened this page (new findings, sites, branches or repository). Check it again before sending."
+		body.Notice = "The message changed since you opened this page (new findings, sites, branches, repository or Amp project). Check it again before sending."
 		s.render(w, r, http.StatusConflict, "handoff", v, "Hand off to agent", "sites", body)
 		return
 	}
@@ -870,6 +948,34 @@ func (s *server) handoffSend(w http.ResponseWriter, r *http.Request, v *auth.Vie
 		result += "&thread=" + thread
 	}
 	http.Redirect(w, r, body.SiteURL+"&handoff="+result, http.StatusSeeOther)
+}
+
+// handoffProject picks the Amp project an agent's hand-offs on a site's
+// repository start in, or with an empty project goes back to matching it
+// by repository; then shows the confirm page again. Only a project the
+// agent can see can be picked.
+func (s *server) handoffProject(w http.ResponseWriter, r *http.Request, v *auth.Viewer) {
+	f := r.PostForm
+	t, ok, err := s.loadHandoff(r.Context(), v, r.PathValue("org"), r.PathValue("host"), f.Get("root"), f.Get("agent"))
+	if err != nil {
+		s.fail(w, r, v, err)
+		return
+	}
+	key := handoff.RepoKey(t.repo.Repo())
+	if !ok || !t.agent.IsAmp() || key == "" {
+		s.notFound(w, r, v)
+		return
+	}
+	id := f.Get("project")
+	if id != "" && !slices.ContainsFunc(t.projects, func(p handoff.Project) bool { return p.ID == id }) {
+		s.notFound(w, r, v)
+		return
+	}
+	if err := s.st.SetAmpProject(r.Context(), actorOf(v), t.host.OrgID, key, t.agent.Name, id, s.now()); err != nil {
+		s.fail(w, r, v, err)
+		return
+	}
+	http.Redirect(w, r, handoffURL(t.host.OrgSlug, t.host.Name, t.site.Root, t.agent.Name)+"#project", http.StatusSeeOther)
 }
 
 // siteRepo sets or clears a site's repository (operator or admin).

@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/realmwatch/heimdall/internal/config"
@@ -40,7 +42,21 @@ const ampOutputMax = 64 << 10
 // hub's files or environment.
 type ampStarter struct {
 	path, key, home string
+
+	mu       sync.Mutex
+	projects []handoff.Project // the last list, from projectsAt
+	listedAt time.Time
 }
+
+// Projects change rarely: a list is reused for ampProjectsFresh, and an
+// older one (up to ampProjectsStale) stands in when the CLI fails.
+const (
+	ampProjectsFresh = 5 * time.Minute
+	ampProjectsStale = time.Hour
+)
+
+// now is a seam for tests.
+var ampNow = time.Now
 
 func (s *ampStarter) env() []string {
 	return []string{
@@ -98,6 +114,61 @@ func (s *ampStarter) StartThread(ctx context.Context, req handoff.ThreadRequest)
 		err = errors.New("no thread URL in its output")
 	}
 	return handoff.Thread{}, fmt.Errorf("amp: %w: %s", err, tail(text, 600))
+}
+
+// Projects lists the Amp projects the service account can start threads
+// in (`amp projects list --json`).
+func (s *ampStarter) Projects(ctx context.Context) ([]handoff.Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := ampNow()
+	if s.projects != nil && now.Sub(s.listedAt) < ampProjectsFresh {
+		return s.projects, nil
+	}
+	ps, err := s.listProjects(ctx)
+	if err != nil {
+		if s.projects != nil && now.Sub(s.listedAt) < ampProjectsStale {
+			return s.projects, nil
+		}
+		return nil, err
+	}
+	s.projects, s.listedAt = ps, now
+	return ps, nil
+}
+
+func (s *ampStarter) listProjects(ctx context.Context) ([]handoff.Project, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	text, err := s.run(ctx, "", "projects", "list", "--json")
+	if err != nil {
+		return nil, fmt.Errorf("amp projects list: %w: %s", err, tail(text, 600))
+	}
+	// The JSON array is the output, from the first line that starts one;
+	// anything the CLI prints around it (a notice) is skipped.
+	start := -1
+	for i, off := 0, 0; i < len(text); i = off {
+		line, _, _ := strings.Cut(text[i:], "\n")
+		off = i + len(line) + 1
+		if strings.HasPrefix(strings.TrimSpace(line), "[") {
+			start = i
+			break
+		}
+	}
+	end := strings.LastIndex(text, "]")
+	var ps []handoff.Project
+	if start < 0 || end < start {
+		return nil, fmt.Errorf("amp projects list: no JSON list in its output: %s", tail(text, 600))
+	}
+	if err := json.Unmarshal([]byte(text[start:end+1]), &ps); err != nil {
+		return nil, fmt.Errorf("amp projects list: %w", err)
+	}
+	out := ps[:0]
+	for _, p := range ps {
+		if handoff.ProjectIDRe.MatchString(p.ID) {
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }
 
 // tail is the end of s on one line, for a log.
@@ -240,5 +311,17 @@ func cmdAgentTest(a *app, args []string) error {
 		return fmt.Errorf("test failed: %w: %s", err, tail(text, 600))
 	}
 	fmt.Fprintln(a.stdout, "OK: the Amp CLI ran and the key works.")
+	ps, err := s.listProjects(ctx)
+	if err != nil {
+		return fmt.Errorf("listing its projects failed: %w", err)
+	}
+	if len(ps) == 0 {
+		fmt.Fprintln(a.stdout, "It can see no Amp projects, so no hand-off can start a thread: give the service account access to the sites' projects.")
+		return nil
+	}
+	fmt.Fprintf(a.stdout, "Projects it can start threads in (%d):\n", len(ps))
+	for _, p := range ps {
+		fmt.Fprintf(a.stdout, "  %s  %s\n", p.Ref(), p.RepositoryURL)
+	}
 	return nil
 }

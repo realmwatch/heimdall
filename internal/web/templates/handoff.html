@@ -6,6 +6,7 @@
 <p class="muted handoff-lead">Ask a coding agent to open a pull request that updates {{if gt (len .Sites) 1}}the vulnerable packages of the {{len .Sites}} sites that deploy this repository{{else}}this site's vulnerable packages{{end}}. {{if .Amp}}Check the prompt below: it's exactly what the new Amp thread starts with.{{else}}Check the message below: it's exactly what will be posted.{{end}}</p>
 {{with .Notice}}<p class="notice notice-bad" role="alert">{{.}}</p>{{end}}
 {{if .NeedRepo}}<p class="notice notice-bad" role="alert">{{.Agent}} starts an Amp thread that works in the site's repository, and this site's isn't known. <a href="{{.SiteURL}}#repo">Set it on the site page</a>, then hand off again.</p>{{end}}
+{{if .NeedProject}}<p class="notice notice-bad" role="alert">{{.ProjectNote}}{{if .Projects}} <a href="#project">Pick it below</a>; nothing is sent until there's a project, so the thread always starts with the repository.{{end}}</p>{{end}}
 
 <section class="card handoff-card">
   <dl class="handoff-facts">
@@ -16,7 +17,13 @@
     </form>{{else}}<strong>{{.Agent}}</strong>{{end}}</dd></div>
     <div><dt>Site</dt><dd><a href="{{.SiteURL}}">{{with .Site}}{{.}}{{else}}{{$.Body.Root}}{{end}}</a> <span class="muted small">on {{.Host}}</span><br><code class="path">{{pathBreak .Root}}</code></dd></div>
     <div><dt>Repository</dt><dd>{{with .Repo}}{{with $.Body.RepoWeb}}<a href="{{.}}" rel="noopener noreferrer"><code class="path">{{$.Body.Repo}}</code></a>{{else}}<code class="path">{{.}}</code>{{end}} <span class="muted small">{{if $.Body.RepoManual}}set by an operator{{else}}found by the collector{{end}}</span>{{else}}<span class="pill warn">repo unknown</span> <span class="small">{{if $.Body.Amp}}Amp needs it.{{else}}The agent will be told the repository is unknown.{{end}} <a href="{{$.Body.SiteURL}}#repo">Set it on the site page</a>{{if not $.Body.Amp}} first if you can{{end}}.</span>{{end}}</dd></div>
-    {{if not .NeedRepo}}<div><dt>Packages</dt><dd>{{.Packages}} to update{{if .Omitted}} <span class="muted small">({{.Omitted}} more didn't fit Discord's 2,000-character limit; the attached file lists them all)</span>{{end}}</dd></div>{{end}}
+    {{if and .Amp .Repo}}<div id="project"><dt>Amp project</dt><dd>{{if .Project}}<strong>{{.Project}}</strong> <span class="muted small">{{if .ProjectPicked}}picked for this repository{{else}}matched by repository{{end}}</span>{{else}}<span class="pill warn">none</span>{{end}}
+      {{if .Projects}}<form method="post" action="{{hostURL .Org .Host}}/handoff/project" class="handoff-project">
+        <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="root" value="{{.Root}}"><input type="hidden" name="agent" value="{{.Agent}}">
+        <select name="project" aria-label="Amp project for this repository"><option value="">Automatic: the project using this repository</option>{{range .Projects}}<option value="{{.ID}}"{{if and $.Body.ProjectPicked (eq .ID $.Body.ProjectID)}} selected{{end}}>{{.Ref}}{{with .Repo}} · {{.}}{{end}}</option>{{end}}</select>
+        <button type="submit" class="secondary">Use for this repository</button>
+      </form>{{end}}</dd></div>{{end}}
+    {{if not (or .NeedRepo .NeedProject)}}<div><dt>Packages</dt><dd>{{.Packages}} to update{{if .Omitted}} <span class="muted small">({{.Omitted}} more didn't fit Discord's 2,000-character limit; the attached file lists them all)</span>{{end}}</dd></div>{{end}}
   </dl>
 
   <h2 class="handoff-h">{{if gt (len .Sites) 1}}Sites on this repository{{else}}Site{{end}}</h2>
@@ -44,7 +51,7 @@
     <button type="submit" class="secondary" data-autosubmit-hide>Show message</button>
   </form>
 
-  {{if not .NeedRepo}}
+  {{if not (or .NeedRepo .NeedProject)}}
   <h2 class="handoff-h">{{if .Amp}}The prompt{{else}}The message{{end}}</h2>
   <pre class="handoff-msg" id="handoff-msg">{{.Content}}</pre>
   <details class="handoff-file">
@@ -54,7 +61,7 @@
 
   <div class="handoff-note small">
     <p><strong>What this shares:</strong> the package names, installed and fixed versions and advisories above (in the attached file: with their CVEs, severity and known-exploited status), the site's framework and PHP versions, plus the host and site names, the site's path and repository, {{if gt (len .Sites) 1}}each listed site's host, name, path, branch and installed versions, {{end}}and your display name. That's more than Heimdall's alerts, which carry counts only. {{if .Amp}}Anyone in your Amp workspace who can see the service account's threads can read it.{{else}}Everyone and every bot in that Discord channel can read it.{{end}}</p>
-    {{if .Amp}}<p><strong>Where it goes:</strong> a new Amp thread, in an orb, started with {{.Agent}}'s API key and working in the repository above. Heimdall links to it once it's started.</p>{{else}}<p><strong>Who it pings:</strong> only {{.Agent}}. The message allows no other mentions.</p>{{end}}
+    {{if .Amp}}<p><strong>Where it goes:</strong> a new Amp thread in the project <strong>{{.Project}}</strong>, in an orb with the project's repository and environment, started with {{.Agent}}'s API key. Heimdall links to it once it's started.</p>{{else}}<p><strong>Who it pings:</strong> only {{.Agent}}. The message allows no other mentions.</p>{{end}}
     <p><strong>The agent acts on it.</strong> The wording is fixed and every value comes from Heimdall's own data, never from the AI triage text.</p>
   </div>
 
