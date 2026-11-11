@@ -167,3 +167,34 @@ func TestNewsRanksFindings(t *testing.T) {
 		t.Errorf("order %v %v %v: want KEV, then in the news, then the rest", fs[0].AdvisoryID, fs[1].AdvisoryID, fs[2].AdvisoryID)
 	}
 }
+
+// An open finding carries when its advisory was published, when CISA first
+// listed it as known-exploited, and when the earliest live incident naming
+// it started.
+func TestOpenFindingDates(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	ctx := t.Context()
+	web := addFindingHost(t, s, "acme", "web-01", "DEBIAN-CVE-2099-0001", "CVE-2099-0001")
+	published := newsNow.Add(-400 * 24 * time.Hour).UTC().Truncate(time.Second)
+	if err := s.PutAdvisory(ctx, Advisory{ID: "DEBIAN-CVE-2099-0001", Modified: newsNow.Add(time.Hour), Published: published,
+		Severity: "high", Raw: []byte(`{}`), Aliases: []string{"CVE-2099-0001"}}); err != nil {
+		t.Fatal(err)
+	}
+	fs, err := s.OpenFindings(ctx, web.ID)
+	if err != nil || len(fs) != 1 || !fs[0].Published.Equal(published) || !fs[0].KEVAdded.IsZero() || !fs[0].NewsSince.IsZero() || fs[0].InNews {
+		t.Fatalf("before KEV and news: %+v %v", fs, err)
+	}
+	added := time.Date(2099, 3, 4, 0, 0, 0, 0, time.UTC)
+	if err := s.ReplaceKEV(ctx, []KEVEntry{{CVE: "CVE-2099-0001", DateAdded: added}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReplaceNews(ctx, testSource, testNewsItems(), "", "", newsNow); err != nil {
+		t.Fatal(err)
+	}
+	fs, err = s.OpenFindings(ctx, web.ID)
+	if err != nil || len(fs) != 1 || !fs[0].KEV || !fs[0].KEVAdded.Equal(added) || !fs[0].InNews ||
+		!fs[0].NewsSince.Equal(newsNow.Add(-48*time.Hour)) {
+		t.Errorf("with KEV and news: %+v %v", fs, err)
+	}
+}
