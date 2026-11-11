@@ -3,7 +3,10 @@
 package web
 
 import (
+	"cmp"
+	"maps"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -102,6 +105,33 @@ func (c ChangeLink) phpRemoveLinks(org, host string, runtimes []report.Runtime) 
 		links[rt.Use.Minor] = c.actionLink("php.remove", org, host, url.Values{"php": {rt.Use.Minor}})
 	}
 	return links
+}
+
+// phpRemoveAllLink is one removal link for every unused PHP version that
+// has its own (see phpRemoveLinks), and how many that is: "" unless there
+// are at least two. The tool makes one proposal per version, each with its
+// own checks, backup and rollback.
+func (c ChangeLink) phpRemoveAllLink(org, host string, links map[string]string) (string, int) {
+	if len(links) < 2 {
+		return "", 0
+	}
+	versions := slices.Collect(maps.Keys(links))
+	slices.SortFunc(versions, compareMinor)
+	return c.actionLink("php.remove", org, host, url.Values{"php": {strings.Join(versions, ",")}}), len(versions)
+}
+
+// compareMinor orders PHP versions numerically: 7.4 before 8.1 before 8.10.
+func compareMinor(a, b string) int {
+	am, an, _ := strings.Cut(a, ".")
+	bm, bn, _ := strings.Cut(b, ".")
+	x, _ := strconv.Atoi(am)
+	y, _ := strconv.Atoi(bm)
+	if x != y {
+		return cmp.Compare(x, y)
+	}
+	x, _ = strconv.Atoi(an)
+	y, _ = strconv.Atoi(bn)
+	return cmp.Compare(x, y)
 }
 
 // actionLink fills the generic action template. A new action needs a button
