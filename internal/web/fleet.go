@@ -121,6 +121,39 @@ func (h fleetHost) NonOSEOL() []lifeItem {
 	return out
 }
 
+// lifeSummary is a host list row's end-of-life software other than the
+// OS, as two counts with their names for a tooltip: one pill each keeps
+// the row short however many runtimes are past their date.
+type lifeSummary struct {
+	EOL, Soon           int
+	EOLTitle, SoonTitle string
+}
+
+func (h fleetHost) NonOSEOLSummary() lifeSummary {
+	var s lifeSummary
+	var eolNames, soonNames []string
+	for _, l := range h.NonOSEOL() {
+		name := l.Label
+		if l.Life != nil && l.Life.EOLDate != nil {
+			name += " (" + l.Life.EOLDate.UTC().Format("Jan 2, 2006") + ")"
+		}
+		if l.State == "eol" {
+			s.EOL++
+			eolNames = append(eolNames, name)
+		} else {
+			s.Soon++
+			soonNames = append(soonNames, name)
+		}
+	}
+	if s.EOL > 0 {
+		s.EOLTitle = "End of life: " + strings.Join(eolNames, ", ")
+	}
+	if s.Soon > 0 {
+		s.SoonTitle = "End of life soon: " + strings.Join(soonNames, ", ")
+	}
+	return s
+}
+
 var productNames = map[string]string{
 	eol.ProductUbuntu: "Ubuntu", eol.ProductDebian: "Debian", eol.ProductRocky: "Rocky Linux",
 	eol.ProductAlma: "AlmaLinux", eol.ProductAlpine: "Alpine", eol.ProductRHEL: "RHEL",
@@ -596,7 +629,7 @@ type hostsBody struct {
 
 // RowSpan is the columns a host without a report spans, after the host's.
 func (b hostsBody) RowSpan() int {
-	n := 12
+	n := 11
 	if b.ShowTailnet {
 		n++
 	}

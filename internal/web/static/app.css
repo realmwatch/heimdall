@@ -881,6 +881,10 @@ table.host-list .h-host { min-width: 150px; max-width: 240px; }
 table.host-list .h-os { min-width: 140px; }
 table.host-list .h-os .pill { margin-top: 2px; }
 table.host-list .h-upd, table.host-list .h-coll { white-space: nowrap; }
+table.host-list .h-coll { text-align: center; }
+.h-coll .flag-on { color: var(--ok-fg); }
+.h-coll .flag-behind, .h-coll .flag-warn { color: var(--high-fg); }
+.h-coll > * + * { margin-left: 4px; }
 table.host-list .ver { font-size: 12px; }
 table.host-list .icon { width: 14px; height: 14px; vertical-align: -2px; }
 table.host-list .h-flag { text-align: center; width: 30px; padding-left: 4px; padding-right: 4px; }
