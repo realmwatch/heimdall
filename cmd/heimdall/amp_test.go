@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/realmwatch/heimdall/internal/config"
 	"github.com/realmwatch/heimdall/internal/handoff"
@@ -106,5 +107,47 @@ func TestHandoffAgentsAmp(t *testing.T) {
 	// amp-2 has no key and amp-3 no CLI: both left out and logged.
 	if l := logs.String(); !strings.Contains(l, "agent=amp-2") || !strings.Contains(l, "agent set-key amp-2") || !strings.Contains(l, "isn't installed at /nonexistent/amp") {
 		t.Errorf("log:\n%s", l)
+	}
+}
+
+// Projects parses `amp projects list --json`, skips anything printed
+// around the list or an ID that isn't one, and reuses the list for a while,
+// standing in an older one when the CLI then fails.
+func TestAmpStarterProjects(t *testing.T) {
+	dir := t.TempDir()
+	out := `notice: something [ignored
+[{"id":"0d0c0b0a-1234-4abc-8def-000000000001","name":"app","namespace":"acme","repositoryURL":"https://github.com/acme/app","remoteURLs":["https://github.com/acme/app"]},
+ {"id":"x","name":"bad","namespace":"acme"}]`
+	path := filepath.Join(dir, "amp-cli")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + dir + "/calls\nif [ -e " + dir + "/fail ]; then echo boom; exit 1; fi\ncat <<'EOF'\n" + out + "\nEOF\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	ampNow = func() time.Time { return now }
+	t.Cleanup(func() { ampNow = time.Now })
+	s := &ampStarter{path: path, key: "sgamp_test_key", home: filepath.Join(dir, "amp")}
+	ps, err := s.Projects(t.Context())
+	if err != nil || len(ps) != 1 || ps[0].Ref() != "acme/app" || ps[0].RepositoryURL != "https://github.com/acme/app" {
+		t.Fatalf("projects %+v %v", ps, err)
+	}
+	calls := func() int {
+		b, _ := os.ReadFile(filepath.Join(dir, "calls"))
+		return strings.Count(string(b), "projects list --json\n")
+	}
+	now = now.Add(ampProjectsFresh - time.Second)
+	if _, err := s.Projects(t.Context()); err != nil || calls() != 1 {
+		t.Errorf("not reused: %d calls, %v", calls(), err)
+	}
+	// Past fresh it lists again; a failure then reuses the last list…
+	os.WriteFile(filepath.Join(dir, "fail"), nil, 0o600)
+	now = now.Add(2 * time.Second)
+	if ps, err := s.Projects(t.Context()); err != nil || len(ps) != 1 || calls() != 2 {
+		t.Errorf("stale stand-in: %+v %v, %d calls", ps, err, calls())
+	}
+	// …until it's too old.
+	now = now.Add(ampProjectsStale)
+	if _, err := s.Projects(t.Context()); err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Errorf("too old: %v", err)
 	}
 }

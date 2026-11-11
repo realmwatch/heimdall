@@ -313,7 +313,7 @@ The site's **repository** goes in the message so the bot knows what to clone. Th
 
 An agent can also be [Amp](https://ampcode.com): each hand-off then starts a **new Amp thread** in an orb (Amp's hosted environment) that works in the site's repository, and the site page links the thread once it has started. Nothing has to stay running, and there's no thread to keep unarchived.
 
-1. **A service account.** Service accounts need a Team workspace with a payment method on file, or Enterprise. A workspace admin creates one under **Workspace Settings**, **Service Accounts**, and turns on **Generate an API Key** (it's shown once). Its threads, and what they cost, belong to the workspace. Connect it to GitHub with access to the repositories it should fix and nothing more: anyone who can prompt its threads can use what it's connected to.
+1. **A service account.** Service accounts need a Team workspace with a payment method on file, or Enterprise. A workspace admin creates one under **Workspace Settings**, **Service Accounts**, and turns on **Generate an API Key** (it's shown once). Its threads, and what they cost, belong to the workspace. Connect it to GitHub with access to the repositories it should fix and nothing more: anyone who can prompt its threads can use what it's connected to. Give it access to each of those repositories' **Amp projects** too: a thread starts in a project, which gives its orb the repository and the project's environment.
 2. **The Amp CLI on the hub**, outside `/home` (the hub's unit can't see home directories). As your own user:
    ```sh
    curl -fsSL https://ampcode.com/install.sh | bash          # installs ~/.amp/bin/amp
@@ -330,7 +330,7 @@ An agent can also be [Amp](https://ampcode.com): each hand-off then starts a **n
 4. **Store the key**, check it, and restart:
    ```sh
    sudo heimdall agent set-key amp   # paste the key; it's never echoed. Adds LoadCredential=heimdall-agent-amp
-   sudo heimdall agent test amp      # lists the account's latest thread; starts nothing
+   sudo heimdall agent test amp      # checks the key and lists the projects it can start threads in; starts nothing
    sudo heimdall restart
    ```
    An Amp agent whose key or CLI is missing is left out and logged at startup.
@@ -338,8 +338,9 @@ An agent can also be [Amp](https://ampcode.com): each hand-off then starts a **n
 How it differs from a Discord bot:
 
 - **The repository must be known.** The orb works in it, so the confirm page asks you to set it on the site page first, and **All N** leaves out (and counts) repositories it doesn't know.
+- **So must the Amp project.** The hub lists the projects the service account can see (`amp projects list`, reused for five minutes) and uses the one whose repository, or one of its remotes, is the site's, however each URL is written. On the confirm page, **Amp project** shows it ("matched by repository"), and an operator can pick another for the repository, or go back to **Automatic**; the choice applies to every site on the repository and is audited as `handoff.project`. With no project (none uses the repository, several do, the picked one is gone, or the list can't be read) nothing is sent: the page says why and offers the picker, and **All N** leaves those repositories out and counts them. A thread never starts without its repository. The project is part of the digest, so changing it after the page was shown sends nothing.
 - **The prompt** is the message's text without the mention, listing every package (a prompt has no 2,000-character limit), then [the request file](#the-attached-file) in a fenced JSON block labelled as data. Its last step asks for the pull request's link instead of a reply. The confirm page shows both, and the digest covers them.
-- **How it's started.** The hub runs `amp --execute --orb-execute --no-archive-after-execute --title "Heimdall hand-off · <repo> · <request ID>" --project <repo>` with the prompt on stdin, and waits up to 90 seconds for the thread's URL, which the CLI prints before it exits while the agent works on. The key reaches it only as `AMP_API_KEY` in its environment, which has nothing else of the hub's; its home is `amp` in the hub's state directory (`/var/lib/heimdall/amp`). The CLI is a Bun binary, and the hub's unit forbids memory that is both writable and executable, so its JavaScript engine runs without its JIT (`BUN_JSC_useJIT=0`); starting a thread is light work.
+- **How it's started.** The hub runs `amp --execute --orb-execute --no-archive-after-execute --title "Heimdall hand-off · <repo> · <request ID>" --project <project ID>` with the prompt on stdin, and waits up to 90 seconds for the thread's URL, which the CLI prints before it exits while the agent works on. The key reaches it only as `AMP_API_KEY` in its environment, which has nothing else of the hub's; its home is `amp` in the hub's state directory (`/var/lib/heimdall/amp`). The CLI is a Bun binary, and the hub's unit forbids memory that is both writable and executable, so its JavaScript engine runs without its JIT (`BUN_JSC_useJIT=0`); starting a thread is light work.
 - **The result.** The site page says the hand-off was sent and links **Open the Amp thread ↗**; a batch lists each thread. If the CLI fails, the page says so and the hub log has its output (with the key masked). A thread that started counts even if the CLI then failed, so sending again doesn't start a second one.
 
 ### Every site on the repository, and where the pull request goes

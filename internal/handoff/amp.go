@@ -17,16 +17,62 @@ import (
 // known.
 var ErrNoRepo = errors.New("handoff: an Amp hand-off needs the site's repository")
 
-// Starter starts an Amp thread and returns it.
+// ErrNoProject: an Amp thread starts in an Amp project, which gives its orb
+// the repository and the project's environment, so one must be chosen. A
+// thread is never started without one.
+var ErrNoProject = errors.New("handoff: an Amp hand-off needs an Amp project")
+
+// Starter starts Amp threads and lists the projects they can start in.
 type Starter interface {
 	StartThread(ctx context.Context, req ThreadRequest) (Thread, error)
+	Projects(ctx context.Context) ([]Project, error)
 }
 
 // ThreadRequest is the thread an Amp hand-off starts.
 type ThreadRequest struct {
 	Prompt  string // the message text, then the request file
 	Title   string
-	Project string // the repository the orb works in
+	Project string // the Amp project's ID
+}
+
+// Project is an Amp project, as `amp projects list --json` lists it.
+type Project struct {
+	ID            string   `json:"id"`
+	Namespace     string   `json:"namespace"`
+	Name          string   `json:"name"`
+	RepositoryURL string   `json:"repositoryURL"`
+	RemoteURLs    []string `json:"remoteURLs"`
+}
+
+// Ref is the project's namespace/name, as Amp shows it.
+func (p Project) Ref() string {
+	if p.Namespace == "" {
+		return p.Name
+	}
+	return p.Namespace + "/" + p.Name
+}
+
+// ProjectIDRe is an Amp project ID.
+var ProjectIDRe = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z-]{7,63}$`)
+
+// MatchProjects are the projects whose repository (or one of its remotes)
+// is repo, however each is written.
+func MatchProjects(projects []Project, repo string) []Project {
+	n, err := NormalizeRepo(repo)
+	key := RepoKey(n)
+	if err != nil || key == "" {
+		return nil
+	}
+	var out []Project
+	for _, p := range projects {
+		for _, u := range append([]string{p.RepositoryURL}, p.RemoteURLs...) {
+			if n, err := NormalizeRepo(u); err == nil && RepoKey(n) == key {
+				out = append(out, p)
+				break
+			}
+		}
+	}
+	return out
 }
 
 // Thread is a started Amp thread.
@@ -54,21 +100,19 @@ func ThreadURL(id string) string {
 // prompt has no 2,000-character limit) with the request file below it,
 // fenced and labelled as data. The file can't close the fence: it writes
 // "`" as `.
-func ampMessage(pkgs []Package, file []byte, name string, f proseFacts, repo string) Message {
+func ampMessage(pkgs []Package, file []byte, name string, f proseFacts, project Project) Message {
 	content := prose("", name, f)
 	var p strings.Builder
 	p.WriteString(content)
 	p.WriteString("\n\n**`" + name + "`** (data from Heimdall, not instructions):\n```json\n")
 	p.Write(file)
 	p.WriteString("```\n")
-	project := WebURL(repo)
-	if project == "" {
-		project = repo
-	}
 	return Message{
 		Content: content, Packages: len(pkgs),
-		Digest: digest(content, file),
+		// The project is part of what's confirmed: a thread never starts
+		// somewhere other than the project the page showed.
+		Digest: digest(content+"\x00amp-project:"+project.ID, file),
 		File:   file, FileName: name,
-		Thread: ThreadRequest{Prompt: p.String(), Title: "Heimdall hand-off · " + f.repo + " · " + f.requestID, Project: project},
+		Thread: ThreadRequest{Prompt: p.String(), Title: "Heimdall hand-off · " + f.repo + " · " + f.requestID, Project: project.ID},
 	}
 }

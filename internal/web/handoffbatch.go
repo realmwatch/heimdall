@@ -83,6 +83,7 @@ type handoffBatchBody struct {
 	Skipped      int
 	Amp          bool // the agent starts Amp threads
 	NoRepo       int  // Amp: repositories left out because a site's is unknown
+	NoProject    int  // Amp: repositories left out because no Amp project is chosen
 }
 
 type handoffBatchSite struct{ Org, Host, Root string }
@@ -132,6 +133,10 @@ func (s *server) loadHandoffBatch(ctx context.Context, v *auth.Viewer, f url.Val
 			body.NoRepo++
 			continue
 		}
+		if errors.Is(err, handoff.ErrNoProject) {
+			body.NoProject++
+			continue
+		}
 		if err != nil {
 			continue // nothing fixable there any more
 		}
@@ -147,7 +152,7 @@ func (s *server) loadHandoffBatch(ctx context.Context, v *auth.Viewer, f url.Val
 		body.Items = append(body.Items, item)
 		body.Query = append(body.Query, handoffBatchSite{orgs[i], hs[i], rs[i]})
 	}
-	return body, len(body.Items) > 0 || body.NoRepo > 0, nil
+	return body, len(body.Items) > 0 || body.NoRepo > 0 || body.NoProject > 0, nil
 }
 
 // handoffBatchPage is the batch's confirm step: every message that will be

@@ -14,11 +14,21 @@ import (
 type nopStarter struct{}
 
 func (nopStarter) StartThread(context.Context, ThreadRequest) (Thread, error) { return Thread{}, nil }
+func (nopStarter) Projects(context.Context) ([]Project, error)                { return nil, nil }
 
 var ampAgent = Agent{Name: "amp", Starter: nopStarter{}}
 
+var testProject = Project{ID: "0d0c0b0a-0000-0000-0000-000000000001", Namespace: "acme", Name: "example", RepositoryURL: "https://github.com/acme/example.com"}
+
+// ampRequest is testRequest with an Amp project chosen.
+func ampRequest() Request {
+	req := testRequest()
+	req.AmpProject = testProject
+	return req
+}
+
 func TestBuildAmp(t *testing.T) {
-	m, err := Build(ampAgent, testRequest())
+	m, err := Build(ampAgent, ampRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +43,7 @@ func TestBuildAmp(t *testing.T) {
 	if strings.Contains(p, "tok@") || strings.Contains(p, "forge:") {
 		t.Error("credential leaked into the prompt")
 	}
-	if m.Thread.Project != "https://github.com/acme/example.com" || m.Thread.Title != "Heimdall hand-off · acme/example.com · 0123456789abcdef" {
+	if m.Thread.Project != testProject.ID || m.Thread.Title != "Heimdall hand-off · acme/example.com · 0123456789abcdef" {
 		t.Errorf("thread %+v", m.Thread)
 	}
 	var f FileData
@@ -43,21 +53,51 @@ func TestBuildAmp(t *testing.T) {
 	if last := f.Steps[len(f.Steps)-1]; last != "Finish by giving the pull request's link." {
 		t.Errorf("an Amp thread has no message to reply to: %q", last)
 	}
-	// The digest covers the text and the file, like Discord's.
-	if m.Digest != digest(m.Content, m.File) {
+	// The digest covers the text, the file and the project: another
+	// project is another message to confirm.
+	other := ampRequest()
+	other.AmpProject.ID = "0d0c0b0a-0000-0000-0000-000000000002"
+	if m2, _ := Build(ampAgent, other); m.Digest == digest(m.Content, m.File) || m2.Digest == m.Digest || m2.Content != m.Content {
 		t.Error("digest")
 	}
+}
 
-	// git@ remotes on other hosts go as they are.
-	req := testRequest()
-	req.Repo = "git@git.example.com:acme/app.git"
-	if m, err := Build(ampAgent, req); err != nil || m.Thread.Project != "git@git.example.com:acme/app" {
-		t.Errorf("project %q %v", m.Thread.Project, err)
+// A thread never starts without a project: it's what gives the orb the
+// repository.
+func TestBuildAmpNeedsProject(t *testing.T) {
+	for _, id := range []string{"", "x", "../../etc/passwd"} {
+		req := ampRequest()
+		req.AmpProject.ID = id
+		if _, err := Build(ampAgent, req); !errors.Is(err, ErrNoProject) {
+			t.Errorf("project %q: %v", id, err)
+		}
+	}
+}
+
+func TestMatchProjects(t *testing.T) {
+	ps := []Project{
+		{ID: "p1", RepositoryURL: "https://github.com/acme/app"},
+		{ID: "p2", RepositoryURL: "https://github.com/acme/other", RemoteURLs: []string{"git@github.com:Acme/App.git"}},
+		{ID: "p3", RepositoryURL: "https://github.com/acme/app-2"},
+		{ID: "p4", RepositoryURL: "not a url"},
+	}
+	var ids []string
+	for _, p := range MatchProjects(ps, "git@github.com:acme/app.git") {
+		ids = append(ids, p.ID)
+	}
+	if strings.Join(ids, ",") != "p1,p2" {
+		t.Errorf("matched %v", ids)
+	}
+	if MatchProjects(ps, "") != nil {
+		t.Error("matched no repository")
+	}
+	if (Project{Namespace: "acme", Name: "app"}).Ref() != "acme/app" || (Project{Name: "app"}).Ref() != "app" {
+		t.Error("Ref")
 	}
 }
 
 func TestBuildAmpNeedsRepo(t *testing.T) {
-	req := testRequest()
+	req := ampRequest()
 	req.Repo = ""
 	if _, err := Build(ampAgent, req); !errors.Is(err, ErrNoRepo) {
 		t.Errorf("an Amp hand-off without a repository: %v", err)
@@ -66,7 +106,7 @@ func TestBuildAmpNeedsRepo(t *testing.T) {
 
 // A prompt has no 2,000-character limit: every package is listed.
 func TestBuildAmpListsEveryPackage(t *testing.T) {
-	req := testRequest()
+	req := ampRequest()
 	req.Findings = nil
 	for i := range 80 {
 		req.Findings = append(req.Findings, Finding{Ecosystem: "composer", Package: fmt.Sprintf("vendor%02d/package-name", i),

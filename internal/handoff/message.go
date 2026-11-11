@@ -122,6 +122,9 @@ type Request struct {
 	// those with a fixable finding in this site's packages are listed.
 	Sites  []Site
 	Target Target // where the pull request goes; the zero value is TargetDefault
+	// AmpProject is the Amp project an Amp hand-off's thread starts in,
+	// chosen by the caller; required for an Amp agent.
+	AmpProject Project
 }
 
 // Message is a ready-to-post message.
@@ -372,6 +375,9 @@ func Build(agent Agent, req Request) (Message, error) {
 	if agent.IsAmp() && repo == nil {
 		return Message{}, ErrNoRepo
 	}
+	if agent.IsAmp() && !ProjectIDRe.MatchString(req.AmpProject.ID) {
+		return Message{}, ErrNoProject
+	}
 	pkgs := Packages(req.Findings)
 	if len(pkgs) == 0 {
 		return Message{}, errors.New("handoff: no fixable Composer or npm findings")
@@ -393,7 +399,7 @@ func Build(agent Agent, req Request) (Message, error) {
 	name := "heimdall-handoff-" + req.RequestID + ".json"
 	if agent.IsAmp() {
 		return ampMessage(pkgs, file, name, proseFacts{repo: RepoShort(*repo), requestID: req.RequestID, composer: composer, npm: npm,
-			major: anyMajor(pkgs), target: target, sites: sites, listed: pkgs}, *repo), nil
+			major: anyMajor(pkgs), target: target, sites: sites, listed: pkgs}, req.AmpProject), nil
 	}
 	// The text lists as many packages as fit Discord's limit (the most
 	// urgent can't be told apart here, so it's the end of the sorted list

@@ -8,6 +8,7 @@ import (
 	"html"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -22,10 +23,31 @@ const testThread = "T-12345678-aaaa-bbbb-cccc-000000000000"
 // fakeStarter stands in for the Amp CLI: it records each thread it's
 // asked to start and answers with id, or err.
 type fakeStarter struct {
-	mu   sync.Mutex
-	reqs []handoff.ThreadRequest
-	id   string
-	err  error
+	mu       sync.Mutex
+	reqs     []handoff.ThreadRequest
+	id       string
+	err      error
+	projects []handoff.Project // nil: testProjects
+	listErr  error
+}
+
+// testProjects are the Amp projects a fakeStarter lists by default: one for
+// each repository the tests hand off.
+var testProjects = []handoff.Project{
+	{ID: "11111111-0000-0000-0000-000000000001", Namespace: "acme", Name: "example", RepositoryURL: "https://github.com/acme/example.com", RemoteURLs: []string{"https://github.com/acme/example.com"}},
+	{ID: "11111111-0000-0000-0000-00000000000a", Namespace: "acme", Name: "a", RepositoryURL: "https://github.com/acme/a"},
+	{ID: "11111111-0000-0000-0000-00000000000b", Namespace: "acme", Name: "b", RepositoryURL: "https://github.com/acme/b"},
+	{ID: "11111111-0000-0000-0000-0000000000ff", Namespace: "acme", Name: "other", RepositoryURL: "https://github.com/acme/other"},
+}
+
+func (f *fakeStarter) Projects(context.Context) ([]handoff.Project, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	if f.projects == nil {
+		return testProjects, nil
+	}
+	return f.projects, nil
 }
 
 func (f *fakeStarter) StartThread(_ context.Context, req handoff.ThreadRequest) (handoff.Thread, error) {
@@ -65,7 +87,8 @@ func TestHandoffAmp(t *testing.T) {
 	}
 	form, shown := confirm(t, e, "amp")
 	cp = html.UnescapeString(e.get(handoffURL("acme", "app-01", siteRoot, "amp"), signedIn(e)).Body.String())
-	for _, want := range []string{"Start Amp thread", "The prompt", "Then, in the prompt: <code>heimdall-handoff-", "Where it goes:</strong> a new Amp thread"} {
+	for _, want := range []string{"Start Amp thread", "The prompt", "Then, in the prompt: <code>heimdall-handoff-", "Where it goes:</strong> a new Amp thread in the project <strong>acme/example</strong>",
+		"<strong>acme/example</strong> <span class=\"muted small\">matched by repository</span>"} {
 		if !strings.Contains(cp, want) {
 			t.Errorf("confirm page lacks %q", want)
 		}
@@ -84,7 +107,7 @@ func TestHandoffAmp(t *testing.T) {
 	}
 	req := reqs[0]
 	if !strings.HasPrefix(req.Prompt, shown+"\n\n") || !strings.Contains(req.Prompt, "```json\n{") ||
-		req.Project != "https://github.com/acme/example.com" || !strings.HasPrefix(req.Title, "Heimdall hand-off · acme/example.com · ") {
+		req.Project != testProjects[0].ID || !strings.HasPrefix(req.Title, "Heimdall hand-off · acme/example.com · ") {
 		t.Errorf("thread request %+v", req)
 	}
 
@@ -164,5 +187,93 @@ func TestHandoffBatchAmp(t *testing.T) {
 	if w.Code != http.StatusOK || !strings.Contains(res, "Started 2 of 2 Amp threads.") || len(fs.started()) != 2 ||
 		strings.Count(res, `<a href="https://ampcode.com/threads/`+testThread+`" rel="noopener noreferrer">Amp thread ↗</a>`) != 2 {
 		t.Fatalf("send: %d, %d started\n%s", w.Code, len(fs.started()), res)
+	}
+}
+
+// A thread starts only in a chosen Amp project: matched by repository, or
+// picked for the repository by an operator. With none, nothing is sent,
+// and the page says why and offers the picker.
+func TestHandoffAmpProject(t *testing.T) {
+	t.Parallel()
+	fs := &fakeStarter{id: testThread, projects: testProjects[1:]} // none uses acme/example.com
+	e := handoffEnv(t, handoff.Agent{Name: "amp", Starter: fs})
+	host := e.seedSites()
+	asRole(e, host.OrgID, store.RoleOperator)
+	if err := e.st.SetSiteRepo(t.Context(), "test", host.ID, siteRoot, "https://github.com/acme/example.com"); err != nil {
+		t.Fatal(err)
+	}
+	cp := html.UnescapeString(e.get(handoffURL("acme", "app-01", siteRoot, "amp"), signedIn(e)).Body.String())
+	if !strings.Contains(cp, "None of amp's Amp projects uses this repository") || strings.Contains(cp, "Start Amp thread") ||
+		!strings.Contains(cp, `<option value="`+testProjects[3].ID+`">acme/other · acme/other</option>`) {
+		t.Fatalf("confirm page without a project:\n%s", cp)
+	}
+	send := url.Values{"csrf": {auth.CSRFToken(goodToken)}, "root": {siteRoot}, "agent": {"amp"},
+		"request_id": {"0123456789abcdef"}, "digest": {strings.Repeat("0", 64)}}
+	if w := e.post("/hosts/acme/app-01/handoff", send, signedIn(e), origin(e.baseURL)); w.Code != http.StatusBadRequest || len(fs.started()) != 0 {
+		t.Fatalf("send without a project: %d, %d started", w.Code, len(fs.started()))
+	}
+
+	// Only a project the agent can see can be picked.
+	pick := func(id string) int {
+		f := url.Values{"csrf": {auth.CSRFToken(goodToken)}, "root": {siteRoot}, "agent": {"amp"}, "project": {id}}
+		return e.post("/hosts/acme/app-01/handoff/project", f, signedIn(e), origin(e.baseURL)).Code
+	}
+	if code := pick("22222222-0000-0000-0000-000000000000"); code != http.StatusNotFound {
+		t.Errorf("unknown project: %d", code)
+	}
+	if code := pick(testProjects[3].ID); code != http.StatusSeeOther {
+		t.Fatalf("pick: %d", code)
+	}
+	form, _ := confirm(t, e, "amp")
+	cp = html.UnescapeString(e.get(handoffURL("acme", "app-01", siteRoot, "amp"), signedIn(e)).Body.String())
+	if !strings.Contains(cp, "<strong>acme/other</strong> <span class=\"muted small\">picked for this repository</span>") ||
+		!strings.Contains(cp, `<option value="`+testProjects[3].ID+`" selected>`) {
+		t.Errorf("confirm page with a picked project:\n%s", cp)
+	}
+	if w := e.post("/hosts/acme/app-01/handoff", form, signedIn(e), origin(e.baseURL)); w.Code != http.StatusSeeOther {
+		t.Fatalf("send: %d", w.Code)
+	}
+	if reqs := fs.started(); len(reqs) != 1 || reqs[0].Project != testProjects[3].ID {
+		t.Fatalf("started %+v", reqs)
+	}
+
+	// Changing the project after the page was shown changes the digest:
+	// nothing goes to a project the page didn't show.
+	form, _ = confirm(t, e, "amp")
+	if code := pick(""); code != http.StatusSeeOther {
+		t.Fatalf("back to automatic: %d", code)
+	}
+	fs.mu.Lock()
+	fs.projects = testProjects
+	fs.mu.Unlock()
+	if w := e.post("/hosts/acme/app-01/handoff", form, signedIn(e), origin(e.baseURL)); w.Code != http.StatusConflict || len(fs.started()) != 1 {
+		t.Errorf("send after the project changed: %d, %d started", w.Code, len(fs.started()))
+	}
+}
+
+// With the project list unavailable, or several projects on the
+// repository, nothing is sent.
+func TestHandoffAmpProjectUnclear(t *testing.T) {
+	t.Parallel()
+	twice := append(slices.Clone(testProjects), handoff.Project{ID: "11111111-0000-0000-0000-000000000002", Namespace: "acme", Name: "example-2", RepositoryURL: "git@github.com:acme/example.com.git"})
+	for name, tc := range map[string]struct {
+		fs   *fakeStarter
+		want string
+	}{
+		"list fails": {&fakeStarter{id: testThread, listErr: errors.New("amp projects list: exit status 1")}, "Couldn't list amp's Amp projects"},
+		"two match":  {&fakeStarter{id: testThread, projects: twice}, "2 of amp's Amp projects use this repository"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := handoffEnv(t, handoff.Agent{Name: "amp", Starter: tc.fs})
+			host := e.seedSites()
+			asRole(e, host.OrgID, store.RoleOperator)
+			if err := e.st.SetSiteRepo(t.Context(), "test", host.ID, siteRoot, "https://github.com/acme/example.com"); err != nil {
+				t.Fatal(err)
+			}
+			cp := html.UnescapeString(e.get(handoffURL("acme", "app-01", siteRoot, "amp"), signedIn(e)).Body.String())
+			if !strings.Contains(cp, tc.want) || strings.Contains(cp, "Start Amp thread") {
+				t.Errorf("confirm page:\n%s", cp)
+			}
+		})
 	}
 }
