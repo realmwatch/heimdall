@@ -55,7 +55,7 @@
 </section>
 {{$phpRemove := .PHPRemove}}{{$unused := false}}{{range .Report.Runtimes}}{{with .Use}}{{if .Unused}}{{$unused = true}}{{end}}{{end}}{{end}}
 {{if $unused}}<section class="card php-unused" id="php-unused" aria-labelledby="php-unused-h">
-  <h2 id="php-unused-h">Unused PHP</h2>
+  <div class="section-head"><h2 id="php-unused-h">Unused PHP</h2>{{$removeAllN := .PHPRemoveAllN}}{{with .PHPRemoveAll}}<a class="button change-btn php-remove-all" href="{{.}}" target="_blank" rel="noopener noreferrer" title="One proposal per version, each with its own checks, backup and rollback">Propose removing all {{$removeAllN}}</a>{{end}}</div>
   <p class="muted small">Installed, but no site's PHP-FPM uses the versions below and their PHP-FPM isn't running. Removing one takes its packages, and their advisories, off the server. On {{.Name}}, in order:</p>
   {{range .Report.Runtimes}}{{with .Use}}{{if .Unused}}<div class="php-ver">
     <h3>PHP {{.Minor}} <span class="muted small">{{len .Packages}} package{{if ne (len .Packages) 1}}s{{end}}</span>{{with index $phpRemove .Minor}} <a class="button change-btn php-remove" href="{{.}}" target="_blank" rel="noopener noreferrer">Propose removal</a>{{end}}</h3>

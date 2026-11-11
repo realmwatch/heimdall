@@ -240,3 +240,20 @@ func TestInstallButtonsCount(t *testing.T) {
 		t.Errorf("one: %q", got)
 	}
 }
+
+// One link removes every version that has its own, in version order, and
+// only when there are at least two.
+func TestPHPRemoveAllLink(t *testing.T) {
+	t.Parallel()
+	c := ChangeLink{ActionURL: "https://changes.example.com/propose?action={action}&org={org}&host={host}&{params}"}
+	got, n := c.phpRemoveAllLink("acme", "web-01", map[string]string{"8.10": "x", "7.4": "x", "8.3": "x"})
+	if want := "https://changes.example.com/propose?action=php.remove&org=acme&host=web-01&php=7.4%2C8.3%2C8.10"; got != want || n != 3 {
+		t.Errorf("got %q (%d), want %q", got, n, want)
+	}
+	if got, n := c.phpRemoveAllLink("acme", "web-01", map[string]string{"8.3": "x"}); got != "" || n != 0 {
+		t.Errorf("one version: %q (%d)", got, n)
+	}
+	if got, _ := (ChangeLink{}).phpRemoveAllLink("acme", "web-01", nil); got != "" {
+		t.Errorf("no template: %q", got)
+	}
+}

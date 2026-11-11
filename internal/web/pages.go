@@ -144,8 +144,10 @@ type hostBody struct {
 	CollectorBehind bool              // upgrading the host's collector would change it (updates.CollectorChanged)
 	CollectorURL    string            // drafts the upgrade in a change-management tool (changelink.go)
 	PHPRemove       map[string]string // unused PHP version to its removal link (changelink.go)
-	CollectorKnown  bool              // this hub is a release build, so the comparison means something
-	ShowAll         bool              // show every finding instead of the first findingsCap
+	PHPRemoveAll    string            // one link removing every version in PHPRemove, when there are 2+
+	PHPRemoveAllN   int
+	CollectorKnown  bool // this hub is a release build, so the comparison means something
+	ShowAll         bool // show every finding instead of the first findingsCap
 	Packages        []store.InventoryPackage
 	Commands        []command
 	Anomalies       []store.AnomalyRow
@@ -302,6 +304,7 @@ func (s *server) hostPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 		body.CollectorURL = s.cfg.ChangeLink.collectorLink(host.OrgSlug, host.Name, body.CollectorBehind)
 	}
 	body.PHPRemove = s.cfg.ChangeLink.phpRemoveLinks(host.OrgSlug, host.Name, body.Report.Runtimes)
+	body.PHPRemoveAll, body.PHPRemoveAllN = s.cfg.ChangeLink.phpRemoveAllLink(host.OrgSlug, host.Name, body.PHPRemove)
 	if raw, err := s.st.HostTriggers(ctx, host.ID); err == nil {
 		if t, err := triggers.Parse(raw); err == nil {
 			body.ChangeWatch = t.ChangeWatch()
