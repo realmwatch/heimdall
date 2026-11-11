@@ -84,7 +84,7 @@ func TestHostPagePrivilege(t *testing.T) {
 			}
 			continue
 		}
-		if !strings.Contains(body, ">"+want+"</span>") || !strings.Contains(hosts, `href="/hosts/acme/web-01"`) || !strings.Contains(hosts, ">"+want+"</span>") {
+		if !strings.Contains(body, ">"+want+"</span>") || !strings.Contains(hosts, `href="/hosts/acme/web-01"`) || !strings.Contains(hosts, `aria-label="`+want+`"`) {
 			t.Errorf("%q: host page or list doesn't flag %q", detail, want)
 		}
 	}

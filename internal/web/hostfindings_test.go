@@ -237,7 +237,7 @@ func TestHostPageCalm(t *testing.T) {
 			t.Errorf("watched page missing %q", want)
 		}
 	}
-	if hosts := e.get("/hosts?only=watch", signedIn(e)).Body.String(); !strings.Contains(hosts, `href="/hosts/acme/web-01"`) || !strings.Contains(hosts, `data-label="To watch"><span class="sub-warn">1</span>`) {
+	if hosts := e.get("/hosts?only=watch", signedIn(e)).Body.String(); !strings.Contains(hosts, `href="/hosts/acme/web-01"`) || !strings.Contains(hosts, `data-label="Watch"><span class="sub-warn">1</span>`) {
 		t.Error("the host list should show web-01 to watch")
 	}
 }

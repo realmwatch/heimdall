@@ -119,7 +119,7 @@ func TestCollectorLink(t *testing.T) {
 
 func TestCollectorLinkOnPages(t *testing.T) {
 	t.Parallel()
-	const tooltip = `title="On the server: sudo heimdall-collect upgrade">behind</span>`
+	const tooltip = `title="Collector 0.1.0 is behind. On the server: sudo heimdall-collect upgrade"`
 	const href = `href="https://changes.example.com/collector?org=acme&amp;host=web-01"`
 
 	off := newEnvCfg(t, "http://127.0.0.1:8080", nil, func(c *Config) { c.Version = "v9.0.0" })
@@ -255,5 +255,26 @@ func TestPHPRemoveAllLink(t *testing.T) {
 	}
 	if got, _ := (ChangeLink{}).phpRemoveAllLink("acme", "web-01", nil); got != "" {
 		t.Errorf("no template: %q", got)
+	}
+}
+
+// A host list row names its end-of-life runtimes in one pill per state,
+// with the names and dates on hover.
+func TestNonOSEOLSummary(t *testing.T) {
+	d := time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC)
+	h := fleetHost{Life: []lifeItem{
+		{Label: "Ubuntu 20.04", State: "eol", OS: true},
+		{Label: "PHP 8.1", State: "eol", Life: &report.Lifecycle{EOLDate: &d}},
+		{Label: "PHP 8.1", State: "eol", Life: &report.Lifecycle{EOLDate: &d}},
+		{Label: "Python 3.8", State: "eol"},
+		{Label: "PHP 8.2", State: "soon"},
+		{Label: "Node.js 22", State: "ok"},
+	}}
+	s := h.NonOSEOLSummary()
+	if s.EOL != 2 || s.Soon != 1 || s.EOLTitle != "End of life: PHP 8.1 (Dec 31, 2025), Python 3.8" || s.SoonTitle != "End of life soon: PHP 8.2" {
+		t.Errorf("%+v", s)
+	}
+	if s := (fleetHost{}).NonOSEOLSummary(); s != (lifeSummary{}) {
+		t.Errorf("none: %+v", s)
 	}
 }

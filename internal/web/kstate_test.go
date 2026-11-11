@@ -140,7 +140,7 @@ func TestKernelCaseCounts(t *testing.T) {
 	if r := row(storetest.RebootPendingHost); !strings.Contains(r, `>reboot pending</span>`) || !strings.Contains(r, `<span class="badge kev">4</span>`) {
 		t.Errorf("web-01 row: %s", r)
 	}
-	if r := row(storetest.OldKernelHost); !strings.Contains(r, `data-label="Not running">4</td>`) || strings.Contains(r, `badge kev`) {
+	if r := row(storetest.OldKernelHost); strings.Contains(r, `data-label="Not running"`) || strings.Contains(r, `badge kev`) {
 		t.Errorf("web-02 row: %s", r)
 	}
 	if body := e.get("/hosts?only=kev", signedIn(e)).Body.String(); strings.Contains(body, storetest.OldKernelHost) {
