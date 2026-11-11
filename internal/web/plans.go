@@ -30,7 +30,7 @@ type planBody struct {
 	CanReopen  bool
 	Error      string
 	// Updates are the "Install updates on N hosts" links: one per batch
-	// and org, for the hosts not yet done ([change_link] fleet_updates_url).
+	// and org, for the hosts not yet done ([change_link] action_url).
 	Updates []planUpdates
 }
 
@@ -42,10 +42,10 @@ type planUpdates struct {
 }
 
 // planUpdateLinks groups the plan's hosts that aren't done yet by batch,
-// then org (the tool links one org at a time), in at most fleetUpdatesMax
+// then org (the tool links one org at a time), in at most actionHostsMax
 // hosts per link.
 func planUpdateLinks(c ChangeLink, items []store.PlanItem) []planUpdates {
-	if c.FleetUpdatesURL == "" {
+	if c.ActionURL == "" {
 		return nil
 	}
 	type key struct {
@@ -67,8 +67,8 @@ func planUpdateLinks(c ChangeLink, items []store.PlanItem) []planUpdates {
 	slices.SortStableFunc(order, func(a, b key) int { return cmp.Or(cmp.Compare(a.batch, b.batch), cmp.Compare(a.org, b.org)) })
 	var links []planUpdates
 	for _, k := range order {
-		for chunk := range slices.Chunk(hosts[k], fleetUpdatesMax) {
-			links = append(links, planUpdates{Batch: k.batch, Org: k.org, Hosts: len(chunk), URL: c.fleetUpdatesLink(k.org, chunk)})
+		for chunk := range slices.Chunk(hosts[k], actionHostsMax) {
+			links = append(links, planUpdates{Batch: k.batch, Org: k.org, Hosts: len(chunk), URL: c.hostsActionLink("updates.install", k.org, chunk)})
 		}
 	}
 	return links

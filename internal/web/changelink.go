@@ -15,14 +15,11 @@ import (
 // change-management tool, which drafts the change there. The hub only
 // builds the URLs; it never calls the tool. Zero is off.
 type ChangeLink struct {
-	URL        string // template with {org}, {host}, {package} and {finding}
-	UpdatesURL string // template with {org} and {host}: every pending update
-	// FleetUpdatesURL is a template with {org} and {hosts}: every pending
-	// update on several hosts, from a patch plan.
-	FleetUpdatesURL string
-	CollectorURL    string // template with {org} and {host}: upgrade the collector
-	ActionURL       string // template with {org}, {host}, {action} and {params}: any other change
-	Label           string // a package link's text, e.g. "Fix"
+	URL          string // template with {org}, {host}, {package} and {finding}
+	UpdatesURL   string // template with {org} and {host}: every pending update
+	CollectorURL string // template with {org} and {host}: upgrade the collector
+	ActionURL    string // template with {org}, {host}, {action} and {params}: any other change
+	Label        string // a package link's text, e.g. "Fix"
 	// AgentService is the *-agent service the host list looks for; "" = no column.
 	AgentService string
 }
@@ -67,20 +64,18 @@ func (c ChangeLink) updatesLink(org, host string, pending int) string {
 	return hostLink(c.UpdatesURL, org, host)
 }
 
-// fleetUpdatesMax is the most hosts one "Install updates" link names; a
-// bigger batch gets several links.
-const fleetUpdatesMax = 100
+// actionHostsMax is the most hosts one action link names (in {params}'s
+// hosts); more get several links.
+const actionHostsMax = 100
 
-// fleetUpdatesLink fills the patch plan's template for hosts, all in org.
-func (c ChangeLink) fleetUpdatesLink(org string, hosts []string) string {
-	if c.FleetUpdatesURL == "" || len(hosts) == 0 {
+// hostsActionLink fills the action template for an action on several
+// hosts, all in org: {host} is empty and {params} has hosts, the names
+// comma-separated.
+func (c ChangeLink) hostsActionLink(action, org string, hosts []string) string {
+	if len(hosts) == 0 {
 		return ""
 	}
-	names := make([]string, len(hosts))
-	for i, h := range hosts {
-		names[i] = url.QueryEscape(h)
-	}
-	return strings.NewReplacer("{org}", url.QueryEscape(org), "{hosts}", strings.Join(names, ",")).Replace(c.FleetUpdatesURL)
+	return c.actionLink(action, org, "", url.Values{"hosts": {strings.Join(hosts, ",")}})
 }
 
 // collectorLink fills the "Update collector" template, or is "" when the
