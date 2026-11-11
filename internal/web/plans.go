@@ -3,9 +3,11 @@
 package web
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -27,6 +29,49 @@ type planBody struct {
 	CanOperate bool         // and the plan is open
 	CanReopen  bool
 	Error      string
+	// Updates are the "Install updates on N hosts" links: one per batch
+	// and org, for the hosts not yet done ([change_link] fleet_updates_url).
+	Updates []planUpdates
+}
+
+type planUpdates struct {
+	Batch int
+	Org   string // shown only on a cross-org plan
+	Hosts int
+	URL   string
+}
+
+// planUpdateLinks groups the plan's hosts that aren't done yet by batch,
+// then org (the tool links one org at a time), in at most fleetUpdatesMax
+// hosts per link.
+func planUpdateLinks(c ChangeLink, items []store.PlanItem) []planUpdates {
+	if c.FleetUpdatesURL == "" {
+		return nil
+	}
+	type key struct {
+		batch int
+		org   string
+	}
+	var order []key
+	hosts := map[key][]string{}
+	for _, it := range items {
+		if !it.DoneAt.IsZero() {
+			continue
+		}
+		k := key{it.Batch, it.Host.OrgSlug}
+		if _, ok := hosts[k]; !ok {
+			order = append(order, k)
+		}
+		hosts[k] = append(hosts[k], it.Host.Name)
+	}
+	slices.SortStableFunc(order, func(a, b key) int { return cmp.Or(cmp.Compare(a.batch, b.batch), cmp.Compare(a.org, b.org)) })
+	var links []planUpdates
+	for _, k := range order {
+		for chunk := range slices.Chunk(hosts[k], fleetUpdatesMax) {
+			links = append(links, planUpdates{Batch: k.batch, Org: k.org, Hosts: len(chunk), URL: c.fleetUpdatesLink(k.org, chunk)})
+		}
+	}
+	return links
 }
 
 func (s *server) plansPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer) {
@@ -114,6 +159,9 @@ func (s *server) renderPlan(w http.ResponseWriter, r *http.Request, v *auth.View
 	body := planBody{Plan: p, Items: items, Error: errMsg,
 		CanOperate: v.Scope.CanOperatePlan(p) && p.ClosedAt.IsZero(),
 		CanReopen:  v.Scope.CanOperatePlan(p) && !p.ClosedAt.IsZero()}
+	if body.CanOperate {
+		body.Updates = planUpdateLinks(s.cfg.ChangeLink, items)
+	}
 	for _, h := range hosts {
 		if !in[h.ID] {
 			body.Candidates = append(body.Candidates, h)

@@ -3,6 +3,7 @@
 <h1>{{.Plan.Name}}</h1>
 {{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
 <p class="muted">{{.Plan.Hosts}} hosts · {{.Plan.Done}} done · {{.Plan.Verified}} verified{{if not .Plan.ClosedAt.IsZero}} · closed {{ts .Plan.ClosedAt}}{{end}}</p>
+{{if .Updates}}<p class="change-link">{{$cross := eq .Plan.OrgSlug ""}}{{range .Updates}}<a class="button change-btn" href="{{.URL}}" target="_blank" rel="noopener noreferrer">Batch {{.Batch}}{{if $cross}} · {{.Org}}{{end}}: install updates on {{.Hosts}} host{{if ne .Hosts 1}}s{{end}}</a> {{end}}<span class="muted small">Opens your change-management tool to draft every pending update on the hosts not yet done. Heimdall sends it nothing.</span></p>{{end}}
 <div class="scroll"><table>
   <thead><tr><th>Batch</th><th>Host</th><th>Pending security</th><th>State</th>{{if $can}}<th></th>{{end}}</tr></thead>
   <tbody>{{range .Items}}<tr>

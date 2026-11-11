@@ -155,6 +155,10 @@ label = "Fix"
 # "Install all updates" on a host's page: a link with {org} and {host} that
 # drafts every pending update on the host. Off while empty.
 updates_url = ""
+# "Install updates on N hosts" on a patch plan, one link per batch and org:
+# {org} and {hosts} (the host names, comma-separated) draft every pending
+# update on each host. Off while empty.
+fleet_updates_url = ""
 # "Update collector" on a host whose collector is behind: a link with {org}
 # and {host} that drafts the upgrade. Off while empty.
 collector_url = ""
