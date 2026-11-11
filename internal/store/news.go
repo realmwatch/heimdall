@@ -286,6 +286,30 @@ func (s *Store) LiveNewsCVEs(ctx context.Context) (map[string]bool, error) {
 	return out, rows.Err()
 }
 
+// liveNewsCVEsSince maps each CVE named by a live news incident to when the
+// earliest such incident started.
+func (s *Store) liveNewsCVEsSince(ctx context.Context) (map[string]time.Time, error) {
+	rows, err := s.rd.QueryContext(ctx,
+		`SELECT c.value, min(n.started_at) FROM news_items n, json_each(n.cve_ids) c WHERE n.status = 'live' GROUP BY c.value`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]time.Time{}
+	for rows.Next() {
+		var c string
+		var started sql.NullString
+		if err := rows.Scan(&c, &started); err != nil {
+			return nil, err
+		}
+		out[c] = time.Time{}
+		if started.Valid && started.String != "" {
+			out[c] = parseTime(started.String)
+		}
+	}
+	return out, rows.Err()
+}
+
 const newsColumns = `n.id, n.source, n.slug, n.category, n.title, n.url, n.severity, n.patch_status, n.status,
 	n.product, n.stacks, n.tags, n.cve_ids, n.affected, n.fixed, n.summary, n.started_at, n.updated_at,
 	n.closed_at, n.fetched_at`

@@ -14,7 +14,7 @@
   {{range .}}
   <tr>
     <td><span class="sev sev-{{sev .Severity}}">{{.Severity}}</span>{{if .CVSS}} <span class="muted">{{printf "%.1f" .CVSS}}</span>{{end}}{{if or .KEV .InNews .KernelStatus .ClientOnly (hotEPSS .EPSS)}}<div class="find-badges">{{if .KEV}}<span class="badge kev" title="CISA Known Exploited Vulnerability">KEV</span>{{end}}{{if .InNews}} <a class="badge news" href="/news" title="Named by a live incident in the news">in the news</a>{{end}}{{template "epssbadge" .EPSS}}{{template "kernelbadge" .KernelStatus}}{{template "clientbadge" .ClientOnly}}</div>{{end}}</td>
-    <td><span class="id">{{with first .CVEs}}{{.}}{{else}}{{.Advisory}}{{end}}</span>{{if .Summary}}<div class="summary" title="{{.Summary}}">{{.Summary}}</div>{{end}}</td>
+    <td><span class="id">{{with first .CVEs}}{{.}}{{else}}{{.Advisory}}{{end}}</span>{{template "findages" .}}{{if .Summary}}<div class="summary" title="{{.Summary}}">{{.Summary}}</div>{{end}}</td>
     <td>{{.Package}}{{if eq .Ecosystem "npm"}} <span class="tag">npm</span>{{end}}{{if .Dev}}{{template "devbadge"}}{{end}}{{if gt (len .Binaries) 1}}<div class="muted small">{{join .Binaries ", "}}</div>{{end}}</td>
     <td class="ver">{{.Version}}</td>
     <td class="ver">{{if .Fixed}}{{.Fixed}}{{if .FixPending}} <span class="badge ok">update pending</span>{{end}}{{else}}<span class="muted">no fix yet</span>{{end}}</td>
@@ -109,7 +109,7 @@
       <div class="pkg-panel">
         {{if .ChangeURL}}<p class="change-link"><a class="button change-btn" href="{{.ChangeURL}}" target="_blank" rel="noopener noreferrer">{{.ChangeLabel}} {{.Package}}</a></p>{{end}}
         {{if gt (len .Binaries) 1}}<p class="muted small">Binary packages: {{join .Binaries ", "}}</p>{{end}}
-        <ul class="pkg-findings">{{range head .Findings 100 false}}<li><span class="sev sev-{{sev .Severity}}">{{.Severity}}</span>{{if .KEV}} <span class="badge kev">KEV</span>{{end}}{{if .InNews}} <span class="badge news" title="Named by a live incident in the news">in the news</span>{{end}}{{template "epssbadge" .EPSS}} <span class="id">{{with first .CVEs}}{{.}}{{else}}{{.Advisory}}{{end}}</span>{{if .Fixed}} <span class="muted small">fixed in {{.Fixed}}</span>{{else}} <span class="muted small">no fix yet</span>{{end}}{{if .Summary}}<div class="summary" title="{{.Summary}}">{{.Summary}}</div>{{end}}</li>{{end}}</ul>
+        <ul class="pkg-findings">{{range head .Findings 100 false}}<li><span class="sev sev-{{sev .Severity}}">{{.Severity}}</span>{{if .KEV}} <span class="badge kev">KEV</span>{{end}}{{if .InNews}} <span class="badge news" title="Named by a live incident in the news">in the news</span>{{end}}{{template "epssbadge" .EPSS}} <span class="id">{{with first .CVEs}}{{.}}{{else}}{{.Advisory}}{{end}}</span>{{if .Fixed}} <span class="muted small">fixed in {{.Fixed}}</span>{{else}} <span class="muted small">no fix yet</span>{{end}}{{template "findages" .}}{{if .Summary}}<div class="summary" title="{{.Summary}}">{{.Summary}}</div>{{end}}</li>{{end}}</ul>
         {{if gt (len .Findings) 100}}<p class="more">The 100 most important of {{len .Findings}}; switch to All findings to see every one.</p>{{end}}
       </div>
     </details>{{end}}
@@ -117,6 +117,16 @@
 {{end}}
 
 {{/* epssbadge: an EPSS score worth watching (store.WatchEPSS or more), with a leading space. */}}
+{{/* findages: how long a report.Finding has been public, known-exploited
+     and in the news, with the dates on hover; nothing when none is known. */}}
+{{define "findages"}}{{if or (not .Published.IsZero) (not .KEVAdded.IsZero) (not .NewsSince.IsZero)}} <span class="find-ages muted small">
+{{- with .Published}}{{if not .IsZero}}<span title="Advisory published {{day .}}">public {{age .}}</span>{{end}}{{end}}
+{{- if and (not .KEVAdded.IsZero) (not .Published.IsZero)}} · {{end}}
+{{- with .KEVAdded}}{{if not .IsZero}}<span title="Added to CISA's Known Exploited Vulnerabilities {{day .}}">KEV {{age .}}</span>{{end}}{{end}}
+{{- if and (not .NewsSince.IsZero) (or (not .Published.IsZero) (not .KEVAdded.IsZero))}} · {{end}}
+{{- with .NewsSince}}{{if not .IsZero}}<span title="In the news since {{day .}}">in the news {{age .}}</span>{{end}}{{end -}}
+</span>{{end}}{{end}}
+
 {{define "epssbadge"}}{{if hotEPSS .}} <span class="badge warn" title="EPSS: a {{pct .}} chance of exploitation in the next 30 days">EPSS {{pct .}}</span>{{end}}{{end}}
 
 {{/* devbadge: an npm dev dependency, with a leading space. */}}

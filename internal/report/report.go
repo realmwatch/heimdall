@@ -162,6 +162,12 @@ type Finding struct {
 	Dev           bool      `json:"dev,omitempty"`     // on an npm dev dependency (see Counts.Dev)
 	EPSS          float64   `json:"epss,omitempty"`    // exploit probability (0-1), when known
 	InNews        bool      `json:"in_news,omitempty"` // named by a live threat-news incident
+	// Published is when the advisory was published, KEVAdded when CISA
+	// listed it as known-exploited, and NewsSince when the earliest live
+	// news incident naming it started; zero when unknown or not.
+	Published time.Time `json:"published,omitzero"`
+	KEVAdded  time.Time `json:"kev_added,omitzero"`
+	NewsSince time.Time `json:"news_since,omitzero"`
 	// NotRunning: every package is part of an older kernel that's
 	// installed but not running, so removing it (not upgrading) clears it.
 	NotRunning bool `json:"not_running,omitempty"`
@@ -300,7 +306,7 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 					KEV: f.KEV, KEVRansomware: f.KEVRansomware, Package: f.Package, Version: f.Version,
 					Binaries: nonNil(f.Binaries), Fixed: f.FixedVersion, FixPending: f.FixPending,
 					Summary: f.Summary, FirstSeen: f.FirstSeen, Site: f.SiteRoot, Ecosystem: f.Ecosystem, Dev: f.Dev,
-					EPSS: f.EPSS, InNews: f.InNews,
+					EPSS: f.EPSS, InNews: f.InNews, Published: f.Published, KEVAdded: f.KEVAdded, NewsSince: f.NewsSince,
 					NotRunning: status == kernel.StatusNotRunning, KernelStatus: status, ClientOnly: server,
 				})
 				host.Counts.add(f, status, server != "")

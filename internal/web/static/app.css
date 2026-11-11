@@ -808,6 +808,9 @@ a.badge.news:hover { text-decoration: none; filter: brightness(1.1); }
 /* Findings tables: KEV / in-the-news badges sit under the severity, so
    no column is spent on them (most rows have neither). */
 .find-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.find-ages span[title] { cursor: help; }
+table.findings .find-ages { display: block; margin-top: 2px; }
+ul.pkg-findings .find-ages::before { content: "· "; }
 /* The severity and its score stay on one line in findings tables. */
 table.findings td:first-child { white-space: nowrap; }
 

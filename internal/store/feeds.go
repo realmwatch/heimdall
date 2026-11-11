@@ -710,11 +710,14 @@ type ReportFinding struct {
 	FixedVersion  string
 	FixPending    bool
 	FirstSeen     time.Time
-	SiteRoot      string  // "" for OS packages
-	Ecosystem     string  // OSV's: the distro's, "Packagist", "npm" or "PyPI"
-	Dev           bool    // an npm dev dependency (see Finding.Dev)
-	EPSS          float64 // highest EPSS score among the advisory's CVEs (0 if none)
-	InNews        bool    // one of its CVEs is named by a live news incident
+	SiteRoot      string    // "" for OS packages
+	Ecosystem     string    // OSV's: the distro's, "Packagist", "npm" or "PyPI"
+	Dev           bool      // an npm dev dependency (see Finding.Dev)
+	EPSS          float64   // highest EPSS score among the advisory's CVEs (0 if none)
+	InNews        bool      // one of its CVEs is named by a live news incident
+	Published     time.Time // when the advisory was published; zero if unknown
+	KEVAdded      time.Time // when CISA first listed one of its CVEs as known-exploited; zero if not
+	NewsSince     time.Time // when the earliest live incident naming it started; zero if none
 }
 
 // OpenFindings lists a host's open findings in patch-priority order: known
@@ -729,7 +732,10 @@ func (s *Store) OpenFindings(ctx context.Context, hostID int64) ([]ReportFinding
 		       coalesce((SELECT max(k.known_ransomware) + 1 FROM kev_entries k
 		                 WHERE k.cve_id = a.id OR k.cve_id IN (SELECT alias FROM advisory_aliases WHERE advisory_id = a.id)), 0),
 		       coalesce((SELECT max(e.score) FROM epss_scores e
-		                 WHERE e.cve_id = a.id OR e.cve_id IN (SELECT alias FROM advisory_aliases WHERE advisory_id = a.id)), 0)
+		                 WHERE e.cve_id = a.id OR e.cve_id IN (SELECT alias FROM advisory_aliases WHERE advisory_id = a.id)), 0),
+		       coalesce(a.published, ''),
+		       coalesce((SELECT min(k.date_added) FROM kev_entries k
+		                 WHERE k.cve_id = a.id OR k.cve_id IN (SELECT alias FROM advisory_aliases WHERE advisory_id = a.id)), '')
 		FROM findings f JOIN advisories a ON a.id = f.advisory_id
 		WHERE f.host_id = ? AND f.resolved_at IS NULL AND a.withdrawn IS NULL`, hostID)
 	if err != nil {
@@ -739,11 +745,17 @@ func (s *Store) OpenFindings(ctx context.Context, hostID int64) ([]ReportFinding
 	var out []ReportFinding
 	for rows.Next() {
 		var f ReportFinding
-		var bins, first, cves string
+		var bins, first, cves, published, kevAdded string
 		var pending, kev, dev int64
 		if err := rows.Scan(&f.ID, &f.AdvisoryID, &f.Summary, &f.Severity, &f.CVSS, &f.Package, &f.Version, &bins,
-			&f.FixedVersion, &pending, &first, &f.SiteRoot, &f.Ecosystem, &dev, &cves, &kev, &f.EPSS); err != nil {
+			&f.FixedVersion, &pending, &first, &f.SiteRoot, &f.Ecosystem, &dev, &cves, &kev, &f.EPSS, &published, &kevAdded); err != nil {
 			return nil, err
+		}
+		if published != "" {
+			f.Published, _ = time.Parse(time.RFC3339Nano, published)
+		}
+		if kevAdded != "" {
+			f.KEVAdded, _ = time.Parse(time.DateOnly, kevAdded)
 		}
 		json.Unmarshal([]byte(bins), &f.Binaries)
 		f.FixPending, f.FirstSeen, f.Dev = pending == 1, parseTime(first), dev == 1
@@ -759,15 +771,19 @@ func (s *Store) OpenFindings(ctx context.Context, hostID int64) ([]ReportFinding
 		return nil, err
 	}
 	rows.Close()
-	news, err := s.LiveNewsCVEs(ctx)
+	news, err := s.liveNewsCVEsSince(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for i := range out {
 		f := &out[i]
-		f.InNews = news[f.AdvisoryID]
-		for _, c := range f.CVEs {
-			f.InNews = f.InNews || news[c]
+		for _, c := range append([]string{f.AdvisoryID}, f.CVEs...) {
+			if t, ok := news[c]; ok {
+				f.InNews = true
+				if f.NewsSince.IsZero() || (!t.IsZero() && t.Before(f.NewsSince)) {
+					f.NewsSince = t
+				}
+			}
 		}
 	}
 	sortFindings(out)

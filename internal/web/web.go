@@ -723,6 +723,7 @@ var funcs = template.FuncMap{
 	// dayAgoText is dayAgo in UTC, for attributes.
 	"dayAgoText": func(t *time.Time) string { return dayAgo(t, time.Now()) },
 	"ago":        ago,
+	"age":        age,
 	// sev maps a severity to a CSS class suffix from a fixed set.
 	"sev": func(s string) string {
 		if severities[s] {
@@ -851,6 +852,24 @@ func siteURL(org, host, root string) string {
 }
 
 func ago(t time.Time) string { return agoAt(t, time.Now()) }
+
+func age(t time.Time) string { return ageAt(t, time.Now()) }
+
+// ageAt is a compact age in days, months or years, for dates that matter
+// over weeks and years (when an advisory was published, or listed as
+// known-exploited): "today", "12d ago", "8mo ago", "3y ago".
+func ageAt(t, now time.Time) string {
+	days := int(now.Sub(t).Hours() / 24)
+	switch {
+	case days < 1:
+		return "today"
+	case days < 60:
+		return fmt.Sprintf("%dd ago", days)
+	case days < 730:
+		return fmt.Sprintf("%dmo ago", days*12/365)
+	}
+	return fmt.Sprintf("%dy ago", days/365)
+}
 
 func agoAt(t, now time.Time) string {
 	if t.IsZero() {

@@ -4,6 +4,7 @@ package web
 
 import (
 	"encoding/json"
+	"html/template"
 	"net/http"
 	"os"
 	"strconv"
@@ -175,5 +176,44 @@ func TestPHPRemoveLinks(t *testing.T) {
 	}
 	if got := (ChangeLink{}).phpRemoveLinks("acme", "web-01", runtimes); got != nil {
 		t.Errorf("no template got links: %v", got)
+	}
+}
+
+func TestAgeAt(t *testing.T) {
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		d    time.Duration
+		want string
+	}{{time.Hour, "today"}, {12 * 24 * time.Hour, "12d ago"}, {59 * 24 * time.Hour, "59d ago"},
+		{60 * 24 * time.Hour, "1mo ago"}, {240 * 24 * time.Hour, "7mo ago"}, {800 * 24 * time.Hour, "2y ago"}} {
+		if got := ageAt(now.Add(-tc.d), now); got != tc.want {
+			t.Errorf("%v: %q, want %q", tc.d, got, tc.want)
+		}
+	}
+}
+
+// A finding shows how long it's been public, known-exploited and in the
+// news, each with its date on hover, and nothing for what isn't known.
+func TestFindAgesTemplate(t *testing.T) {
+	tmpl := template.Must(template.New("t").Funcs(funcs).ParseFiles("templates/partials.html"))
+	now := time.Now()
+	render := func(f report.Finding) string {
+		var b strings.Builder
+		if err := tmpl.ExecuteTemplate(&b, "findages", f); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	if got := render(report.Finding{}); got != "" {
+		t.Errorf("no dates: %q", got)
+	}
+	got := render(report.Finding{Published: now.Add(-400 * 24 * time.Hour), KEVAdded: now.Add(-12 * 24 * time.Hour), NewsSince: now.Add(-2 * 24 * time.Hour)})
+	for _, want := range []string{">public 13mo ago</span> · <span", ">KEV 12d ago</span> · <span", ">in the news 2d ago</span>", `title="Added to CISA's Known Exploited Vulnerabilities `} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %q", want, got)
+		}
+	}
+	if got := render(report.Finding{KEVAdded: now.Add(-12 * 24 * time.Hour)}); strings.Contains(got, "·") || !strings.Contains(got, "KEV 12d ago") {
+		t.Errorf("KEV only: %q", got)
 	}
 }
