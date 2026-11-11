@@ -16,7 +16,6 @@ None of these lets anyone change anything through Heimdall. The hub still never 
 url   = "https://changes.example.com/new?org={org}&host={host}&package={package}&findings={finding}"
 label = "Fix"
 updates_url = "https://changes.example.com/updates?org={org}&host={host}"
-fleet_updates_url = "https://changes.example.com/updates?org={org}&hosts={hosts}"
 collector_url = "https://changes.example.com/collector?org={org}&host={host}"
 action_url = "https://changes.example.com/propose?action={action}&org={org}&host={host}&{params}"
 ```
@@ -28,17 +27,16 @@ With `url` set, a host page gets links next to its findings:
 
 With `updates_url` set, a host with pending updates also gets **Install all updates**, in the same two places. It names the host and no findings: the tool asks the server what's pending and drafts that. Each link is independent, so either can be on alone. `updates_url` takes only `{org}` and `{host}`. On a hub set up earlier, add the line under `[change_link]` yourself; `heimdall config update` only adds whole sections.
 
-With `fleet_updates_url` set, an open patch plan gets **Batch N: install updates on N hosts** above its table, one link per batch, for the hosts not yet marked done. That lets you work through a maintenance window batch by batch, canaries first. The link names the hosts and nothing else: the tool asks each server what's pending and drafts that. `{hosts}` is the host names, comma-separated (each one URL-escaped), at most 100 per link; a bigger batch gets several links. The tool links one org at a time, so a fleet-wide plan gets one link per batch and org, and `{org}` is that org. Only operators see the links. Marking a host done still works as before, and a clean check-in verifies it. On a hub set up earlier, add the line under `[change_link]` yourself.
-
 With `collector_url` set, a host whose collector is behind gets an **update ↗** link in place of its "update available" pill, and its "behind" pill on the host list links to the same address. It takes `{org}` and `{host}`. Without it, or with a current collector, nothing changes.
 
 `action_url` is one link for every other change a host page can propose, so a new action doesn't need a new setting. With it set, each version in a host's **Unused PHP** section gets **Propose removal**, with `{action}` as `php.remove` and `{params}` as `php=8.2`. Heimdall can't see cron, supervisor or systemd, so the tool should repeat those checks on the server when the change runs. The version the command line's `php` points at gets no button, because `php` has to be repointed first; its manual commands stay on the page.
 
+With `action_url` set, an open patch plan also gets **Batch N: install updates on N hosts** above its table, one link per batch, for the hosts not yet marked done, so you can work through a maintenance window batch by batch, canaries first. Its `{action}` is `updates.install`, `{host}` is empty, and `{params}` is `hosts=` and the host names, comma-separated: an action on several hosts names them there, and the tool should read `hosts` and ignore `host`. The tool asks each server what's pending and drafts that. A link names at most 100 hosts; a bigger batch gets several links. The tool links one org at a time, so a fleet-wide plan gets one link per batch and org. Only operators see the links. Marking a host done still works as before, and a clean check-in verifies it.
+
 | Placeholder | Becomes |
 | --- | --- |
 | `{org}` | The org's slug |
-| `{host}` | The host's name |
-| `{hosts}` | Host names, comma-separated, on `fleet_updates_url` only |
+| `{host}` | The host's name; empty on an action for several hosts, which names them in `{params}` as `hosts` |
 | `{package}` | The package, on a package's link; empty on the "Install security updates" link |
 | `{action}` | What to propose, such as `php.remove`, on `action_url` only |
 | `{params}` | That action's own query parameters, already escaped, on `action_url` only |
@@ -48,7 +46,7 @@ Each value is URL-escaped. The link opens in a new tab, with no referrer.
 
 - **The link carries pointers, not data.** Heimdall sends the tool nothing. The tool should look the findings up itself (see [Reading findings](#reading-findings)), and should treat the link's parameters as untrusted, as it would any URL someone could send its users.
 - **OS packages only, for now.** Site (Composer and npm) findings don't get Fix links yet.
-- `url`, `updates_url`, `fleet_updates_url`, `collector_url` and `action_url` must be `https`, or plain `http` for loopback. Unknown placeholders are refused when the config loads.
+- `url`, `updates_url`, `collector_url` and `action_url` must be `https`, or plain `http` for loopback. Unknown placeholders are refused when the config loads.
 - `agent_service`, if set, is the systemd service your tool runs on servers (ending in `-agent`, without `.service`). The host list then gets a column showing where it's installed. It reads the `X-Heimdall-Agents` header from collector 0.5.5 or later, and shows `?` for older collectors and hosts without systemd.
 - `label` is a package link's text: at most 24 characters, "Fix" by default.
 

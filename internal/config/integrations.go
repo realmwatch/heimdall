@@ -21,11 +21,6 @@ type ChangeLink struct {
 	// for "Install all updates": the tool drafts every pending update on
 	// the host, so no finding ids are involved. "" is off.
 	UpdatesURL string `toml:"updates_url"`
-	// FleetUpdatesURL is an https template with {org} and {hosts}
-	// placeholders, for "Install updates on N hosts" on a patch plan: the
-	// tool drafts every pending update on each host. {hosts} is the host
-	// names, comma-separated. "" is off.
-	FleetUpdatesURL string `toml:"fleet_updates_url"`
 	// CollectorURL is an https template with {org} and {host} placeholders,
 	// for "Update collector" on a host whose collector is behind. "" is off.
 	CollectorURL string `toml:"collector_url"`
@@ -51,9 +46,6 @@ var ChangePlaceholders = []string{"{org}", "{host}", "{package}", "{finding}"}
 // UpdatesPlaceholders are the placeholders a ChangeLink UpdatesURL may use.
 var UpdatesPlaceholders = []string{"{org}", "{host}"}
 
-// FleetUpdatesPlaceholders are the placeholders a ChangeLink FleetUpdatesURL may use.
-var FleetUpdatesPlaceholders = []string{"{org}", "{hosts}"}
-
 // ActionPlaceholders are the placeholders a ChangeLink ActionURL may use.
 var ActionPlaceholders = []string{"{org}", "{host}", "{action}", "{params}"}
 
@@ -76,7 +68,6 @@ func (c ChangeLink) validate(add func(string, ...any)) {
 	}
 	validateLinkTemplate("change_link.url", c.URL, ChangePlaceholders, add)
 	validateLinkTemplate("change_link.updates_url", c.UpdatesURL, UpdatesPlaceholders, add)
-	validateLinkTemplate("change_link.fleet_updates_url", c.FleetUpdatesURL, FleetUpdatesPlaceholders, add)
 	validateLinkTemplate("change_link.collector_url", c.CollectorURL, UpdatesPlaceholders, add)
 	validateLinkTemplate("change_link.action_url", c.ActionURL, ActionPlaceholders, add)
 }

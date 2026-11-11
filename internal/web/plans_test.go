@@ -139,12 +139,12 @@ func TestPlanAddsSeveralHosts(t *testing.T) {
 }
 
 // A plan links each batch's hosts that aren't done to the change tool, one
-// link per batch and org; with fleet_updates_url off, or for a viewer,
+// link per batch and org; with action_url off, or for a viewer,
 // there's none.
 func TestPlanUpdatesLinks(t *testing.T) {
 	t.Parallel()
 	e := newEnvCfg(t, "http://127.0.0.1:8080", nil, func(c *Config) {
-		c.ChangeLink.FleetUpdatesURL = "https://changes.example.com/updates?org={org}&hosts={hosts}"
+		c.ChangeLink.ActionURL = "https://changes.example.com/propose?action={action}&org={org}&host={host}&{params}"
 	})
 	e.seed()
 	ctx := t.Context()
@@ -168,8 +168,8 @@ func TestPlanUpdatesLinks(t *testing.T) {
 	add("2", "acme/web-03")
 	add("1", "acme/web-01", "acme/web-02")
 	page := e.get("/plans/1", signedIn(e)).Body.String()
-	b1 := `href="https://changes.example.com/updates?org=acme&amp;hosts=web-01,web-02" target="_blank" rel="noopener noreferrer">Batch 1: install updates on 2 hosts</a>`
-	b2 := `href="https://changes.example.com/updates?org=acme&amp;hosts=web-03" target="_blank" rel="noopener noreferrer">Batch 2: install updates on 1 host</a>`
+	b1 := `href="https://changes.example.com/propose?action=updates.install&amp;org=acme&amp;host=&amp;hosts=web-01%2Cweb-02" target="_blank" rel="noopener noreferrer">Batch 1: install updates on 2 hosts</a>`
+	b2 := `href="https://changes.example.com/propose?action=updates.install&amp;org=acme&amp;host=&amp;hosts=web-03" target="_blank" rel="noopener noreferrer">Batch 2: install updates on 1 host</a>`
 	if i, j := strings.Index(page, b1), strings.Index(page, b2); i < 0 || j < i {
 		t.Errorf("plan page lacks the batch links in order:\n%s", page)
 	}
@@ -177,7 +177,7 @@ func TestPlanUpdatesLinks(t *testing.T) {
 	if w := e.post("/plans/1/done", url.Values{"csrf": {auth.CSRFToken(goodToken)}, "org": {"acme"}, "host": {"web-01"}}, signedIn(e), origin(e.baseURL)); w.Code != http.StatusSeeOther {
 		t.Fatalf("done: %d", w.Code)
 	}
-	if page = e.get("/plans/1", signedIn(e)).Body.String(); !strings.Contains(page, `hosts=web-02" target="_blank" rel="noopener noreferrer">Batch 1: install updates on 1 host</a>`) {
+	if page = e.get("/plans/1", signedIn(e)).Body.String(); !strings.Contains(page, `host=&amp;hosts=web-02" target="_blank" rel="noopener noreferrer">Batch 1: install updates on 1 host</a>`) {
 		t.Errorf("done host still linked:\n%s", page)
 	}
 	// A viewer can't propose changes from the plan.
@@ -188,16 +188,16 @@ func TestPlanUpdatesLinks(t *testing.T) {
 }
 
 func TestPlanUpdateLinksChunks(t *testing.T) {
-	items := make([]store.PlanItem, fleetUpdatesMax+1)
+	items := make([]store.PlanItem, actionHostsMax+1)
 	for i := range items {
 		items[i] = store.PlanItem{Batch: 1, Host: store.IngestHost{OrgSlug: "acme", Name: "web-" + strconv.Itoa(i)}}
 	}
 	items = append(items, store.PlanItem{Batch: 1, Host: store.IngestHost{OrgSlug: "other", Name: "db-01"}})
-	got := planUpdateLinks(ChangeLink{FleetUpdatesURL: "https://changes.example.com/u?org={org}&hosts={hosts}"}, items)
-	if len(got) != 3 || got[0].Hosts != fleetUpdatesMax || got[1].Hosts != 1 || got[1].Org != "acme" || got[2].Org != "other" || got[2].URL != "https://changes.example.com/u?org=other&hosts=db-01" {
+	got := planUpdateLinks(ChangeLink{ActionURL: "https://changes.example.com/p?action={action}&org={org}&host={host}&{params}"}, items)
+	if len(got) != 3 || got[0].Hosts != actionHostsMax || got[1].Hosts != 1 || got[1].Org != "acme" || got[2].Org != "other" || got[2].URL != "https://changes.example.com/p?action=updates.install&org=other&host=&hosts=db-01" {
 		t.Errorf("links %+v", got[1:])
 	}
 	if planUpdateLinks(ChangeLink{}, items) != nil {
-		t.Error("links with fleet_updates_url off")
+		t.Error("links with action_url off")
 	}
 }
