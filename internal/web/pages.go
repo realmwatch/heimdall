@@ -302,6 +302,9 @@ func (s *server) hostPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 		}
 	}
 	body.OSView.OldKernelCmd = oldKernelCommand(body.Report.OldKernels, body.OSView.OldKernelFindings)
+	if body.OSView.OldKernelCmd != nil {
+		body.OSView.KernelRemoveURL = s.cfg.ChangeLink.kernelRemoveLink(host.OrgSlug, host.Name, oldKernelReleases(body.Report.OldKernels))
+	}
 	if v := strings.TrimSpace(sum.CollectorVersion); v != "" && releaseTag.MatchString(s.cfg.Version) {
 		body.CollectorKnown = true
 		body.CollectorBehind = updates.CollectorBehind(v)

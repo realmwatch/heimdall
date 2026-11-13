@@ -77,7 +77,7 @@
 {{with .OldKernelCmd}}<div class="cmd fix-cmd">
   <div class="cmd-label">Remove old kernels that aren't running <span class="muted small">· clears {{$.OldKernelFindings}} finding{{if ne $.OldKernelFindings 1}}s{{end}} marked "not running"</span></div>
   <div class="codebox"><pre id="{{.ID}}">{{.Text}}</pre><button type="button" class="copy" data-copy="{{.ID}}" hidden>Copy</button></div>
-  <p class="muted small">{{.Note}} Heimdall never runs it for you.</p>
+  <p class="muted small">{{.Note}} Heimdall never runs it for you.{{with $.KernelRemoveURL}} <a class="button change-btn" href="{{.}}" target="_blank" rel="noopener noreferrer">Propose removal</a> Opens your change-management tool to draft it.{{end}}</p>
 </div>{{end}}
 {{if $calm}}{{else if eq .View "packages"}}
   {{if .Groups}}

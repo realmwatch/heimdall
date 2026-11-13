@@ -184,3 +184,36 @@ func TestHostPageProposeReboot(t *testing.T) {
 		t.Error("Propose reboot shown without action_url")
 	}
 }
+
+// The kernels a removal proposal names come from the old kernel packages,
+// as uname -r prints them; the series-named shared packages add nothing.
+func TestOldKernelReleases(t *testing.T) {
+	got := oldKernelReleases([]string{"linux-aws-6.17-headers-6.17.0-1009", "linux-aws-6.17-tools-6.17.0-1009",
+		"linux-headers-6.17.0-1009-aws", "linux-modules-6.17.0-1009-aws", "linux-image-6.17.0-1009-aws",
+		"linux-image-unsigned-6.8.0-45-generic", "linux-headers-6.8.0-45", "linux-modules-extra-6.8.0-45-generic", "linux-image-x; rm"})
+	if strings.Join(got, ",") != "6.17.0-1009-aws,6.8.0-45-generic" {
+		t.Errorf("got %v", got)
+	}
+}
+
+// A host with old kernels offers to draft their removal beside the
+// command; a hub without action_url doesn't.
+func TestHostPageProposeKernelRemoval(t *testing.T) {
+	t.Parallel()
+	e := newEnvCfg(t, "http://127.0.0.1:8080", nil, func(c *Config) {
+		c.ChangeLink.ActionURL = "https://changes.example.com/propose?action={action}&org={org}&host={host}&{params}"
+	})
+	e.st.CreateOrg(t.Context(), "test", "acme", "Acme")
+	storetest.SeedKernelCases(t, e.st, "acme", testNow)
+	link := `href="https://changes.example.com/propose?action=kernel.remove&amp;org=acme&amp;host=` + storetest.OldKernelHost + `&amp;kernels=` + storetest.KernelOld + `"`
+	if page := e.get("/hosts/acme/"+storetest.OldKernelHost, signedIn(e)).Body.String(); !strings.Contains(page, link) {
+		t.Error("old-kernel host lacks the removal link")
+	}
+	if page := e.get("/hosts/acme/"+storetest.RebootPendingHost, signedIn(e)).Body.String(); strings.Contains(page, "kernel.remove") {
+		t.Error("offers to remove kernels on a host with none older than the running one")
+	}
+	plain := kernelCaseEnv(t)
+	if page := plain.get("/hosts/acme/"+storetest.OldKernelHost, signedIn(plain)).Body.String(); strings.Contains(page, "kernel.remove") {
+		t.Error("removal link shown without action_url")
+	}
+}

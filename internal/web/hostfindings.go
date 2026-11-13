@@ -4,6 +4,7 @@ package web
 
 import (
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -89,7 +90,10 @@ type findingsView struct {
 	RebootURL string
 	// PRHandoff, on a site with a known repository, hands the fix to an
 	// agent as a pull request; the commands then fold away.
-	PRHandoff         string
+	PRHandoff string
+	// KernelRemoveURL drafts removing the old kernels in the
+	// change-management tool, beside their command.
+	KernelRemoveURL   string
 	OldKernelFindings int
 	// ChangeURL drafts the fix for every fixable finding shown (ChangeCount)
 	// in the change-management tool ([change_link]); "" when it's off.
@@ -117,6 +121,33 @@ func oldKernelCommand(pkgs []string, findings int) *command {
 	return &command{ID: "cmd-old-kernels", Text: kernel.PurgePrefix + " " + strings.Join(names, " "),
 		Note: "These kernels are installed but not running (apt keeps the previous one as a boot fallback), so upgrading never clears their findings. " +
 			"Check that uname -r shows the kernel you expect first; afterwards there's no older kernel to fall back to at boot."}
+}
+
+// kernelRelease is uname -r for a Debian/Ubuntu kernel: release and
+// flavour, 6.8.0-45-generic.
+var kernelRelease = regexp.MustCompile(`^[0-9]+\.[0-9]+(\.[0-9]+)?-[0-9]+(\.[0-9]+)?(-[a-z0-9]+)+$`)
+
+// kernelPackagePrefixes name a kernel's per-flavour packages; what follows
+// is its uname -r.
+var kernelPackagePrefixes = []string{"linux-image-unsigned-", "linux-image-", "linux-modules-extra-", "linux-modules-", "linux-headers-"}
+
+// oldKernelReleases are the kernels (as uname -r prints them) that the old
+// kernel packages belong to, sorted: what a kernel removal proposal names.
+// The tool's agent decides again when it runs which of them it removes.
+func oldKernelReleases(pkgs []string) []string {
+	var out []string
+	for _, p := range pkgs {
+		for _, prefix := range kernelPackagePrefixes {
+			if r, ok := strings.CutPrefix(p, prefix); ok {
+				if kernelRelease.MatchString(r) && !slices.Contains(out, r) {
+					out = append(out, r)
+				}
+				break
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // live reports whether a finding is live exposure: not on an old kernel
