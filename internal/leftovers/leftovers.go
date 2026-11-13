@@ -90,12 +90,14 @@ func kernelSource(p Package) bool {
 // host's release.
 //
 // A package's release is, in order: the old release a configured suite
-// offering its version names (from st); else, when no configured source
-// offers it at all (or st is nil), the release its version names; else,
-// for a package built from the same source as a newer installed package
-// with a different upstream version (libssl1.1 beside libssl3), the
-// release the host was upgraded from. Only releases older than current
-// count.
+// offering its version names (from st). Else, when no configured source
+// offers it at all (or st is nil), the release its version names; without
+// st, only a third-party builder's marker counts on its own (see
+// versionPattern). Else, for a package built from the same source as a
+// newer installed package with another upstream version (libssl1.1 beside
+// libssl3), the release its version names, or the one the host was
+// upgraded from. A version naming current always means current. Only
+// releases older than current count.
 func Analyze(current Release, pkgs []Package, st *State) Analysis {
 	a := Analysis{Current: current, BuiltFor: map[string]Release{}, Obsolete: map[string]bool{}}
 	if current.IsZero() {
@@ -133,6 +135,8 @@ func Analyze(current Release, pkgs []Package, st *State) Analysis {
 			live = append(live, p)
 		}
 	}
+	weak := map[string]Release{} // an Ubuntu-archive marker only: needs a twin to count
+	candidates := map[string]bool{}
 	for _, p := range live {
 		if o, ok := origins[p.Name]; ok && o.Version == p.Version {
 			if r, ok := oldestOffer(o.Suites, current); ok {
@@ -144,12 +148,21 @@ func Analyze(current Release, pkgs []Package, st *State) Analysis {
 		if st != nil && !a.Obsolete[p.Name] {
 			continue // a configured source for this release offers it
 		}
-		if r, ok := versionRelease(current.Distro, p); ok && r.Before(current) {
+		r, strong, ok := versionRelease(current.Distro, p)
+		switch {
+		case ok && !r.Before(current):
+			// built for this release (or a newer one)
+		case ok && (strong || st != nil):
 			a.BuiltFor[p.Name] = r
 			seen(r)
+		case ok:
+			weak[p.Name] = r
+			candidates[p.Name] = true
+		default:
+			candidates[p.Name] = true
 		}
 	}
-	twins(a, live, st, newest)
+	twins(a, live, candidates, weak, seen, func() Release { return newest })
 
 	if st == nil && len(a.BuiltFor) == 0 {
 		return a
@@ -171,7 +184,7 @@ func Analyze(current Release, pkgs []Package, st *State) Analysis {
 			l := Leftover{Name: o.Name, Version: o.Version}
 			if r, ok := a.BuiltFor[o.Name]; ok {
 				l.BuiltFor = r.String()
-			} else if r, ok := versionRelease(current.Distro, p); ok && r.Before(current) {
+			} else if r, _, ok := versionRelease(current.Distro, p); ok && r.Before(current) {
 				l.BuiltFor = r.String()
 			}
 			f.Obsolete = append(f.Obsolete, l)
@@ -234,26 +247,26 @@ func oldestOffer(suites []string, current Release) (Release, bool) {
 }
 
 // versionRelease is the release a package's version (or its source
-// version) names.
-func versionRelease(distro string, p Package) (Release, bool) {
-	if r, ok := FromVersion(distro, p.Version); ok {
-		return r, true
+// version) names, and whether a strong pattern named it.
+func versionRelease(distro string, p Package) (Release, bool, bool) {
+	if r, strong, ok := fromVersion(distro, p.Version); ok {
+		return r, strong, true
 	}
 	if p.SourceVersion != "" && p.SourceVersion != p.Version {
-		return FromVersion(distro, p.SourceVersion)
+		return fromVersion(distro, p.SourceVersion)
 	}
-	return Release{}, false
+	return Release{}, false, false
 }
 
-// twins marks packages built from the same source as a newer installed
-// package with another upstream version (libssl1.1 from openssl 1.1.1f
-// beside libssl3 from openssl 3.0.2) as built for prev, the release the
-// host was upgraded from. Packages a configured source offers don't
-// count: a held-back package isn't a leftover.
-func twins(a Analysis, pkgs []Package, st *State, prev Release) {
-	if prev.IsZero() {
-		return
-	}
+// twins marks candidates (packages no configured source offers, or every
+// package without collector state, whose version doesn't name the
+// current release) that are built from the same source as a newer
+// installed package with another upstream version: libssl1.1 from openssl
+// 1.1.1f beside libssl3 from 3.0.2. One is built for the release its
+// version names (weak), else for the release the host was upgraded from
+// (prev, once the others are counted). A held-back package has the same
+// upstream version, so it isn't one.
+func twins(a Analysis, pkgs []Package, candidates map[string]bool, weak map[string]Release, seen func(Release), prev func() Release) {
 	top := map[string]string{}
 	src := func(p Package) (string, string) {
 		name, ver := p.SourceName, p.SourceVersion
@@ -271,13 +284,25 @@ func twins(a Analysis, pkgs []Package, st *State, prev Release) {
 			top[n] = v
 		}
 	}
+	var unnamed []string
 	for _, p := range pkgs {
-		if _, done := a.BuiltFor[p.Name]; done || (st != nil && !a.Obsolete[p.Name]) {
+		if !candidates[p.Name] {
 			continue
 		}
 		n, v := src(p)
-		if t := top[n]; version.CompareDpkg(v, t) < 0 && upstream(v) != upstream(t) {
-			a.BuiltFor[p.Name] = prev
+		if t := top[n]; version.CompareDpkg(v, t) >= 0 || upstream(v) == upstream(t) {
+			continue
+		}
+		if r, ok := weak[p.Name]; ok {
+			a.BuiltFor[p.Name] = r
+			seen(r)
+		} else {
+			unnamed = append(unnamed, p.Name)
+		}
+	}
+	if r := prev(); !r.IsZero() {
+		for _, name := range unnamed {
+			a.BuiltFor[name] = r
 		}
 	}
 }

@@ -110,24 +110,34 @@ func previous(r Release) (Release, bool) {
 	return releases[i-1], true
 }
 
+// versionPattern finds a release in a package version. Strong patterns
+// are third-party builders' per-release builds (pgdg20.04, deb.sury.org's
+// +ubuntu20.04.1, ~focal1): each release gets its own. Weak ones are the
+// Ubuntu archive's (ubuntu0.20.04.3, ~20.04.1, ~ubuntu20.04.2), which it
+// sometimes copies unchanged to a later release (jammy-updates ships
+// libmbim 1.28.0-1~ubuntu20.04.2), so they're evidence, not proof.
+type versionPattern struct {
+	re     *regexp.Regexp
+	strong bool
+}
+
 var (
-	// Ubuntu: an SRU (1ubuntu0.20.04.3), a no-change rebuild
-	// (build0.22.04.1), a backport (~20.04.1), and third-party builds
-	// (+ubuntu20.04.1+deb.sury.org, ~ubuntu.22.04~jammy, pgdg20.04+1).
-	ubuntuVersionRes = []*regexp.Regexp{
-		regexp.MustCompile(`ubuntu0\.([0-9]{2}\.[0-9]{2})`),
-		regexp.MustCompile(`build0\.([0-9]{2}\.[0-9]{2})`),
-		regexp.MustCompile(`[~+]ubuntu\.?([0-9]{2}\.[0-9]{2})`),
-		regexp.MustCompile(`~([0-9]{2}\.[0-9]{2})(?:\.[0-9]+)*(?:[^0-9.]|$)`),
-		regexp.MustCompile(`pgdg([0-9]{2}\.[0-9]{2})`),
+	ubuntuVersionRes = []versionPattern{
+		{regexp.MustCompile(`ubuntu0\.([0-9]{2}\.[0-9]{2})`), false},
+		{regexp.MustCompile(`build0\.([0-9]{2}\.[0-9]{2})`), false},
+		{regexp.MustCompile(`\+ubuntu([0-9]{2}\.[0-9]{2})[0-9.]*\+deb\.sury\.org`), true},
+		{regexp.MustCompile(`[~+]ubuntu\.?([0-9]{2}\.[0-9]{2})`), false},
+		{regexp.MustCompile(`~([0-9]{2}\.[0-9]{2})(?:\.[0-9]+)*(?:[^0-9.]|$)`), false},
+		{regexp.MustCompile(`pgdg([0-9]{2}\.[0-9]{2})`), true},
 	}
 	// Debian: a stable update (+deb11u3), a backport (~bpo11+1) and
-	// third-party builds (pgdg110+1, +debian11).
-	debianVersionRes = []*regexp.Regexp{
-		regexp.MustCompile(`[+~]deb([0-9]{1,2})u[0-9]`),
-		regexp.MustCompile(`~bpo([0-9]{1,2})\+`),
-		regexp.MustCompile(`pgdg([0-9]{1,2})0(?:\+|$)`),
-		regexp.MustCompile(`\+debian([0-9]{1,2})(?:[^0-9]|$)`),
+	// third-party builds (pgdg110+1, +debian11). Debian never copies one
+	// release's update to another.
+	debianVersionRes = []versionPattern{
+		{regexp.MustCompile(`[+~]deb([0-9]{1,2})u[0-9]`), true},
+		{regexp.MustCompile(`~bpo([0-9]{1,2})\+`), true},
+		{regexp.MustCompile(`pgdg([0-9]{1,2})0(?:\+|$)`), true},
+		{regexp.MustCompile(`\+debian([0-9]{1,2})(?:[^0-9]|$)`), true},
 	}
 	codenameRe = regexp.MustCompile(`[a-z]+`)
 )
@@ -136,24 +146,31 @@ var (
 // the one named last (the outermost change) when it names several. A
 // version that names a codename (~focal1) counts too.
 func FromVersion(distro, v string) (Release, bool) {
+	r, _, ok := fromVersion(distro, v)
+	return r, ok
+}
+
+// fromVersion is FromVersion, and whether the pattern that named the
+// release is a strong one (see versionPattern).
+func fromVersion(distro, v string) (best Release, strong, ok bool) {
 	res := ubuntuVersionRes
 	if distro == "debian" {
 		res = debianVersionRes
 	}
-	best, at := Release{}, -1
-	for _, re := range res {
-		for _, m := range re.FindAllStringSubmatchIndex(v, -1) {
-			if r, ok := byVersion(distro, v[m[2]:m[3]]); ok && m[2] > at {
-				best, at = r, m[2]
+	at := -1
+	for _, p := range res {
+		for _, m := range p.re.FindAllStringSubmatchIndex(v, -1) {
+			if r, ok := byVersion(distro, v[m[2]:m[3]]); ok && (m[2] > at || (m[2] == at && p.strong)) {
+				best, strong, at = r, p.strong, m[2]
 			}
 		}
 	}
 	for _, m := range codenameRe.FindAllStringIndex(v, -1) {
 		if r, ok := ByCodename(v[m[0]:m[1]]); ok && r.Distro == distro && m[0] > at {
-			best, at = r, m[0]
+			best, strong, at = r, true, m[0]
 		}
 	}
-	return best, at >= 0
+	return best, strong, at >= 0
 }
 
 // FromSuite is the release of current's distro an apt suite names
