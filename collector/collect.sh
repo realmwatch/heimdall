@@ -28,7 +28,7 @@ export LC_ALL=C
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
-VERSION=0.5.25
+VERSION=0.5.26
 FORMAT=heimdall.snapshot/v4
 
 die() { printf 'heimdall-collect: %s\n' "$*" >&2; exit 1; }
@@ -68,7 +68,7 @@ tsv_to_json() {
 
 # ── OS ──────────────────────────────────────────────────────────────────────
 
-OS_RELEASE=/etc/os-release
+OS_RELEASE=${HEIMDALL_OS_RELEASE:-/etc/os-release} # another file (tests)
 [ -r "$OS_RELEASE" ] || OS_RELEASE=/usr/lib/os-release
 
 # Parse, never source: os-release is data, not code.
@@ -968,6 +968,132 @@ php_state() {
 	printf 'v1 cli=%s fpm=%s' "$cli" "${fpm:--}"
 }
 
+# ── Release-upgrade leftovers (sent as X-Heimdall-Release) ─────────────────
+
+# Ubuntu and Debian release codenames, oldest first, to tell a suite or
+# version that names another release from one that names this one.
+RELEASE_CODENAMES='jessie stretch buster bullseye bookworm trixie forky duke trusty xenial bionic focal jammy noble oracular plucky questing resolute stonking'
+
+# release_state: the X-Heimdall-Release value, records separated by ";":
+#
+#   v1 cn=<codename> maps=<readable>/<processes>
+#   u=<file>                         a file the release upgrader left behind
+#   s=<file>|<uri>|<suite>|<components>   an enabled apt source, per suite
+#   o=<package>|<version>            obsolete: no configured source has it
+#   b=<package>|<version>|<suites>   offered only by suites naming another
+#                                    release (or oldstable)
+#   p=<pid>|<unit>|<command>|<library>|<package>
+#                                    a process mapping a library one of the
+#                                    o= or b= packages ships
+#
+# Read-only and unprivileged, so only processes this user may read are
+# looked at: maps says how many that was. The hub decides which sources
+# and packages are left over from an older release. HEIMDALL_APT_DIR,
+# HEIMDALL_APT_LIST, HEIMDALL_DPKG_INFO and HEIMDALL_PROC are for tests.
+release_state() {
+	apt=${HEIMDALL_APT_DIR:-/etc/apt}
+	info=${HEIMDALL_DPKG_INFO:-/var/lib/dpkg/info}
+	proc=${HEIMDALL_PROC:-/proc}
+	cn=$(os_value VERSION_CODENAME | tr -cd 'a-z0-9')
+	[ -n "$cn" ] || return 0
+	if [ -n "${HEIMDALL_APT_LIST:-}" ]; then
+		list=$(cat "$HEIMDALL_APT_LIST")
+	elif have apt; then
+		list=$(apt list --installed 2>/dev/null) || return 0
+	else
+		return 0
+	fi
+	rtmp=$(mktemp -d)
+	# Upgrader leftovers: sources.list.distUpgrade, foo.list.save…
+	for f in "$apt"/*.distUpgrade "$apt"/*.save "$apt"/sources.list.d/*.distUpgrade "$apt"/sources.list.d/*.save; do
+		[ -e "$f" ] && printf 'u=%s\n' "${f#"$apt"/}"
+	done | head -n 10 >"$rtmp/upg"
+	# Enabled sources: one-line .list files and deb822 .sources files.
+	for f in "$apt"/sources.list "$apt"/sources.list.d/*.list; do
+		[ -r "$f" ] || continue
+		sed -e 's/#.*//' -e 's/\[[^]]*\]//g' "$f" | awk -v f="${f#"$apt"/}" '
+			$1 == "deb" && NF >= 3 { c = ""; for (i = 4; i <= NF; i++) c = c (c == "" ? "" : ",") $i; print "s=" f "|" $2 "|" $3 "|" c }'
+	done >"$rtmp/out"
+	for f in "$apt"/sources.list.d/*.sources; do
+		[ -r "$f" ] || continue
+		awk -v f="${f#"$apt"/}" '
+			function flush(   i, j, nu, ns) {
+				if (types ~ /(^| )deb( |$)/ && tolower(enabled) != "no") {
+					nu = split(uris, u, " "); ns = split(suites, s, " ")
+					for (i = 1; i <= nu; i++) for (j = 1; j <= ns; j++) print "s=" f "|" u[i] "|" s[j] "|" comps
+				}
+				types = uris = suites = comps = enabled = ""
+			}
+			/^[ \t]*$/ { flush(); next }
+			/^#/ { next }
+			/^[A-Za-z-]+:/ {
+				k = tolower(substr($0, 1, index($0, ":") - 1)); v = substr($0, index($0, ":") + 1)
+				gsub(/^[ \t]+|[ \t]+$/, "", v); gsub(/[ \t]+/, " ", v)
+				if (k == "types") types = v; else if (k == "uris") uris = v; else if (k == "suites") suites = v
+				else if (k == "enabled") enabled = v; else if (k == "components") { comps = v; gsub(/ /, ",", comps) }
+			}
+			END { flush() }' "$f"
+	done >>"$rtmp/out"
+	# Obsolete packages, and those only suites of another release offer.
+	printf '%s\n' "$list" | awk -v cn="$cn" -v names="$RELEASE_CODENAMES" '
+		BEGIN { n = split(names, a, " "); for (i = 1; i <= n; i++) if (a[i] != cn) other[a[i]] = 1 }
+		index($1, "/") == 0 || NF < 3 { next }
+		{
+			name = substr($1, 1, index($1, "/") - 1); ns = split(substr($1, index($1, "/") + 1), s, ",")
+			if (name ~ /^linux-/) next # old kernels have their own removal
+			mine = 0; theirs = 0; suites = ""
+			for (i = 1; i <= ns; i++) {
+				if (s[i] == "now") continue
+				suites = suites (suites == "" ? "" : ",") s[i]
+				nt = split(s[i], t, /[-_\/]/)
+				for (j = 1; j <= nt; j++) { if (t[j] == cn) mine = 1; if (t[j] in other || t[j] == "oldstable") theirs = 1 }
+			}
+			if (suites == "" && $0 ~ /[[,]local[],]/) print "o=" name "|" $2
+			else if (theirs && !mine) print "b=" name "|" $2 "|" suites
+		}' | head -n 300 >"$rtmp/pkgs"
+	# The libraries those packages ship, and the processes mapping them.
+	: >"$rtmp/libs"
+	sed -n 's/^[ob]=\([^|]*\)|.*/\1/p' "$rtmp/pkgs" | while read -r p; do
+		for l in "$info/$p.list" "$info/$p":*.list; do
+			[ -r "$l" ] || continue
+			awk -v p="$p" '/\/lib[^ ]*\.so(\.[0-9]+)*$/ { sub(/^\/usr\//, "/"); print $0 "\t" p }' "$l"
+		done
+	done | head -n 2000 >"$rtmp/libs"
+	total=0 readable=0
+	for d in "$proc"/[0-9]*; do
+		[ -e "$d/maps" ] || continue
+		total=$((total + 1))
+		if true 2>/dev/null <"$d/maps"; then readable=$((readable + 1)); fi
+	done
+	printf 'v1 cn=%s maps=%s/%s\n' "$cn" "$readable" "$total"
+	cat "$rtmp/upg"
+	if [ -s "$rtmp/libs" ]; then
+		cut -f1 "$rtmp/libs" >"$rtmp/pats"
+		grep -H -F -f "$rtmp/pats" "$proc"/[0-9]*/maps 2>/dev/null | awk -v libs="$rtmp/libs" -v proc="$proc" '
+			BEGIN { while ((getline line < libs) > 0) { split(line, f, "\t"); pkg[f[1]] = f[2] } }
+			{
+				file = substr($0, 1, index($0, ":") - 1); pid = file; sub(/\/maps$/, "", pid); sub(/.*\//, "", pid)
+				path = $NF; if (path == "(deleted)") path = $(NF - 1)
+				sub(/^\/usr\//, "/", path)
+				if (!(path in pkg) || (pid SUBSEP path) in seen) next
+				seen[pid, path] = 1
+				unit = ""; comm = ""
+				while ((getline line < (proc "/" pid "/cgroup")) > 0) if (match(line, /[^\/]+\.(service|scope)$/)) unit = substr(line, RSTART)
+				close(proc "/" pid "/cgroup")
+				if ((getline comm < (proc "/" pid "/comm")) <= 0) comm = ""
+				close(proc "/" pid "/comm")
+				lib = path; sub(/.*\//, "", lib)
+				k = (unit != "" ? unit : comm) SUBSEP lib
+				if (k in done || n >= 40) next
+				done[k] = 1; n++
+				print "p=" pid "|" unit "|" comm "|" lib "|" pkg[path]
+			}'
+	fi
+	head -n 60 "$rtmp/out"
+	cat "$rtmp/pkgs"
+	rm -rf "$rtmp"
+}
+
 # ── SSH server settings (sent as X-Heimdall-SSH) ───────────────────────────
 
 # ssh_state: the X-Heimdall-SSH value,
@@ -1444,6 +1570,11 @@ EOF
 	php_header="header = \"X-Heimdall-PHP: $(php_state | tr -cd 'a-z0-9.=, -' | cut -c1-200)\""
 	# sshd's settings and listening addresses (ssh_state).
 	ssh_header="header = \"X-Heimdall-SSH: $(ssh_state | tr -cd 'a-z0-9.:=,? -' | cut -c1-400)\""
+	# Apt sources and packages left over from an older release, and what
+	# loads them (release_state). Nothing on hosts without apt.
+	release_header=
+	rel_state=$(release_state | tr '\n' ';' | tr -cd 'A-Za-z0-9._~:/+@=|,;% -' | cut -c1-8000)
+	[ -z "$rel_state" ] || release_header="header = \"X-Heimdall-Release: $rel_state\""
 
 	# The token goes to curl on stdin via --config (printf is a shell
 	# builtin), so it never appears in any process's arguments. The reply
@@ -1453,7 +1584,7 @@ EOF
 	status=$(printf '%s\n' \
 		"header = \"Authorization: Bearer $token\"" \
 		'header = "Content-Type: application/json"' \
-		"$encoding" "$cacert" "$hostname_header" "$machine_header" "$triggers_header" "$agents_header" "$repos_header" "$branches_header" "$php_header" "$ssh_header" "$(privilege_config)" "$(logins_config)" |
+		"$encoding" "$cacert" "$hostname_header" "$machine_header" "$triggers_header" "$agents_header" "$repos_header" "$branches_header" "$php_header" "$ssh_header" "$release_header" "$(privilege_config)" "$(logins_config)" |
 		"$curl" --config - --silent --show-error \
 			--proto '=https,http' --tlsv1.2 \
 			--connect-timeout 10 --max-time 120 \
@@ -1695,7 +1826,8 @@ set_hub() {
 usage() {
 	cat >&2 <<'EOF'
 usage: heimdall-collect --print | --push | --site-repos | --site-branches |
-                        --php | --ssh | --deploy-watches | --logins | --version
+                        --php | --ssh | --release | --deploy-watches |
+                        --logins | --version
        heimdall-collect deployed
        sudo heimdall-collect upgrade [vX.Y.Z] [--watch-privilege-users |
                                      --watch-privilege | --no-watch-privilege]
@@ -1712,6 +1844,9 @@ usage: heimdall-collect --print | --push | --site-repos | --site-branches |
                 line's and the running PHP-FPMs')
   --ssh         print sshd's settings and listening addresses --push would
                 send
+  --release     print the apt sources and packages left over from an older
+                release, and the processes loading them, that --push would
+                send (one record per line)
   --deploy-watches
                 print the paths watched for site deploys (install.sh puts
                 them in heimdall-collect-changes.path)
@@ -1754,7 +1889,7 @@ case $1 in
 deployed) deployed; exit 0 ;; # any user, root too: it only touches a file
 # For heimdall-collect-soon.service (root), not for people:
 event-allowed) if event_allowed; then exit 0; else exit 1; fi ;;
---print | --push | --site-repos | --site-branches | --php | --ssh | --deploy-watches | --logins) ;;
+--print | --push | --site-repos | --site-branches | --php | --ssh | --release | --deploy-watches | --logins) ;;
 *) usage ;;
 esac
 
@@ -1769,6 +1904,7 @@ case $1 in
 --site-branches) sites_json | site_branches; echo ;;
 --php) php_state; echo ;;
 --ssh) ssh_state; echo ;;
+--release) release_state ;;
 --deploy-watches) deploy_watches ;;
 --logins) logins_header "${HEIMDALL_LOGIN_COUNTS:-/var/lib/heimdall-logins/counts}" | sed -n 's/^header = "X-Heimdall-Logins: \(.*\)"$/\1/p' ;;
 esac

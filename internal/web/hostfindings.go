@@ -36,6 +36,8 @@ type pkgGroup struct {
 	NotRunning       bool   // every finding is on an old kernel that isn't running
 	KernelStatus     string // the findings' common kernel status, or ""
 	ClientOnly       string // the server package that isn't installed (report.Finding.ClientOnly)
+	BuiltFor         string // the older release it was built for (report.Finding.BuiltFor)
+	Leftover         bool   // left from an older release: no update fixes it (report.Finding.Leftover)
 	BySev            map[string]int
 	Total, Fixable   int
 	FixPending       bool // an update that fixes some of them is already pending
@@ -383,7 +385,7 @@ func groupByPackage(list []report.Finding) []pkgGroup {
 			idx[key] = i
 			groups = append(groups, pkgGroup{Package: f.Package, Version: f.Version, Ecosystem: f.Ecosystem, Binaries: f.Binaries,
 				BySev: map[string]int{}, NotRunning: f.NotRunning, KernelStatus: f.KernelStatus, Dev: f.Dev,
-				ClientOnly: f.ClientOnly})
+				ClientOnly: f.ClientOnly, BuiltFor: f.BuiltFor, Leftover: f.Leftover})
 		}
 		g := &groups[i]
 		g.NotRunning = g.NotRunning && f.NotRunning

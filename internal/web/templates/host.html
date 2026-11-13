@@ -69,6 +69,21 @@
     </ol>
   </div>{{end}}{{end}}{{end}}
 </section>{{end}}
+{{$cleanup := .CleanupURL}}{{with .Report.ReleaseLeftovers}}{{$cn := .Codename}}<section class="card release-leftovers" id="release-leftovers" aria-labelledby="release-leftovers-h">
+  <div class="section-head"><h2 id="release-leftovers-h">Release leftovers <span class="sev sev-{{sev .Severity}}">{{.Severity}}</span></h2>{{with $cleanup}}<a class="button change-btn release-cleanup" href="{{.}}" target="_blank" rel="noopener noreferrer" title="Opens your change-management tool, which asks the server what's left and drafts the cleanup">Propose cleanup</a>{{end}}</div>
+  <p class="small">This server runs {{.Release}} but still has parts of {{or .Previous "an older release"}}, left by an in-place release upgrade. {{.Release}}'s updates never touch them, so their security fixes stop. Heimdall matches them against the release they were built for, and offers no update for them: they need replacing or removing instead.</p>
+  {{with .Sources}}<h3>Apt sources naming an older release</h3>
+  <div class="scroll"><table class="small"><thead><tr><th>File</th><th>Repository</th><th>Suite</th><th>For {{$cn}}</th></tr></thead><tbody>{{range .}}<tr><td><code>/etc/apt/{{.File}}</code></td><td class="id">{{.URI}}</td><td>{{.Suite}} <span class="muted">({{.Release}})</span></td><td>{{.Current}}</td></tr>{{end}}</tbody></table></div>{{end}}
+  {{with .UsedBy}}<h3>Loaded by running processes</h3>
+  <ul class="small">{{range .}}<li>{{with .Unit}}<code>{{.}}</code>{{else}}<code>{{.Command}}</code>{{end}} <span class="muted">(pid {{.PID}})</span> maps <code>{{.Library}}</code> from {{.Package}}</li>{{end}}</ul>{{end}}
+  {{with .OldBuilds}}<h3>Packages still built for an older release</h3>
+  <div class="scroll"><table class="small"><thead><tr><th>Package</th><th>Installed</th><th>Built for</th><th>Offered by</th></tr></thead><tbody>{{range .}}<tr><td>{{.Name}}</td><td class="ver">{{.Version}}</td><td>{{.BuiltFor}}</td><td>{{with .Offered}}{{join . ", "}}{{else}}<span class="muted">—</span>{{end}}</td></tr>{{end}}</tbody></table></div>{{end}}
+  {{with .Obsolete}}<h3>Obsolete packages</h3>
+  <p class="muted small">No configured apt source has these any more, so nothing upgrades them.</p>
+  <div class="scroll"><table class="small"><thead><tr><th>Package</th><th>Installed</th><th>Built for</th></tr></thead><tbody>{{range .}}<tr><td>{{.Name}}</td><td class="ver">{{.Version}}</td><td>{{with .BuiltFor}}{{.}}{{else}}<span class="muted" title="Its version doesn't say; it may also be a .deb installed on purpose">unknown</span>{{end}}</td></tr>{{end}}</tbody></table></div>{{end}}
+  {{if eq .UsageScan "partial"}}<p class="muted small">The collector isn't root, so it could read only some processes' memory maps: services running as other users may load these libraries too.</p>{{else if eq .UsageScan "not_reported"}}<p class="muted small">Found from package versions alone. Upgrade the collector (<code>sudo heimdall-collect upgrade</code>) to see stale apt sources, obsolete packages and what still loads them.</p>{{end}}
+  {{with .Remediation}}<h3>To clean up, in order</h3><ol class="small">{{range .}}<li>{{.}}</li>{{end}}</ol>{{end}}
+</section>{{end}}
 {{template "aitriage" .AI}}
 
 {{if .News}}

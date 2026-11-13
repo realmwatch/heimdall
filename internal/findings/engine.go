@@ -6,6 +6,7 @@ package findings
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -18,6 +19,7 @@ import (
 	"github.com/realmwatch/heimdall/internal/cvss"
 	"github.com/realmwatch/heimdall/internal/ecosystem"
 	"github.com/realmwatch/heimdall/internal/feeds/osv"
+	"github.com/realmwatch/heimdall/internal/leftovers"
 	"github.com/realmwatch/heimdall/internal/snapshot"
 	"github.com/realmwatch/heimdall/internal/store"
 	"github.com/realmwatch/heimdall/internal/version"
@@ -64,7 +66,11 @@ func (e *Engine) EvaluateHost(ctx context.Context, host store.IngestHost) (HostR
 	targets := map[target]*targetInfo{}
 	if info, ok := HostEcosystem(inv); ok {
 		res.Ecosystem = info.OSV
-		addOSTargets(targets, info, inv.Packages)
+		state, _, err := e.Store.HostRelease(ctx, host.ID)
+		if err != nil {
+			return res, err
+		}
+		addOSTargets(targets, info, inv.Packages, ReleaseAnalysis(inv, info, state))
 	} else {
 		e.Log.Info("findings: OS packages not supported, skipping them", "host", host.Name, "os", inv.OSID, "version", inv.OSVersion)
 	}
@@ -102,7 +108,10 @@ func (e *Engine) EvaluateHost(ctx context.Context, host store.IngestHost) (HostR
 			if err != nil {
 				return res, err
 			}
-			fixed := pickFixed(ti.scheme, t.key.Version, fixedList)
+			fixed := ""
+			if !ti.leftover {
+				fixed = pickFixed(ti.scheme, t.key.Version, fixedList)
+			}
 			pending := false
 			if fixed != "" {
 				for _, pv := range ti.pending {
@@ -123,6 +132,16 @@ func (e *Engine) EvaluateHost(ctx context.Context, host store.IngestHost) (HostR
 				continue
 			}
 			f.Dev = f.Dev && fs[i].Dev
+			// A source installed both as the host's release builds it and
+			// as an older release's leftover (libssl3 and libssl1.1):
+			// the current one's finding stands, with its fix; the leftover
+			// is the release leftovers finding's to clear.
+			if cur := res.Ecosystem; f.Ecosystem != fs[i].Ecosystem && (f.Ecosystem == cur || fs[i].Ecosystem == cur) {
+				if f.Ecosystem == cur {
+					fs[i] = f
+				}
+				continue
+			}
 			if compare(ti.scheme, f.Version, fs[i].Version) < 0 {
 				fs[i] = f
 			}
@@ -166,10 +185,17 @@ type targetInfo struct {
 	binaries []string // installed packages the target covers (OS: binaries of a source package)
 	pending  []string // versions pending updates would install
 	dev      bool     // npm: a dev dependency, needed only to build or test the site
+	// leftover: OS packages left from an older release, or that no
+	// configured source has. Nothing can upgrade them, so no fix is
+	// offered: the release leftovers finding says what to do instead.
+	leftover bool
 }
 
-// addOSTargets adds one target per source package and version.
-func addOSTargets(targets map[target]*targetInfo, info ecosystem.Info, pkgs []store.InventoryPackage) {
+// addOSTargets adds one target per source package, version and release.
+// A package built for an older release (rel.BuiltFor) is matched against
+// that release's advisories: a jammy host's leftover libssl1.1 is focal's
+// openssl 1.1.1f, not an old jammy openssl.
+func addOSTargets(targets map[target]*targetInfo, info ecosystem.Info, pkgs []store.InventoryPackage, rel leftovers.Analysis) {
 	for _, p := range pkgs {
 		name, ver := ecosystem.QueryFor(info, snapshot.Package{
 			Name: p.Name, Version: p.Version, Arch: p.Arch, SourceName: p.SourceName, SourceVersion: p.SourceVersion,
@@ -177,12 +203,18 @@ func addOSTargets(targets map[target]*targetInfo, info ecosystem.Info, pkgs []st
 		if name == "" || ver == "" {
 			continue
 		}
-		t := target{key: store.OSVKey{Ecosystem: info.OSV, Name: name, Version: ver}}
+		eco := info.OSV
+		if r, ok := rel.BuiltFor[p.Name]; ok {
+			eco = r.OSV()
+		}
+		t := target{key: store.OSVKey{Ecosystem: eco, Name: name, Version: ver}}
 		ti := targets[t]
 		if ti == nil {
-			ti = &targetInfo{scheme: info.Scheme}
+			ti = &targetInfo{scheme: info.Scheme, leftover: true}
 			targets[t] = ti
 		}
+		// One upgradable binary makes the target fixable.
+		ti.leftover = ti.leftover && rel.Leftover(p.Name)
 		if !slices.Contains(ti.binaries, p.Name) {
 			ti.binaries = append(ti.binaries, p.Name)
 		}
@@ -471,6 +503,29 @@ func stripEpoch(v string) string {
 		return v[i+1:]
 	}
 	return v
+}
+
+// ReleaseAnalysis finds what an in-place release upgrade left on a dpkg
+// host (see internal/leftovers). state is the collector's apt state as
+// stored (nil if never reported); state from another release (the host
+// reported before its upgrade) is ignored. Other hosts get an empty one.
+func ReleaseAnalysis(inv store.HostInventory, info ecosystem.Info, state []byte) leftovers.Analysis {
+	cur, ok := leftovers.FromOSV(info.OSV)
+	if !ok || info.Scheme != version.Dpkg {
+		return leftovers.Analysis{}
+	}
+	var st *leftovers.State
+	if state != nil {
+		var s leftovers.State
+		if json.Unmarshal(state, &s) == nil && s.Codename == cur.Codename {
+			st = &s
+		}
+	}
+	pkgs := make([]leftovers.Package, len(inv.Packages))
+	for i, p := range inv.Packages {
+		pkgs[i] = leftovers.Package{Name: p.Name, Version: p.Version, SourceName: p.SourceName, SourceVersion: p.SourceVersion}
+	}
+	return leftovers.Analyze(cur, pkgs, st)
 }
 
 // HostEcosystem resolves the OSV ecosystem for a host's latest snapshot.

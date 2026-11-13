@@ -147,6 +147,7 @@ type hostBody struct {
 	PHPRemoveAll    string            // one link removing every version in PHPRemove, when there are 2+
 	PHPRemoveAllN   int
 	RebootURL       string // drafts a reboot when one is required or a newer kernel waits (changelink.go)
+	CleanupURL      string // drafts cleaning up release-upgrade leftovers (changelink.go)
 	CollectorKnown  bool   // this hub is a release build, so the comparison means something
 	ShowAll         bool   // show every finding instead of the first findingsCap
 	Packages        []store.InventoryPackage
@@ -312,6 +313,7 @@ func (s *server) hostPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 	}
 	body.RebootURL = s.cfg.ChangeLink.rebootLink(host.OrgSlug, host.Name, body.Reboot == "required" || body.Report.NewerKernel != "")
 	body.OSView.RebootURL = body.RebootURL
+	body.CleanupURL = s.cfg.ChangeLink.releaseCleanupLink(host.OrgSlug, host.Name, body.Report.ReleaseLeftovers != nil)
 	body.PHPRemove = s.cfg.ChangeLink.phpRemoveLinks(host.OrgSlug, host.Name, body.Report.Runtimes)
 	body.PHPRemoveAll, body.PHPRemoveAllN = s.cfg.ChangeLink.phpRemoveAllLink(host.OrgSlug, host.Name, body.PHPRemove)
 	if raw, err := s.st.HostTriggers(ctx, host.ID); err == nil {

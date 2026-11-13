@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/realmwatch/heimdall/internal/feeds/eol"
 	"github.com/realmwatch/heimdall/internal/findings"
 	"github.com/realmwatch/heimdall/internal/kernel"
+	"github.com/realmwatch/heimdall/internal/leftovers"
 	"github.com/realmwatch/heimdall/internal/store"
 	"github.com/realmwatch/heimdall/internal/version"
 )
@@ -52,6 +54,10 @@ type Host struct {
 	// PHPKnown: the collector reported what uses PHP, so the PHP
 	// runtimes' Use is set (php.go).
 	PHPKnown bool `json:"php_known,omitempty"`
+	// ReleaseLeftovers is what an in-place release upgrade left behind
+	// (stale apt sources, obsolete packages, old-release builds) and what
+	// still loads it; nil when there's nothing (see internal/leftovers).
+	ReleaseLeftovers *leftovers.Finding `json:"release_leftovers,omitempty"`
 }
 
 type Container struct {
@@ -178,6 +184,14 @@ type Finding struct {
 	// finding's source is installed only for its clients and libraries
 	// (bind9's dig without named): see internal/clientonly.
 	ClientOnly string `json:"client_only,omitempty"`
+	// BuiltFor names the older release the package was built for, when
+	// it's left from a release upgrade ("Ubuntu 20.04 (focal)"): it was
+	// matched against that release's advisories.
+	BuiltFor string `json:"built_for,omitempty"`
+	// Leftover: every package is left from an older release or no
+	// configured source has it, so no update fixes it; the host's
+	// release_leftovers says how to clear it.
+	Leftover bool `json:"leftover,omitempty"`
 }
 
 // Filter narrows a report. Scope is required: hosts outside it are never
@@ -206,6 +220,10 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 		}
 	}
 	phps, err := st.HostPHPs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	releases, err := st.HostReleases(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -266,8 +284,13 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 		ks := kernel.HostState(pm, host.Kernel, InstalledKernels(inv))
 		host.OldKernels, host.KernelState, host.NewerKernel = ks.Old, ks.Name(), ks.Newer
 
+		var rel leftovers.Analysis
 		if info, ok := findings.HostEcosystem(inv); ok {
 			host.Ecosystem = info.OSV
+			if !f.CountsOnly { // fleet pages don't show it
+				rel = findings.ReleaseAnalysis(inv, info, releases[h.ID])
+				host.ReleaseLeftovers = rel.Finding
+			}
 		}
 		if product, cycle, ok := eol.OSCycle(inv.OSID, inv.OSVersion, inv.OSIDLike); ok {
 			if host.OSLife, err = lifecycle(product, cycle); err != nil {
@@ -309,6 +332,13 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 					EPSS: f.EPSS, InNews: f.InNews, Published: f.Published, KEVAdded: f.KEVAdded, NewsSince: f.NewsSince,
 					NotRunning: status == kernel.StatusNotRunning, KernelStatus: status, ClientOnly: server,
 				})
+				if f.SiteRoot == "" {
+					out := &host.Findings[len(host.Findings)-1]
+					if r, ok := leftovers.FromOSV(f.Ecosystem); ok && f.Ecosystem != host.Ecosystem {
+						out.BuiltFor = r.String()
+					}
+					out.Leftover = len(f.Binaries) > 0 && !slices.ContainsFunc(f.Binaries, func(b string) bool { return !rel.Leftover(b) })
+				}
 				host.Counts.add(f, status, server != "")
 				c := siteCounts[f.SiteRoot]
 				c.add(f, status, server != "")
@@ -523,6 +553,10 @@ func WriteText(w io.Writer, r *Report, limit int) {
 		if h.NewerKernel != "" {
 			fmt.Fprintf(w, "  Kernel: %s installed but %s still running: reboot to run it (%d findings clear)\n",
 				h.NewerKernel, h.Kernel, c.RebootPending)
+		}
+		if l := h.ReleaseLeftovers; l != nil {
+			fmt.Fprintf(w, "  Release leftovers (%s): %d apt source(s) naming an older release, %d obsolete package(s), %d still built for an older release, %d loaded by running processes\n",
+				l.Severity, len(l.Sources), len(l.Obsolete), len(l.OldBuilds), len(l.UsedBy))
 		}
 		for _, s := range h.Sites {
 			fmt.Fprintf(w, "  Site: %s (%s)\n", s.Root, strings.Join(s.ServerNames, ", "))

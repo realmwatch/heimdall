@@ -98,6 +98,7 @@ func (s *Server) registerTools() {
 	})
 	s.add("host", tool{
 		description: "One host: OS and lifecycle, runtimes, finding counts and top findings, sites, containers, last check-in, " +
+			"release_leftovers (apt sources and packages an in-place release upgrade left, and what loads them), " +
 			"and its machine ID hash. Name it by hostname, or by machine (the hex SHA-256 of \"heimdall-machine:\" and /etc/machine-id).",
 		schema: obj(map[string]any{"host": str("Hostname"), "machine": str("Machine ID hash, instead of host"), "org": orgArg}),
 		run: func(ctx context.Context, c caller, a map[string]any) (any, error) {
