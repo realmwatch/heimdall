@@ -186,12 +186,21 @@ func TestAnalyzeWeb01(t *testing.T) {
 
 func TestAnalyzeWithoutCollectorState(t *testing.T) {
 	pkgs, _ := web01()
+	pkgs = append(pkgs,
+		// jammy-updates really ships this focal-named version
+		Package{"libmbim-glib4", "1.28.0-1~ubuntu20.04.2", "libmbim", "1.28.0-1~ubuntu20.04.2"},
+		// a jammy build of an older fwupd, beside the current one
+		Package{"libfwupd2", "1.7.9-1~22.04.3", "fwupd", "1.7.9-1~22.04.3"},
+		Package{"fwupd", "2.0.20-1ubuntu2~22.04.2", "fwupd", "2.0.20-1ubuntu2~22.04.2"})
 	a := Analyze(jammy, pkgs, nil)
-	// The version alone: SRU and third-party markers, then the twins of a
-	// newer source, from the release those markers name.
+	// The version alone: third-party builders' markers count on their own;
+	// the Ubuntu archive's only for a twin of a newer source, as does the
+	// release upgraded from for a twin with no marker. A marker naming the
+	// current release always means current.
 	for name, want := range map[string]string{
-		"libwebp6": "focal", "python3.8": "focal", "libpq5": "focal", "libzip4": "focal", "redis-tools": "focal",
+		"libwebp6": "focal", "libpq5": "focal", "libzip4": "focal", "redis-tools": "focal",
 		"libssl1.1": "focal", "libldap-2.4-2": "focal", "libperl5.30": "focal", "libssl3": "", "vendor-agent": "",
+		"python3.8": "", "libmbim-glib4": "", "libfwupd2": "", "fwupd": "",
 	} {
 		if got := a.BuiltFor[name].Codename; got != want {
 			t.Errorf("%s built for %q, want %q", name, got, want)
