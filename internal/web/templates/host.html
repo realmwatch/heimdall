@@ -137,11 +137,11 @@
       {{if .NpmPackages}}<li><span class="k">npm packages</span><span class="v">{{.NpmPackages}}{{with .NpmDev}} <span class="muted">({{.}} dev)</span>{{end}}</span></li>{{end}}
       {{with .Repo}}<li class="repo-fact"><span class="k">Repository</span><span class="v">{{with repoWeb .}}<a href="{{.}}" rel="noopener noreferrer"><code class="path">{{repoShort .}}</code></a>{{else}}<code class="path">{{.}}</code>{{end}}</span></li>{{end}}
     </ul>
-    {{with .HandoffURL}}<p class="site-handoff"><a class="button secondary handoff-btn" href="{{.}}">Hand off to agent</a></p>{{end}}
+    {{if .PRHandoff}}{{template "prhandoff" .PRHandoff}}{{else}}{{with .HandoffURL}}<p class="site-handoff"><a class="button secondary handoff-btn" href="{{.}}">Hand off to agent</a></p>{{end}}{{end}}
     {{if .Findings}}
-    {{$open := eq (len $.Body.Sites) 1}}
-    {{with .Composer}}{{if .Findings}}{{template "siteeco" (siteEco "Composer" "" . $open)}}{{end}}{{end}}
-    {{with .Npm}}{{if .Findings}}{{template "siteeco" (siteEco "npm" "package-lock.json" . $open)}}{{end}}{{end}}
+    {{$open := eq (len $.Body.Sites) 1}}{{$pr := ne .PRHandoff ""}}
+    {{with .Composer}}{{if .Findings}}{{template "siteeco" (siteEco "Composer" "" . $open $pr)}}{{end}}{{end}}
+    {{with .Npm}}{{if .Findings}}{{template "siteeco" (siteEco "npm" "package-lock.json" . $open $pr)}}{{end}}{{end}}
     {{else if .Readable}}<p class="empty">No open findings in {{if .NpmPackages}}Composer or npm{{else}}Composer{{end}} packages.</p>{{end}}
   </div>
   {{end}}

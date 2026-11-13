@@ -277,3 +277,35 @@ func TestHandoffAmpProjectUnclear(t *testing.T) {
 		})
 	}
 }
+
+// With the site's repository known, its fix leads with a pull request and
+// the commands that change the live checkout fold away; without it, the
+// commands stay first.
+func TestSiteFixLeadsWithPullRequest(t *testing.T) {
+	t.Parallel()
+	e := handoffEnv(t, handoff.Agent{Name: "amp", Starter: &fakeStarter{id: testThread, projects: testProjects}})
+	host := e.seedSites()
+	asRole(e, host.OrgID, store.RoleOperator)
+	pages := func() (string, string) {
+		return e.get("/hosts/acme/app-01", signedIn(e)).Body.String(), e.get(siteURL("acme", "app-01", siteRoot), signedIn(e)).Body.String()
+	}
+	hostPage, sitePage := pages()
+	for name, page := range map[string]string{"host": hostPage, "site": sitePage} {
+		if strings.Contains(page, "Fix in a pull request") || strings.Contains(page, "Run it on the server instead") || !strings.Contains(page, "composer update ") {
+			t.Errorf("%s page without a repository should lead with the command", name)
+		}
+	}
+	if err := e.st.SetSiteRepo(t.Context(), "test", host.ID, siteRoot, "https://github.com/acme/example.com"); err != nil {
+		t.Fatal(err)
+	}
+	hostPage, sitePage = pages()
+	for name, page := range map[string]string{"host": hostPage, "site": sitePage} {
+		pr, alt, cmd := strings.Index(page, ">Fix in a pull request</a>"), strings.Index(page, "<summary>Run it on the server instead</summary>"), strings.Index(page, "composer update ")
+		if pr < 0 || alt < pr || cmd < alt || !strings.Contains(page, "the next deploy puts the old versions back") {
+			t.Errorf("%s page: pull request %d, folded commands %d, command %d", name, pr, alt, cmd)
+		}
+		if strings.Contains(page, ">Hand off to agent</a>") {
+			t.Errorf("%s page shows both hand-off buttons", name)
+		}
+	}
+}

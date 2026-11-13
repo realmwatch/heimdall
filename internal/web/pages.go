@@ -258,6 +258,9 @@ func (s *server) hostPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 		site.Repo = repos[site.Root].Repo()
 		if s.canHandoff(v, host.OrgID) && len(handoffFindings(body.Report, site.Root)) > 0 {
 			site.HandoffURL = handoffURL(host.OrgSlug, host.Name, site.Root, "")
+			if site.Repo != "" {
+				site.PRHandoff = site.HandoffURL
+			}
 		}
 	}
 
@@ -603,6 +606,10 @@ type siteSection struct {
 	LabelSet   bool
 	Repo       string // the site's repository ("" if unknown)
 	HandoffURL string // "Hand off to agent", when allowed and there's something to fix
+	// PRHandoff is HandoffURL when the site's repository is known: then the
+	// fix leads with a pull request, and the commands that change the live
+	// checkout fold away (a deploy would undo them).
+	PRHandoff string
 }
 
 // ecoSection is one ecosystem's findings in a site card: Composer or npm.
@@ -1012,6 +1019,9 @@ func (s *server) sitePage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 	body.BranchNotice, body.BranchError = branchNotices[bn], bn == "invalid"
 	if s.canHandoff(v, host.OrgID) && len(handoffFindings(h, root)) > 0 {
 		body.HandoffURL = handoffURL(host.OrgSlug, host.Name, root, "")
+		if body.Repo.Repo() != "" {
+			body.View.PRHandoff = body.HandoffURL
+		}
 	}
 	hn := r.URL.Query().Get("handoff")
 	body.HandoffNote, body.HandoffError = handoffNotices[hn], hn == "failed"

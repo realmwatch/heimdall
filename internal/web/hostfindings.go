@@ -86,7 +86,10 @@ type findingsView struct {
 	OldKernelCmd *command
 	// RebootURL drafts a reboot in the change-management tool (see
 	// ChangeLink.rebootLink), beside the reboot command.
-	RebootURL         string
+	RebootURL string
+	// PRHandoff, on a site with a known repository, hands the fix to an
+	// agent as a pull request; the commands then fold away.
+	PRHandoff         string
 	OldKernelFindings int
 	// ChangeURL drafts the fix for every fixable finding shown (ChangeCount)
 	// in the change-management tool ([change_link]); "" when it's off.

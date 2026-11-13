@@ -771,9 +771,10 @@ var funcs = template.FuncMap{
 		return map[string]any{"C": chipCounts{c}, "V": v}
 	},
 	// siteEco is the "siteeco" partial's input: an ecosystem's name, its
-	// lockfile (shown beside it, or ""), its section, and whether it's open.
-	"siteEco": func(name, file string, e ecoSection, open bool) map[string]any {
-		return map[string]any{"Name": name, "File": file, "E": e, "Open": open}
+	// lockfile (shown beside it, or ""), its section, whether it's open, and
+	// whether its commands fold under a pull-request hand-off.
+	"siteEco": func(name, file string, e ecoSection, open, pr bool) map[string]any {
+		return map[string]any{"Name": name, "File": file, "E": e, "Open": open, "PR": pr}
 	},
 	"sevChips": func() []string { return []string{"critical", "high", "medium", "low", "unknown"} },
 	// hotEPSS: an EPSS score worth watching even with no fix (store.WatchEPSS).
