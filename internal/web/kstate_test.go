@@ -162,3 +162,25 @@ func TestKernelCaseCounts(t *testing.T) {
 		t.Error("the known-exploited filter lists a kernel userland finding")
 	}
 }
+
+// A host that needs a reboot offers to draft one in the change-management
+// tool; a host that doesn't, or a hub without action_url, offers nothing.
+func TestHostPageProposeReboot(t *testing.T) {
+	t.Parallel()
+	e := newEnvCfg(t, "http://127.0.0.1:8080", nil, func(c *Config) {
+		c.ChangeLink.ActionURL = "https://changes.example.com/propose?action={action}&org={org}&host={host}&{params}"
+	})
+	e.st.CreateOrg(t.Context(), "test", "acme", "Acme")
+	storetest.SeedKernelCases(t, e.st, "acme", testNow)
+	link := `href="https://changes.example.com/propose?action=system.reboot&amp;org=acme&amp;host=` + storetest.RebootPendingHost + `&amp;"`
+	if page := e.get("/hosts/acme/"+storetest.RebootPendingHost, signedIn(e)).Body.String(); strings.Count(page, link) != 2 {
+		t.Errorf("reboot-pending host: %d reboot links, want 2 (the Reboot fact and the reboot command)", strings.Count(page, link))
+	}
+	if page := e.get("/hosts/acme/"+storetest.OldKernelHost, signedIn(e)).Body.String(); strings.Contains(page, "system.reboot") {
+		t.Error("offers a reboot to a host running its newest kernel")
+	}
+	plain := kernelCaseEnv(t)
+	if page := plain.get("/hosts/acme/"+storetest.RebootPendingHost, signedIn(plain)).Body.String(); strings.Contains(page, "Propose reboot") {
+		t.Error("Propose reboot shown without action_url")
+	}
+}

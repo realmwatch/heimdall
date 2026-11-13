@@ -161,7 +161,7 @@
 {{define "rebootcmd"}}{{with .RebootCmd}}<div class="cmd fix-cmd">
   <div class="cmd-label">{{.Label}} <span class="muted small">· clears {{$.RebootFindings}} finding{{if ne $.RebootFindings 1}}s{{end}} marked "reboot pending"</span></div>
   <div class="codebox"><pre id="{{.ID}}">{{.Text}}</pre><button type="button" class="copy" data-copy="{{.ID}}" hidden>Copy</button></div>
-  <p class="muted small">{{.Note}} Heimdall never runs it for you.</p>
+  <p class="muted small">{{.Note}} Heimdall never runs it for you.{{with $.RebootURL}} <a class="button change-btn" href="{{.}}" target="_blank" rel="noopener noreferrer">Propose reboot</a> Opens your change-management tool to draft it.{{end}}</p>
 </div>{{end}}{{end}}
 
 {{/* icon: a small inline stroke icon by name. */}}
