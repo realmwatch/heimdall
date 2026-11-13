@@ -244,7 +244,10 @@ type NewsSource struct {
 // NewsSources lists the sources Heimdall has fetched, in source order.
 func (s *Store) NewsSources(ctx context.Context) ([]NewsSource, error) {
 	rows, err := s.rd.QueryContext(ctx, `
-		SELECT ns.source, ns.kind, ns.checked_at, coalesce(ns.published_at, ''),
+		SELECT ns.source, ns.kind, ns.checked_at,
+		       -- Not recorded until a download changes: until then, the
+		       -- newest item already stored from the source.
+		       coalesce(ns.published_at, (SELECT max(n.updated_at) FROM news_items n WHERE n.source = ns.source), ''),
 		       (SELECT count(*) FROM news_items n WHERE n.source = ns.source)
 		FROM news_sources ns ORDER BY ns.source`)
 	if err != nil {

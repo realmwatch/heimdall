@@ -236,6 +236,11 @@ func TestMergeNewsKeepsArticlesUntilTheyAge(t *testing.T) {
 			t.Errorf("%s is %s", e.Slug, e.Status)
 		}
 	}
+	// A source fetched before its publish date was recorded falls back to
+	// its newest stored item.
+	if _, err := s.db.ExecContext(ctx, `UPDATE news_sources SET published_at = NULL WHERE source = ?`, testSource); err != nil {
+		t.Fatal(err)
+	}
 	srcs, err := s.NewsSources(ctx)
 	if err != nil || len(srcs) != 2 {
 		t.Fatalf("%v %v", srcs, err)
