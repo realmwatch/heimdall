@@ -260,12 +260,14 @@ func versionRelease(distro string, p Package) (Release, bool, bool) {
 
 // twins marks candidates (packages no configured source offers, or every
 // package without collector state, whose version doesn't name the
-// current release) that are built from the same source as a newer
-// installed package with another upstream version: libssl1.1 from openssl
-// 1.1.1f beside libssl3 from 3.0.2. One is built for the release its
-// version names (weak), else for the release the host was upgraded from
-// (prev, once the others are counted). A held-back package has the same
-// upstream version, so it isn't one.
+// current release) built from the same source as a newer installed
+// package with another upstream version, such as libssl1.1 (openssl
+// 1.1.1f) beside libssl3 (3.0.2). The newer one mustn't itself be built
+// for an older release: jammy's postgresql-client 14+238 beside a stale
+// source's postgresql-common 278.pgdg20.04+1 is current. A twin is built
+// for the release its version names (weak), else for the one the host
+// was upgraded from (prev, once the others are counted). A held-back
+// package has the same upstream version, so it isn't one.
 func twins(a Analysis, pkgs []Package, candidates map[string]bool, weak map[string]Release, seen func(Release), prev func() Release) {
 	top := map[string]string{}
 	src := func(p Package) (string, string) {
@@ -279,6 +281,9 @@ func twins(a Analysis, pkgs []Package, candidates map[string]bool, weak map[stri
 		return name, ver
 	}
 	for _, p := range pkgs {
+		if _, old := a.BuiltFor[p.Name]; old {
+			continue // a newer leftover (a stale source's build) isn't the current one
+		}
 		n, v := src(p)
 		if t, ok := top[n]; !ok || version.CompareDpkg(v, t) > 0 {
 			top[n] = v
@@ -290,7 +295,7 @@ func twins(a Analysis, pkgs []Package, candidates map[string]bool, weak map[stri
 			continue
 		}
 		n, v := src(p)
-		if t := top[n]; version.CompareDpkg(v, t) >= 0 || upstream(v) == upstream(t) {
+		if t, ok := top[n]; !ok || version.CompareDpkg(v, t) >= 0 || upstream(v) == upstream(t) {
 			continue
 		}
 		if r, ok := weak[p.Name]; ok {
