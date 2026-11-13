@@ -278,3 +278,14 @@ func TestNonOSEOLSummary(t *testing.T) {
 		t.Errorf("none: %+v", s)
 	}
 }
+
+func TestRebootLink(t *testing.T) {
+	t.Parallel()
+	c := ChangeLink{ActionURL: "https://changes.example.com/propose?action={action}&org={org}&host={host}&{params}"}
+	if got, want := c.rebootLink("a&b", "web 01", true), "https://changes.example.com/propose?action=system.reboot&org=a%26b&host=web+01&"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if c.rebootLink("acme", "web-01", false) != "" || (ChangeLink{}).rebootLink("acme", "web-01", true) != "" {
+		t.Error("a link with no reboot needed or no template")
+	}
+}

@@ -146,8 +146,9 @@ type hostBody struct {
 	PHPRemove       map[string]string // unused PHP version to its removal link (changelink.go)
 	PHPRemoveAll    string            // one link removing every version in PHPRemove, when there are 2+
 	PHPRemoveAllN   int
-	CollectorKnown  bool // this hub is a release build, so the comparison means something
-	ShowAll         bool // show every finding instead of the first findingsCap
+	RebootURL       string // drafts a reboot when one is required or a newer kernel waits (changelink.go)
+	CollectorKnown  bool   // this hub is a release build, so the comparison means something
+	ShowAll         bool   // show every finding instead of the first findingsCap
 	Packages        []store.InventoryPackage
 	Commands        []command
 	Anomalies       []store.AnomalyRow
@@ -303,6 +304,8 @@ func (s *server) hostPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 		body.CollectorBehind = updates.CollectorBehind(v)
 		body.CollectorURL = s.cfg.ChangeLink.collectorLink(host.OrgSlug, host.Name, body.CollectorBehind)
 	}
+	body.RebootURL = s.cfg.ChangeLink.rebootLink(host.OrgSlug, host.Name, body.Reboot == "required" || body.Report.NewerKernel != "")
+	body.OSView.RebootURL = body.RebootURL
 	body.PHPRemove = s.cfg.ChangeLink.phpRemoveLinks(host.OrgSlug, host.Name, body.Report.Runtimes)
 	body.PHPRemoveAll, body.PHPRemoveAllN = s.cfg.ChangeLink.phpRemoveAllLink(host.OrgSlug, host.Name, body.PHPRemove)
 	if raw, err := s.st.HostTriggers(ctx, host.ID); err == nil {

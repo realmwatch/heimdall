@@ -83,7 +83,10 @@ type findingsView struct {
 	NotInCache int
 	// OldKernelCmd removes installed kernels older than the running one,
 	// which clears OldKernelFindings (upgrading never does).
-	OldKernelCmd      *command
+	OldKernelCmd *command
+	// RebootURL drafts a reboot in the change-management tool (see
+	// ChangeLink.rebootLink), beside the reboot command.
+	RebootURL         string
 	OldKernelFindings int
 	// ChangeURL drafts the fix for every fixable finding shown (ChangeCount)
 	// in the change-management tool ([change_link]); "" when it's off.

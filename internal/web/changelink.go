@@ -107,6 +107,16 @@ func (c ChangeLink) phpRemoveLinks(org, host string, runtimes []report.Runtime) 
 	return links
 }
 
+// rebootLink drafts a reboot of the host through the action template, or
+// is "" when no reboot is needed. The tool checks that the host's agent
+// can reboot and asks why.
+func (c ChangeLink) rebootLink(org, host string, needed bool) string {
+	if !needed {
+		return ""
+	}
+	return c.actionLink("system.reboot", org, host, nil)
+}
+
 // phpRemoveAllLink is one removal link for every unused PHP version that
 // has its own (see phpRemoveLinks), and how many that is: "" unless there
 // are at least two. The tool makes one proposal per version, each with its
