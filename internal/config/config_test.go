@@ -5,6 +5,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -144,7 +145,7 @@ func TestValidate(t *testing.T) {
 	}
 
 	cfg = Default()
-	if cfg.News.Enabled || len(cfg.News.Sources) != 1 || cfg.News.Sources[0] != DefaultNewsSource || cfg.News.Interval.Duration != time.Hour {
+	if cfg.News.Enabled || !slices.Equal(cfg.News.Sources, DefaultNewsSources) || cfg.News.Interval.Duration != time.Hour {
 		t.Errorf("news defaults: %+v", cfg.News)
 	}
 	cfg.News.Enabled = true
@@ -152,7 +153,7 @@ func TestValidate(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("news enabled should be valid: %v", err)
 	}
-	if got := cfg.News.Hosts(); len(got) != 2 || got[0] != "pwn.watch" || got[1] != "feeds.example.com" {
+	if got := cfg.News.Hosts(); !slices.Equal(got, []string{"pwn.watch", "feeds.feedburner.com", "www.wordfence.com", "patchstack.com", "feeds.example.com"}) {
 		t.Errorf("news hosts: %v", got)
 	}
 }

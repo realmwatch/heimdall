@@ -75,9 +75,9 @@
 <section class="card news-card" aria-labelledby="in-the-news">
   <h2 id="in-the-news">In the news</h2>
   <ul class="news-mini">{{range .News}}<li>
-    <span class="sev sev-{{sev .Severity}}">{{.Severity}}</span>
+    {{if ne .Severity "unknown"}}<span class="sev sev-{{sev .Severity}}">{{.Severity}}</span>{{end}}
     <a href="{{.URL}}" rel="noopener noreferrer">{{.Title}}</a>
-    <span class="muted small">{{range .Hosts}}{{.Reason}}{{end}} · {{if eq .Status "live"}}live{{else}}closed{{end}} · <span title="{{fullDate .Started}}">{{dayAgo .Started}}</span> · via {{.Via}}</span>
+    <span class="muted small">{{range .Hosts}}{{.Reason}}{{end}} · {{if eq .Status "live"}}live{{else}}closed{{end}} · <span title="{{fullDate .Started}}">{{dayAgo .Started}}</span> · via {{.Via}}{{range .Also}}, {{.Via}}{{end}}</span>
   </li>{{end}}</ul>
   <p class="muted small"><a href="/news?affects=me">All news affecting your hosts</a></p>
 </section>

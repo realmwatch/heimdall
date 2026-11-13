@@ -143,28 +143,28 @@ func TestFetch(t *testing.T) {
 	defer ts.Close()
 	c := netx.NewForTest(ts.Client())
 
-	f, v, err := Fetch(t.Context(), c, ts.URL, Validators{})
+	f, v, err := Fetch(t.Context(), c, ts.URL, Validators{}, time.Now())
 	if err != nil || f == nil || len(f.Items) != 4 {
 		t.Fatalf("first fetch: %v %v", f, err)
 	}
 	if v.ETag != `"v1"` || v.LastModified == "" || gotUA != "heimdall-test" {
 		t.Errorf("validators %+v, UA %q", v, gotUA)
 	}
-	f, v2, err := Fetch(t.Context(), c, ts.URL, v)
+	f, v2, err := Fetch(t.Context(), c, ts.URL, v, time.Now())
 	if err != nil || f != nil || v2 != v || gotINM != `"v1"` {
 		t.Errorf("conditional fetch: %v %+v %v (If-None-Match %q)", f, v2, err, gotINM)
 	}
 	big = true
-	if _, _, err := Fetch(t.Context(), c, ts.URL, Validators{}); err == nil || !strings.Contains(err.Error(), "larger than") {
+	if _, _, err := Fetch(t.Context(), c, ts.URL, Validators{}, time.Now()); err == nil || !strings.Contains(err.Error(), "larger than") {
 		t.Errorf("size cap: %v", err)
 	}
 
 	// The real client refuses anything but https to allowlisted hosts.
 	real := netx.New([]string{"news.example.test"}, "heimdall/test")
-	if _, _, err := Fetch(t.Context(), real, "http://news.example.test/incidents.json", Validators{}); err == nil {
+	if _, _, err := Fetch(t.Context(), real, "http://news.example.test/incidents.json", Validators{}, time.Now()); err == nil {
 		t.Error("plain http allowed")
 	}
-	if _, _, err := Fetch(t.Context(), real, "https://elsewhere.example/incidents.json", Validators{}); err == nil {
+	if _, _, err := Fetch(t.Context(), real, "https://elsewhere.example/incidents.json", Validators{}, time.Now()); err == nil {
 		t.Error("host outside the allowlist allowed")
 	}
 }

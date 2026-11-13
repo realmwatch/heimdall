@@ -297,8 +297,12 @@ func TestKernelRemoveLink(t *testing.T) {
 		"https://changes.example.com/propose?action=kernel.remove&org=acme&host=web-01&kernels=6.8.0-45-generic%2C6.8.0-49-generic"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
-	if c.kernelRemoveLink("acme", "web-01", nil) != "" || c.kernelRemoveLink("acme", "web-01", make([]string, 11)) != "" ||
+	if c.kernelRemoveLink("acme", "web-01", nil) != "" || c.kernelRemoveLink("acme", "web-01", make([]string, maxKernelRemove+1)) != "" ||
 		(ChangeLink{}).kernelRemoveLink("acme", "web-01", []string{"6.8.0-45-generic"}) != "" {
 		t.Error("a link with no kernels, too many, or no template")
+	}
+	// A server that skipped a year of kernel updates keeps 16 or more.
+	if c.kernelRemoveLink("acme", "web-01", make([]string, 16)) == "" {
+		t.Error("16 kernels refused")
 	}
 }

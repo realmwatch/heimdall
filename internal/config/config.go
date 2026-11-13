@@ -257,12 +257,23 @@ func validateAIEndpoint(s string) error {
 // hub owner hasn't turned on.
 type News struct {
 	Enabled  bool     `toml:"enabled"`
-	Sources  []string `toml:"sources"` // https URLs of incident feeds (pwn.watch's incidents.json shape)
+	Sources  []string `toml:"sources"` // https URLs: incident lists (pwn.watch's incidents.json shape) or RSS/Atom feeds
 	Interval Duration `toml:"interval"`
 }
 
 // DefaultNewsSource is pwn.watch's full incident list.
 const DefaultNewsSource = "https://pwn.watch/incidents.json"
+
+// DefaultNewsSources are pwn.watch's curated incidents plus security news
+// feeds whose articles name CVE IDs: broad news, and WordPress and PHP
+// plugin vulnerabilities, which reach these before OSV. One source going
+// quiet then leaves the others.
+var DefaultNewsSources = []string{
+	DefaultNewsSource,
+	"https://feeds.feedburner.com/TheHackersNews",
+	"https://www.wordfence.com/blog/feed/",
+	"https://patchstack.com/feed/1.xml",
+}
 
 // MaxNewsSources caps [news] sources.
 const MaxNewsSources = 10
@@ -439,7 +450,7 @@ func Default() Config {
 		Notify:  Notify{SMTPPort: 587, WebhookFormat: "slack", AlertAnomalies: true},
 		MCP:     MCP{Listen: "127.0.0.1:8090", BaseURL: "http://127.0.0.1:8090"},
 		Updates: Updates{Check: true},
-		News:    News{Sources: []string{DefaultNewsSource}, Interval: Duration{time.Hour}},
+		News:    News{Sources: slices.Clone(DefaultNewsSources), Interval: Duration{time.Hour}},
 		AI: AI{API: AIResponses, BriefEvery: Duration{24 * time.Hour}, MaxOutputTokens: 8000,
 			MaxInputTokens: 24000, Timeout: Duration{2 * time.Minute}},
 		DeployServices: DefaultDeployServices(),
