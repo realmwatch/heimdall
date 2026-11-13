@@ -161,8 +161,9 @@ collector_url = ""
 # Every other change a host page can propose, such as "Propose removal" on an
 # unused PHP version: a link with {org}, {host}, {action} (php.remove) and
 # {params} (the action's query parameters, php=8.2, or php=8.1,8.2 for
-# "Propose removing all"), or {action} system.reboot with no {params} for
-# "Propose reboot". A patch plan's
+# "Propose removing all"), {action} system.reboot with no {params} for
+# "Propose reboot", or {action} kernel.remove with kernels=6.8.0-45-generic
+# for old kernels. A patch plan's
 # "install updates" links use it too, with {action} updates.install, {host}
 # empty and {params} hosts=web-01,web-02. Off while empty.
 action_url = ""

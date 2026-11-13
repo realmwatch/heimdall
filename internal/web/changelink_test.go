@@ -289,3 +289,16 @@ func TestRebootLink(t *testing.T) {
 		t.Error("a link with no reboot needed or no template")
 	}
 }
+
+func TestKernelRemoveLink(t *testing.T) {
+	t.Parallel()
+	c := ChangeLink{ActionURL: "https://changes.example.com/propose?action={action}&org={org}&host={host}&{params}"}
+	if got, want := c.kernelRemoveLink("acme", "web-01", []string{"6.8.0-45-generic", "6.8.0-49-generic"}),
+		"https://changes.example.com/propose?action=kernel.remove&org=acme&host=web-01&kernels=6.8.0-45-generic%2C6.8.0-49-generic"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if c.kernelRemoveLink("acme", "web-01", nil) != "" || c.kernelRemoveLink("acme", "web-01", make([]string, 11)) != "" ||
+		(ChangeLink{}).kernelRemoveLink("acme", "web-01", []string{"6.8.0-45-generic"}) != "" {
+		t.Error("a link with no kernels, too many, or no template")
+	}
+}

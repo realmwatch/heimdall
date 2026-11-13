@@ -117,6 +117,17 @@ func (c ChangeLink) rebootLink(org, host string, needed bool) string {
 	return c.actionLink("system.reboot", org, host, nil)
 }
 
+// kernelRemoveLink drafts removing old kernels (uname -r releases) through
+// the action template, or is "" with none. The tool's agent removes only
+// those still installed and older than the running kernel; the tool takes
+// at most 10.
+func (c ChangeLink) kernelRemoveLink(org, host string, kernels []string) string {
+	if len(kernels) == 0 || len(kernels) > 10 {
+		return ""
+	}
+	return c.actionLink("kernel.remove", org, host, url.Values{"kernels": {strings.Join(kernels, ",")}})
+}
+
 // phpRemoveAllLink is one removal link for every unused PHP version that
 // has its own (see phpRemoveLinks), and how many that is: "" unless there
 // are at least two. The tool makes one proposal per version, each with its
