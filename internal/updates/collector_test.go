@@ -14,7 +14,7 @@ import (
 )
 
 // collectorSum is collectorDigest at CollectorChanged.
-const collectorSum = "137eb9089ab78ee2aaff056656e59024c21d16dfff985379115ad48d41a806b5"
+const collectorSum = "ad451580700fef730e6b72441b921c95c243eeec593351b5287007576058c057"
 
 // versionLine is a collector script's version number, which every release
 // changes.

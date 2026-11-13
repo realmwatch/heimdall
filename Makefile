@@ -45,6 +45,8 @@ test-collector: shellcheck
 	collector/test/events-deploys.sh
 	collector/test/site-branches.sh
 	collector/test/ssh-state.sh
+	collector/test/release-state.sh
+	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/release-state.sh 'busybox sh'
 	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/ssh-state.sh 'busybox sh'
 	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/site-branches.sh 'busybox sh'
 	docker run --rm -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/set-hub.sh

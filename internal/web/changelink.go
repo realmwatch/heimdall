@@ -117,6 +117,17 @@ func (c ChangeLink) rebootLink(org, host string, needed bool) string {
 	return c.actionLink("system.reboot", org, host, nil)
 }
 
+// releaseCleanupLink drafts cleaning up what an in-place release upgrade
+// left (report.Host.ReleaseLeftovers), or is "" with nothing left. It
+// carries no {params}: the tool asks the host's agent for the current
+// state itself and decides what to change when it runs.
+func (c ChangeLink) releaseCleanupLink(org, host string, left bool) string {
+	if !left {
+		return ""
+	}
+	return c.actionLink("release.cleanup", org, host, nil)
+}
+
 // maxKernelRemove is the most kernels one removal proposal names.
 const maxKernelRemove = 50
 

@@ -14,6 +14,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -35,6 +36,9 @@ const (
 type fakeOSV struct {
 	batches, vulnFetches atomic.Int32
 	vulnerable           func(name, version string) bool
+	oldVulnerable        bool // Debian:11 openssl too (a bookworm host's leftover)
+	mu                   sync.Mutex
+	queried              []string
 	modified             atomic.Value // querybatch's modified time for advisoryID, if set
 }
 
@@ -61,6 +65,12 @@ func (f *fakeOSV) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}{}
 		for _, q := range req.Queries {
 			var res result
+			f.mu.Lock()
+			f.queried = append(f.queried, q.Package.Ecosystem+" "+q.Package.Name+" "+q.Version)
+			f.mu.Unlock()
+			if q.Package.Ecosystem == "Debian:11" && f.oldVulnerable && q.Package.Name == "openssl" {
+				res.Vulns = []ref{{ID: advisoryID, Modified: "2024-01-01T00:00:00Z"}}
+			}
 			if q.Package.Ecosystem == "Debian:12" && f.vulnerable(q.Package.Name, q.Version) {
 				m, _ := f.modified.Load().(string)
 				if m == "" {
@@ -465,5 +475,54 @@ func TestEPSSJoin(t *testing.T) {
 	}
 	if f := e.open()[0]; f.EPSS != 0.42 {
 		t.Errorf("EPSS = %v", f.EPSS)
+	}
+}
+
+// A bookworm host still has bullseye's libssl1.1 (openssl 1.1.1n): it's
+// judged against bullseye's advisories, never offered a bookworm fix, and
+// the bookworm openssl's finding keeps its own.
+func TestLeftoverJudgedAgainstItsRelease(t *testing.T) {
+	e := newEnv(t)
+	b, _ := os.ReadFile("../snapshot/testdata/debian12.json")
+	var s snapshot.Snapshot
+	json.Unmarshal(b, &s)
+	for i := range s.Packages {
+		if s.Packages[i].SourceName == "openssl" {
+			s.Packages[i].Version, s.Packages[i].SourceVersion = "3.0.11-1~deb12u2", "3.0.11-1~deb12u2"
+		}
+	}
+	s.Packages = append(s.Packages, snapshot.Package{Name: "libssl1.1", Version: "1.1.1n-0+deb11u5", Arch: "amd64",
+		SourceName: "openssl", SourceVersion: "1.1.1n-0+deb11u5"})
+	s.Updates, s.CollectedAt = nil, e.now
+	raw, _ := json.Marshal(s)
+	acc := ingest.Accepter{Store: e.st, Now: func() time.Time { return e.now }}
+	if res, err := acc.Accept(t.Context(), e.host, "push", raw); err != nil || res.Status != http.StatusCreated {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if _, err := e.eng.EvaluateHost(t.Context(), e.host); err != nil {
+		t.Fatal(err)
+	}
+	e.osv.mu.Lock()
+	queried := slices.Clone(e.osv.queried)
+	e.osv.mu.Unlock()
+	if !slices.Contains(queried, "Debian:11 openssl 1.1.1n-0+deb11u5") || slices.Contains(queried, "Debian:12 openssl 1.1.1n-0+deb11u5") {
+		t.Errorf("queries %q", queried)
+	}
+	fs := e.open()
+	if len(fs) != 1 || fs[0].Version != "3.0.11-1~deb12u2" || fs[0].FixedVersion == "" || slices.Contains(fs[0].Binaries, "libssl1.1") {
+		t.Fatalf("the bookworm openssl's finding, with its fix: %+v", fs)
+	}
+
+	// Only the leftover is affected: a finding on bullseye's record, with
+	// no fix (it's bullseye's package; nothing on bookworm upgrades it).
+	e.osv.vulnerable = func(string, string) bool { return false }
+	e.osv.oldVulnerable = true
+	e.now = e.now.Add(7 * time.Hour) // past the query cache
+	if _, err := e.eng.EvaluateHost(t.Context(), e.host); err != nil {
+		t.Fatal(err)
+	}
+	fs = e.open()
+	if len(fs) != 1 || fs[0].Ecosystem != "Debian:11" || fs[0].FixedVersion != "" || !slices.Equal(fs[0].Binaries, []string{"libssl1.1"}) {
+		t.Fatalf("leftover finding %+v", fs)
 	}
 }
