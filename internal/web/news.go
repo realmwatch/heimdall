@@ -29,6 +29,40 @@ type newsBody struct {
 	More       int // incidents past newsCap
 	ShowOrgs   bool
 	Sources    []newsSourceRow
+	Query      string // the search box, as typed
+}
+
+// newsQueryMax caps the news search box.
+const newsQueryMax = 200
+
+// matchesNews reports whether every word of the search appears somewhere
+// in the item: its title, summary, product, CVEs, tags, where it's from or
+// the hosts it affects. Plain substring matching, ignoring case.
+func matchesNews(r newsRow, words []string) bool {
+	var b strings.Builder
+	for _, s := range []string{r.Title, r.Summary, r.Product, r.Category, r.CategoryLabel(), r.Via} {
+		b.WriteString(strings.ToLower(s))
+		b.WriteByte('\n')
+	}
+	for _, l := range [][]string{r.CVEs, r.Tags, r.Stacks, r.Affected, r.Fixed} {
+		for _, s := range l {
+			b.WriteString(strings.ToLower(s))
+			b.WriteByte('\n')
+		}
+	}
+	for _, a := range r.Also {
+		b.WriteString(a.Via + "\n")
+	}
+	for _, h := range r.Hosts {
+		b.WriteString(strings.ToLower(h.Name) + "\n")
+	}
+	hay := b.String()
+	for _, w := range words {
+		if !strings.Contains(hay, w) {
+			return false
+		}
+	}
+	return true
 }
 
 // newsQuietAfter is how long a source may go without publishing before
@@ -229,9 +263,22 @@ func (s *server) newsPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 			visible++
 		}
 	}
-	body := newsBody{Total: len(rows), ShowOrgs: visible > 1,
-		Sources: newsSourceRows(s.cfg.NewsSources, fetched, entries, s.now())}
 	q := r.URL.Query()
+	query := strings.TrimSpace(q.Get("q"))
+	if len(query) > newsQueryMax {
+		query = ""
+	}
+	if words := strings.Fields(strings.ToLower(query)); len(words) > 0 {
+		var hits []newsRow
+		for _, row := range rows {
+			if matchesNews(row, words) {
+				hits = append(hits, row)
+			}
+		}
+		rows = hits
+	}
+	body := newsBody{Total: len(rows), ShowOrgs: visible > 1, Query: query,
+		Sources: newsSourceRows(s.cfg.NewsSources, fetched, entries, s.now())}
 	switch {
 	case q.Get("affects") == "me":
 		body.Filter = "me"

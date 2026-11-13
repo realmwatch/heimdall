@@ -10,11 +10,18 @@
     {{- else}}{{if .Checked}} (nothing published yet){{else}} (not fetched yet){{end}}{{end}}</span>{{end}}
 </p>{{end}}
 
-{{if .Total}}
+<form method="get" action="/news" class="search news-search" role="search">
+  {{if eq .Filter "me"}}<input type="hidden" name="affects" value="me">{{else if .Filter}}<input type="hidden" name="category" value="{{.Filter}}">{{end}}
+  <input type="search" name="q" value="{{.Query}}" placeholder="Search news: github breach, wordpress, CVE-…" maxlength="200" aria-label="Search news">
+  <button type="submit">Search</button>
+  {{if .Query}}<a class="button secondary" href="/news{{if eq .Filter "me"}}?affects=me{{else if .Filter}}?category={{.Filter}}{{end}}">Clear</a>{{end}}
+</form>
+
+{{if or .Total .Query}}
 <nav class="filter-chips" aria-label="Filter news">
-  <a href="/news"{{if not .Filter}} aria-current="true"{{end}}>All <span>{{.Total}}</span></a>
-  <a href="/news?affects=me"{{if eq .Filter "me"}} aria-current="true"{{end}}>Affects me <span>{{.Affecting}}</span></a>
-  {{range .Categories}}<a href="/news?category={{.Slug}}"{{if eq .Slug $.Body.Filter}} aria-current="true"{{end}}>{{.Label}} <span>{{.Count}}</span></a>{{end}}
+  <a href="/news{{with .Query}}?q={{.}}{{end}}"{{if not .Filter}} aria-current="true"{{end}}>All <span>{{.Total}}</span></a>
+  <a href="/news?affects=me{{with .Query}}&amp;q={{.}}{{end}}"{{if eq .Filter "me"}} aria-current="true"{{end}}>Affects me <span>{{.Affecting}}</span></a>
+  {{range .Categories}}<a href="/news?category={{.Slug}}{{with $.Body.Query}}&amp;q={{.}}{{end}}"{{if eq .Slug $.Body.Filter}} aria-current="true"{{end}}>{{.Label}} <span>{{.Count}}</span></a>{{end}}
 </nav>
 {{end}}
 
@@ -41,6 +48,8 @@
   {{end}}
 </ol>
 {{if .More}}<p class="more muted">Showing the {{len .Items}} newest; {{.More}} older incident{{if ne .More 1}}s are{{else}} is{{end}} not listed.</p>{{end}}
+{{else if .Query}}
+<p class="empty">No news matches “{{.Query}}”{{if eq .Filter "me"}} among items affecting your hosts{{else if .Filter}} in this category{{end}}.</p>
 {{else if eq .Filter "me"}}
 <p class="empty">Nothing in the news affects your hosts right now.</p>
 {{else if .Total}}

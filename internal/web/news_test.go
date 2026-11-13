@@ -186,3 +186,34 @@ func TestNewsArticlesFoldAndQuietSources(t *testing.T) {
 		t.Error("an article's unknown severity is shown")
 	}
 }
+
+func TestNewsSearch(t *testing.T) {
+	t.Parallel()
+	e := newsEnv(t)
+	body := e.get("/news?q=WIDGET+breach", signedIn(e)).Body.String()
+	if !strings.Contains(body, "Widget breach") || strings.Contains(body, "ExampleSSL") {
+		t.Error("every word must match, ignoring case")
+	}
+	for _, want := range []string{`value="WIDGET breach"`, `All <span>1</span>`, `href="/news?affects=me&amp;q=WIDGET%20breach"`,
+		`href="/news?category=breach&amp;q=WIDGET%20breach"`, `>Clear</a>`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	// CVE IDs, hosts and the source's site match too.
+	for q, want := range map[string]string{"cve-2099-0002": "ExampleSSL", "globex-web": "ExampleSSL", "news.example": "Widget breach"} {
+		if !strings.Contains(e.get("/news?q="+q, signedIn(e)).Body.String(), want) {
+			t.Errorf("%s: missing %s", q, want)
+		}
+	}
+	// The search combines with a filter, and nothing found says so,
+	// with the query escaped.
+	none := e.get(`/news?affects=me&q=widget`, signedIn(e)).Body.String()
+	if strings.Contains(none, `class="card news-item`) || !strings.Contains(none, "No news matches “widget” among items affecting your hosts") ||
+		!strings.Contains(none, `name="affects" value="me"`) {
+		t.Error("filter plus search")
+	}
+	if b := e.get(`/news?q=%3Cscript%3E`, signedIn(e)).Body.String(); strings.Contains(b, "<script>") {
+		t.Error("query rendered unescaped")
+	}
+}
