@@ -232,6 +232,7 @@ func newUIServer(cfg config.Config, s *store.Store, log *slog.Logger, aiSvc *ai.
 		IngestURL:    cfg.Ingest.PublicURL,
 		Updates:      updateChecker(cfg, log),
 		News:         cfg.News.Enabled,
+		NewsSources:  cfg.News.Sources,
 		MCP:          web.MCPSetup{Enabled: cfg.MCP.Enabled, BaseURL: cfg.MCP.BaseURL, Name: cfg.MCP.ConnectorName()},
 		Agents:       handoffAgents(cfg, log.With("component", "handoff")),
 		IPs:          ips,

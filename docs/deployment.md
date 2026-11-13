@@ -227,11 +227,16 @@ Heimdall can cross-reference a curated "being exploited right now" incident feed
 ```toml
 [news]
 enabled  = true
-sources  = ["https://pwn.watch/incidents.json"]   # the default
+sources  = [
+  "https://pwn.watch/incidents.json",              # curated incidents (JSON)
+  "https://feeds.feedburner.com/TheHackersNews",  # security news (RSS)
+  "https://www.wordfence.com/blog/feed/",         # WordPress and PHP plugin flaws (RSS)
+  "https://patchstack.com/feed/1.xml",            # WordPress and PHP plugin flaws (RSS)
+]                                                 # the default
 interval = "1h"
 ```
 
-The default source is [pwn.watch](https://pwn.watch), which publishes its incidents as JSON. Items credit their source ("via pwn.watch", linking to the incident), and the hub fetches at most hourly, respecting caching headers. Any https feed in the same shape can be added. Matching happens on the hub: nothing about your servers is sent. Run `heimdall feeds sync` to fetch now and `heimdall feeds status` to see how the last fetch went. A broken feed keeps the last good copy and never blocks the other feeds. See [threat-news.md](threat-news.md) for how matching works.
+The default sources are [pwn.watch](https://pwn.watch), which publishes curated incidents as JSON, and three RSS feeds of security news, so the page doesn't go quiet when one source does. A source can be an incident list in pwn.watch's JSON shape or any https RSS or Atom feed. From a news feed, Heimdall keeps only articles that name a CVE (those are what your findings can match), reads the CVE IDs out of the article's text, and keeps each article for 30 days even after it scrolls off the feed. An article about CVEs an incident already names is folded into that incident as another "via" link. The News page lists each source with when it last published, and flags one that has been quiet for 3 days. Items credit their source (linking to the incident or article), and the hub fetches at most hourly, respecting caching headers. If your config lists `sources` explicitly, add the new ones yourself: an upgrade doesn't change your list. Matching happens on the hub: nothing about your servers is sent. Run `heimdall feeds sync` to fetch now and `heimdall feeds status` to see how the last fetch went. A broken feed keeps the last good copy and never blocks the other feeds. See [threat-news.md](threat-news.md) for how matching works.
 
 ## Notifications
 

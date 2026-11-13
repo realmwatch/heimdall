@@ -3,6 +3,7 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"slices"
@@ -27,6 +28,20 @@ type newsBody struct {
 	Categories []newsChip
 	More       int // incidents past newsCap
 	ShowOrgs   bool
+	Sources    []newsSourceRow
+}
+
+// newsQuietAfter is how long a source may go without publishing before
+// the News page says so: a silent source otherwise looks like a calm week.
+const newsQuietAfter = 3 * 24 * time.Hour
+
+// newsSourceRow is a configured source as the News page lists it.
+type newsSourceRow struct {
+	Name      string
+	URL       string
+	Published *time.Time // nil: not known yet
+	Checked   *time.Time // nil: never fetched
+	Quiet     bool       // nothing published for newsQuietAfter
 }
 
 type newsChip struct {
@@ -38,8 +53,11 @@ type newsChip struct {
 // the feed and is rendered as escaped text only.
 type newsRow struct {
 	store.NewsEntry
-	Via string // the source's host, for attribution
+	Via  string     // the item's site, for attribution
+	Also []newsLink // articles elsewhere about the same CVEs, folded into this one
 }
+
+type newsLink struct{ Via, URL string }
 
 var categoryLabels = map[string]string{"patch": "Patches", "breach": "Breaches", "supply-chain": "Supply chain"}
 
@@ -68,10 +86,110 @@ func (r newsRow) Patch() (p struct{ Class, Label string }) {
 	return p
 }
 
-func newsRows(entries []store.NewsEntry) []newsRow {
-	out := make([]newsRow, len(entries))
+// newsRows turns entries into rows, folding repeats: an article whose CVEs
+// an incident (or a newer article) already names in full becomes an "also"
+// link on that one, so a story covered by three sources is listed once.
+// kinds maps each source to store.NewsIncidents or store.NewsArticles;
+// a source missing from it counts as an incident list.
+func newsRows(entries []store.NewsEntry, kinds map[string]string) []newsRow {
+	covers := func(a, b []string) bool { // a names every CVE in b
+		for _, c := range b {
+			if !slices.Contains(a, c) {
+				return false
+			}
+		}
+		return true
+	}
+	into := make([]int, len(entries)) // the entry each one folds into, or -1
+	for i := range into {
+		into[i] = -1
+	}
 	for i, e := range entries {
-		out[i] = newsRow{NewsEntry: e, Via: sourceHost(e.Source)}
+		if kinds[e.Source] != store.NewsArticles || len(e.CVEs) == 0 {
+			continue
+		}
+		for j, o := range entries {
+			if j == i || into[j] != -1 || !covers(o.CVEs, e.CVEs) {
+				continue
+			}
+			if kinds[o.Source] != store.NewsArticles || (j < i && len(o.CVEs) == len(e.CVEs)) {
+				into[i] = j
+				break
+			}
+		}
+	}
+	out := make([]newsRow, 0, len(entries))
+	at := make([]int, len(entries))
+	for i, e := range entries {
+		if into[i] == -1 {
+			at[i] = len(out)
+			out = append(out, newsRow{NewsEntry: e, Via: itemSite(e)})
+		}
+	}
+	for i, e := range entries {
+		if j := into[i]; j != -1 {
+			r := &out[at[j]]
+			if !slices.ContainsFunc(r.Also, func(l newsLink) bool { return l.URL == e.URL }) {
+				r.Also = append(r.Also, newsLink{Via: itemSite(e), URL: e.URL})
+			}
+		}
+	}
+	return out
+}
+
+// itemSite names where an item links to (thehackernews.com, not the
+// feed proxy that serves its feed), falling back to the source's host.
+func itemSite(e store.NewsEntry) string {
+	if h := sourceHost(e.URL); h != "" {
+		return h
+	}
+	return sourceHost(e.Source)
+}
+
+// newsKinds maps each fetched source to its kind.
+func (s *server) newsKinds(ctx context.Context) (map[string]string, []store.NewsSource, error) {
+	srcs, err := s.st.NewsSources(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	kinds := map[string]string{}
+	for _, ns := range srcs {
+		kinds[ns.Source] = ns.Kind
+	}
+	return kinds, srcs, nil
+}
+
+// newsSourceRows lists the configured sources in config order with when
+// each last published, naming each by the site its items link to.
+func newsSourceRows(configured []string, fetched []store.NewsSource, entries []store.NewsEntry, now time.Time) []newsSourceRow {
+	byURL := map[string]store.NewsSource{}
+	for _, ns := range fetched {
+		byURL[ns.Source] = ns
+	}
+	site := map[string]string{}
+	for _, e := range entries {
+		if _, ok := site[e.Source]; !ok {
+			site[e.Source] = itemSite(e)
+		}
+	}
+	var out []newsSourceRow
+	for _, src := range configured {
+		r := newsSourceRow{Name: site[src], URL: src}
+		if r.Name == "" {
+			r.Name = sourceHost(src)
+		}
+		if ns, ok := byURL[src]; ok {
+			if !ns.CheckedAt.IsZero() {
+				t := ns.CheckedAt
+				r.Checked = &t
+			}
+			if !ns.PublishedAt.IsZero() {
+				t := ns.PublishedAt
+				r.Published = &t
+				r.Quiet = now.Sub(t) > newsQuietAfter
+			}
+		}
+		out = append(out, r)
 	}
 	return out
 }
@@ -94,6 +212,12 @@ func (s *server) newsPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 		s.fail(w, r, v, err)
 		return
 	}
+	kinds, fetched, err := s.newsKinds(r.Context())
+	if err != nil {
+		s.fail(w, r, v, err)
+		return
+	}
+	rows := newsRows(entries, kinds)
 	orgs, err := s.st.ListOrgs(r.Context())
 	if err != nil {
 		s.fail(w, r, v, err)
@@ -105,7 +229,8 @@ func (s *server) newsPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 			visible++
 		}
 	}
-	body := newsBody{Total: len(entries), ShowOrgs: visible > 1}
+	body := newsBody{Total: len(rows), ShowOrgs: visible > 1,
+		Sources: newsSourceRows(s.cfg.NewsSources, fetched, entries, s.now())}
 	q := r.URL.Query()
 	switch {
 	case q.Get("affects") == "me":
@@ -114,8 +239,8 @@ func (s *server) newsPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 		body.Filter = q.Get("category")
 	}
 	count := map[string]int{}
-	var shown []store.NewsEntry
-	for _, e := range entries {
+	var shown []newsRow
+	for _, e := range rows {
 		count[e.Category]++
 		if len(e.Hosts) > 0 {
 			body.Affecting++
@@ -142,7 +267,7 @@ func (s *server) newsPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 		body.More = len(shown) - newsCap
 		shown = shown[:newsCap]
 	}
-	body.Items = newsRows(shown)
+	body.Items = shown
 	s.render(w, r, http.StatusOK, "news", v, "News", "news", body)
 }
 
@@ -156,8 +281,12 @@ func (s *server) newsAffecting(r *http.Request, v *auth.Viewer, org string) (int
 	if err != nil {
 		return 0, err
 	}
+	kinds, _, err := s.newsKinds(r.Context())
+	if err != nil {
+		return 0, err
+	}
 	n := 0
-	for _, e := range entries {
+	for _, e := range newsRows(entries, kinds) {
 		for _, h := range e.Hosts {
 			if org == "" || h.OrgSlug == org {
 				n++

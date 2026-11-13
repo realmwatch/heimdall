@@ -198,3 +198,58 @@ func TestOpenFindingDates(t *testing.T) {
 		t.Errorf("with KEV and news: %+v %v", fs, err)
 	}
 }
+
+// Articles scroll off their feed: a later download without them keeps
+// them, they close once they're old, and the source remembers when it
+// last published (never going backwards).
+func TestMergeNewsKeepsArticlesUntilTheyAge(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	ctx := t.Context()
+	const src = "https://feeds.example.test/news.rss"
+	article := func(slug string, started time.Time) NewsItem {
+		return NewsItem{Slug: slug, Category: "patch", Title: slug, URL: "https://feeds.example.test/" + slug,
+			Severity: "unknown", Status: "live", CVEs: []string{"CVE-2099-0001"}, StartedAt: started, UpdatedAt: started}
+	}
+	old := newsNow.Add(-40 * 24 * time.Hour)
+	if err := s.MergeNews(ctx, src, []NewsItem{article("a-old", old), article("a-new", newsNow)}, "", "", newsNow, newsNow); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MergeNews(ctx, src, []NewsItem{article("a-newer", newsNow.Add(time.Hour))}, "", "", newsNow, newsNow.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	all, _ := s.News(ctx, AllScope)
+	if len(all) != 3 {
+		t.Fatalf("articles that scrolled off were dropped: %d left", len(all))
+	}
+	// An incident list's old item must not be closed by age.
+	if _, err := s.ReplaceNews(ctx, testSource, []NewsItem{{Slug: "inc", Category: "patch", Title: "inc",
+		URL: "https://news.example.test/inc", Severity: "high", Status: "live", StartedAt: old, UpdatedAt: old}}, "", "", newsNow); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := s.CloseOldArticles(ctx, newsNow.Add(-30*24*time.Hour)); err != nil || n != 1 {
+		t.Errorf("closed %d %v, want only a-old", n, err)
+	}
+	all, _ = s.News(ctx, AllScope)
+	for _, e := range all {
+		if want := map[string]string{"a-old": "closed", "inc": "live"}[e.Slug]; want != "" && e.Status != want {
+			t.Errorf("%s is %s", e.Slug, e.Status)
+		}
+	}
+	srcs, err := s.NewsSources(ctx)
+	if err != nil || len(srcs) != 2 {
+		t.Fatalf("%v %v", srcs, err)
+	}
+	for _, ns := range srcs {
+		switch ns.Source {
+		case src:
+			if ns.Kind != NewsArticles || !ns.PublishedAt.Equal(newsNow) || ns.Items != 3 {
+				t.Errorf("articles source %+v: published never goes backwards", ns)
+			}
+		case testSource:
+			if ns.Kind != NewsIncidents || !ns.PublishedAt.Equal(old) {
+				t.Errorf("incident source %+v", ns)
+			}
+		}
+	}
+}

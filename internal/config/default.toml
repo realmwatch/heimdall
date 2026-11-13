@@ -81,10 +81,17 @@ base_url = "http://127.0.0.1:8090"
 # Threat news: curated "being exploited right now" incidents, matched on the
 # hub against each host's open findings. Nothing about your servers leaves
 # the hub. Items credit their source ("via pwn.watch"), and the hub fetches
-# at most hourly, respecting caching headers. Any https feed in the same
-# JSON shape can be added as a source.
+# at most hourly, respecting caching headers. A source is an incident list
+# in pwn.watch's JSON shape, or an RSS or Atom feed of security news: from
+# those, only articles that name a CVE are kept, for 30 days. The News page
+# warns when a source hasn't published for 3 days.
 enabled  = false
-sources  = ["https://pwn.watch/incidents.json"]
+sources  = [
+  "https://pwn.watch/incidents.json",
+  "https://feeds.feedburner.com/TheHackersNews",
+  "https://www.wordfence.com/blog/feed/",
+  "https://patchstack.com/feed/1.xml",
+]
 interval = "1h"
 
 [updates]

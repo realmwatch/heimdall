@@ -392,7 +392,8 @@ alert_after = "3h"   # quiet this long: silence anomaly + immediate notice ("0" 
 
 [news]                             # threat news, off by default
 enabled  = false
-sources  = ["https://pwn.watch/incidents.json"]
+sources  = ["https://pwn.watch/incidents.json", "https://feeds.feedburner.com/TheHackersNews",
+            "https://www.wordfence.com/blog/feed/", "https://patchstack.com/feed/1.xml"]
 interval = "1h"
 
 [ai]                               # AI analysis with your own Azure deployment, off by default

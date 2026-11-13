@@ -183,7 +183,12 @@ func (s *server) alertsPage(w http.ResponseWriter, r *http.Request, v *auth.View
 			s.fail(w, r, v, err)
 			return
 		}
-		for _, e := range entries {
+		kinds, _, err := s.newsKinds(ctx)
+		if err != nil {
+			s.fail(w, r, v, err)
+			return
+		}
+		for _, e := range newsRows(entries, kinds) {
 			if len(e.Hosts) == 0 {
 				continue
 			}

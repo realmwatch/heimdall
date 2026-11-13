@@ -80,7 +80,8 @@ type Config struct {
 	LocalLogin   bool     // password + TOTP sign-in; false hides the form and refuses POST /login
 	EntraTenants []string // allowed tenant IDs, offered when an admin adds an Entra user
 
-	News bool // threat news is on: show the News page, dashboard strip and host card
+	News        bool     // threat news is on: show the News page, dashboard strip and host card
+	NewsSources []string // the configured news sources, in order (the News page lists them)
 
 	MCP MCPSetup // [mcp]: the AI assistants page and Desktop extension; zero = off
 

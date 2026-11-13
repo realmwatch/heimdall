@@ -1,6 +1,6 @@
 # Threat news
 
-> **Status: Phase 1 is built** (feed sync, confirmed matches, the News page, the dashboard strip, the host page's "In the news" card and the Patch first boost). It's off by default: set `enabled = true` under `[news]` in `heimdall.toml` and restart the hub. The default source is pwn.watch's `incidents.json`. Phases 2 and 3 below are still proposals.
+> **Status: Phase 1 is built** (feed sync, confirmed matches, the News page, the dashboard strip, the host page's "In the news" card and the Patch first boost). It's off by default: set `enabled = true` under `[news]` in `heimdall.toml` and restart the hub. The default sources are pwn.watch's `incidents.json` plus three RSS feeds of security news (see [News articles](#news-articles-rss-and-atom)). Phases 2 and 3 below are still proposals.
 
 This uses a curated "what's being exploited right now" feed, such as [pwn.watch](https://pwn.watch), together with Heimdall's inventory.
 
@@ -36,6 +36,17 @@ A curated tracker that publishes everything as JSON (`/incidents.json`, about 73
 | `startedAt`, `updatedAt`, `closedAt` | dates | "New this week", and retention |
 
 Items credit their source ("via pwn.watch", linking to the incident page), and the hub fetches at most hourly, respecting caching headers.
+
+### News articles (RSS and Atom)
+
+A curated list can go quiet: pwn.watch published nothing for days while plenty was being exploited. So a source can also be any https RSS 2.0 or Atom feed, and the defaults add The Hacker News, Wordfence and Patchstack (WordPress and PHP plugin flaws often reach those before OSV).
+
+- **Only articles that name a CVE are kept.** The CVE IDs are read from the title, summary and full text. An article whose full text names more than 20 (a weekly roundup of hundreds of advisories) is read for its title and summary only, so one roundup doesn't put every finding in the news.
+- **Fields a curated list has and an article doesn't** are left out: no severity (the pill is hidden), no patch status, no product. The category is "supply chain" when the headline says so, otherwise "patch".
+- **An article is live for 30 days** after it's published, then closed, then pruned 90 days later like a closed incident. Articles scroll off a feed after a few days, so a download adds and updates articles but never removes the ones that scrolled off.
+- **Repeats fold together.** An article whose CVEs an incident (or a newer article) already names in full is shown as another "via" link on that one, so a story covered by three sources is listed once.
+- **Quiet sources show.** The News page lists each configured source with when it last published, and marks it "quiet since …" after 3 days without anything new, so a silent source doesn't look like a calm week.
+- Titles and summaries are reduced to plain text (no tags, scripts or entities) and still rendered escaped, like everything from a feed.
 
 ### Later: primary sources, no third party
 

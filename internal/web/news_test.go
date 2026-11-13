@@ -14,9 +14,9 @@ import (
 
 // newsEnv is a hub with news on, web-01 (acme) and globex-web each
 // affected by the live incident, and an unrelated breach.
-func newsEnv(t *testing.T) *env {
+func newsEnv(t *testing.T, sources ...string) *env {
 	t.Helper()
-	e := newEnvCfg(t, "http://127.0.0.1:8080", nil, func(c *Config) { c.News = true })
+	e := newEnvCfg(t, "http://127.0.0.1:8080", nil, func(c *Config) { c.News, c.NewsSources = true, sources })
 	e.seed() // web-01: open finding DEBIAN-CVE-2099-0001 (alias CVE-2099-0001)
 	e.seedOrg("globex", "globex-web")
 	ctx := t.Context()
@@ -135,5 +135,54 @@ func TestNewsOff(t *testing.T) {
 	}
 	if body := e.get("/", signedIn(e)).Body.String(); strings.Contains(body, `href="/news"`) || strings.Contains(body, "news-strip") {
 		t.Error("news shown while off")
+	}
+}
+
+// An article about CVEs an incident already names folds into it as an
+// "also" link, one about new CVEs stands alone, and a source that hasn't
+// published for days is called quiet.
+func TestNewsArticlesFoldAndQuietSources(t *testing.T) {
+	t.Parallel()
+	const articles = "https://feeds.example.test/news.rss"
+	const incidents = "https://quiet.example.test/incidents.json"
+	e := newsEnv(t, incidents, articles)
+	ctx := t.Context()
+	items := []store.NewsItem{
+		{Slug: "a-1", Category: "patch", Title: "Attackers hit ExampleSSL", URL: "https://articles.example.test/a/1",
+			Severity: "unknown", Status: "live", CVEs: []string{"CVE-2099-0001"},
+			StartedAt: testNow.Add(-2 * time.Hour), UpdatedAt: testNow.Add(-2 * time.Hour)},
+		{Slug: "a-2", Category: "patch", Title: "Gadget flaw exploited", URL: "https://articles.example.test/a/2",
+			Severity: "unknown", Status: "live", CVEs: []string{"CVE-2099-0002", "CVE-2099-0003"},
+			StartedAt: testNow.Add(-3 * time.Hour), UpdatedAt: testNow.Add(-3 * time.Hour)},
+	}
+	if err := e.st.MergeNews(ctx, articles, items, "", "", testNow, testNow.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	// The incident list last published five days ago.
+	if _, err := e.st.ReplaceNews(ctx, incidents, []store.NewsItem{{
+		Slug: "ssl-overflow", Category: "patch", Title: "ExampleSSL overflow", URL: "https://quiet.example.test/i/ssl",
+		Severity: "critical", Status: "live", CVEs: []string{"CVE-2099-0001", "CVE-2099-0002"},
+		StartedAt: testNow.Add(-6 * 24 * time.Hour), UpdatedAt: testNow.Add(-5 * 24 * time.Hour)}}, "", "", testNow); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.MatchNews(ctx, 0, testNow); err != nil {
+		t.Fatal(err)
+	}
+	body := e.get("/news", signedIn(e)).Body.String()
+	for _, want := range []string{
+		`via <a href="https://news.example.test/i/ssl" rel="noopener noreferrer">news.example.test</a>, <a href="https://articles.example.test/a/1" rel="noopener noreferrer">articles.example.test</a>`,
+		`Gadget flaw exploited`, `All <span>4</span>`, // ssl-overflow and widget-breach from newsEnv's list, the incident, a-2
+		`quiet.example.test <span class="pill warn">quiet since`,
+		`articles.example.test <span class="">published`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if strings.Contains(body, "Attackers hit ExampleSSL") {
+		t.Error("an article the incident covers is listed on its own")
+	}
+	if strings.Contains(body, `<span class="sev sev-`+"unknown") || strings.Contains(body, ">unknown<") {
+		t.Error("an article's unknown severity is shown")
 	}
 }

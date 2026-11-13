@@ -4,6 +4,11 @@
   {{if .Affecting}}<span class="pill bad">{{.Affecting}} affect{{if eq .Affecting 1}}s{{end}} your hosts</span>{{end}}
 </div>
 <p class="lede">Security incidents being exploited or patched right now. A host counts as affected only when one of an incident's CVEs is an open finding on it, so a host drops off once it's patched.</p>
+{{with .Sources}}<p class="news-sources muted small">Sources:
+  {{range $i, $s := .}}{{if $i}} · {{end}}<span class="news-source{{if .Quiet}} quiet{{end}}" title="{{.URL}}{{with .Checked}} · checked {{fullDate .}}{{end}}">{{.Name}}
+    {{- with .Published}} <span class="{{if $s.Quiet}}pill warn{{end}}">{{if $s.Quiet}}quiet since {{longDate .}}{{else}}published {{dayAgo .}}{{end}}</span>
+    {{- else}}{{if .Checked}} (nothing published yet){{else}} (not fetched yet){{end}}{{end}}</span>{{end}}
+</p>{{end}}
 
 {{if .Total}}
 <nav class="filter-chips" aria-label="Filter news">
@@ -18,7 +23,7 @@
   {{range .Items}}{{$p := .Patch}}
   <li class="card news-item{{if .Hosts}} affects{{end}}">
     <div class="news-meta">
-      <span class="sev sev-{{sev .Severity}}">{{.Severity}}</span>
+      {{if ne .Severity "unknown"}}<span class="sev sev-{{sev .Severity}}">{{.Severity}}</span>{{end}}
       <span class="pill muted">{{.CategoryLabel}}</span>
       {{with $p.Label}}<span class="pill {{$p.Class}}">{{.}}</span>{{end}}
       {{if eq .Status "live"}}<span class="pill warn"><span class="dot"></span>live</span>{{else}}<span class="pill muted" title="{{with .Closed}}{{fullDate .}}{{end}}">closed{{with .Closed}} {{longDate .}}{{end}}</span>{{end}}
@@ -31,7 +36,7 @@
       <span class="badge bad">Affects {{len .Hosts}} of your hosts</span>
       {{range .Hosts}}<a class="news-host" href="{{hostURL .OrgSlug .Name}}" title="Open findings: {{.Reason}}">{{.Name}}{{if $.Body.ShowOrgs}} <span class="muted">({{.OrgSlug}})</span>{{end}}</a>{{end}}
     </div>{{end}}
-    <div class="news-foot muted small">via <a href="{{.URL}}" rel="noopener noreferrer">{{.Via}}</a>{{with .CVEs}} · <span class="id">{{join . ", "}}</span>{{end}}</div>
+    <div class="news-foot muted small">via <a href="{{.URL}}" rel="noopener noreferrer">{{.Via}}</a>{{range .Also}}, <a href="{{.URL}}" rel="noopener noreferrer">{{.Via}}</a>{{end}}{{with .CVEs}} · <span class="id">{{join . ", "}}</span>{{end}}</div>
   </li>
   {{end}}
 </ol>

@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Package news fetches and parses curated incident feeds in pwn.watch's
-// incidents.json shape. Everything in a feed is untrusted input: items are
+// Package news fetches and parses threat-news feeds: curated incident
+// lists in pwn.watch's incidents.json shape, and RSS or Atom feeds of
+// security articles (articles.go). Everything in a feed is untrusted input: items are
 // validated strictly (types, lengths, https-only links, a known category
 // set) and anything malformed is dropped and counted, never stored.
 package news
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -84,10 +86,20 @@ type Feed struct {
 	Items      []Item
 	Dropped    int // malformed or duplicate incidents
 	IgnoredIDs int // entries in cveIds that aren't CVE IDs (e.g. GHSA-…, MAL-…)
+
+	// Articles is set for an RSS or Atom feed. Its items scroll off as
+	// new ones arrive, so they're kept until they age out rather than
+	// replaced by each download.
+	Articles bool
+	// Unrelated counts articles that name no CVE (not kept).
+	Unrelated int
+	// Newest is when the source last published anything, kept or not.
+	Newest time.Time
 }
 
 type rawFeed struct {
 	Incidents *[]json.RawMessage `json:"incidents"`
+	UpdatedAt string             `json:"updatedAt"`
 }
 
 type rawItem struct {
@@ -144,6 +156,12 @@ func Parse(raw []byte) (*Feed, error) {
 		seen[it.Slug] = true
 		f.IgnoredIDs += ignored
 		f.Items = append(f.Items, it)
+		if it.UpdatedAt.After(f.Newest) {
+			f.Newest = it.UpdatedAt
+		}
+	}
+	if t, ok := parseTime(rf.UpdatedAt); ok && t.After(f.Newest) {
+		f.Newest = t
 	}
 	if len(f.Items) == 0 {
 		return f, fmt.Errorf("news: %w (%d dropped)", errEmptyFeed, f.Dropped)
@@ -305,10 +323,23 @@ func parseTime(s string) (time.Time, bool) {
 // Validators is what conditional requests need to remember per source.
 type Validators struct{ ETag, LastModified string }
 
+// ParseAny parses an incident list (JSON) or an RSS or Atom feed (XML),
+// whichever raw is.
+func ParseAny(raw []byte, now time.Time) (*Feed, error) {
+	trimmed := bytes.TrimLeft(bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf")), " \t\r\n")
+	switch {
+	case bytes.HasPrefix(trimmed, []byte("{")):
+		return Parse(raw)
+	case bytes.HasPrefix(trimmed, []byte("<")):
+		return ParseArticles(trimmed, now)
+	}
+	return nil, errors.New("news: neither an incident list nor an RSS or Atom feed")
+}
+
 // Fetch downloads one feed. It sends the stored validators; on 304 Not
 // Modified it returns a nil feed and the same validators. url must be
-// https and its host on c's allowlist.
-func Fetch(ctx context.Context, c *netx.Client, url string, prev Validators) (*Feed, Validators, error) {
+// https and its host on c's allowlist. now dates articles (live or not).
+func Fetch(ctx context.Context, c *netx.Client, url string, prev Validators, now time.Time) (*Feed, Validators, error) {
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
 	h := http.Header{}
@@ -325,7 +356,7 @@ func Fetch(ctx context.Context, c *netx.Client, url string, prev Validators) (*F
 	if raw == nil { // 304
 		return nil, prev, nil
 	}
-	f, err := Parse(raw)
+	f, err := ParseAny(raw, now)
 	if err != nil {
 		return nil, prev, err
 	}

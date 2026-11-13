@@ -41,6 +41,11 @@ func (n *NewsSyncer) Run(ctx context.Context) error {
 			errs = append(errs, fmt.Errorf("%s: %w", src, err))
 		}
 	}
+	if closed, err := n.Store.CloseOldArticles(ctx, n.Now().Add(-news.ArticleLiveFor)); err != nil {
+		errs = append(errs, err)
+	} else if closed > 0 {
+		n.Log.Info("old news articles closed", "count", closed)
+	}
 	if pruned, err := n.Store.PruneNews(ctx, n.Now().Add(-store.NewsRetention)); err != nil {
 		errs = append(errs, err)
 	} else if pruned > 0 {
@@ -64,7 +69,7 @@ func (n *NewsSyncer) syncSource(ctx context.Context, src string) error {
 	if err != nil {
 		return err
 	}
-	feed, next, err := news.Fetch(ctx, n.HTTP, src, news.Validators{ETag: etag, LastModified: lm})
+	feed, next, err := news.Fetch(ctx, n.HTTP, src, news.Validators{ETag: etag, LastModified: lm}, n.Now())
 	if err != nil {
 		return err
 	}
@@ -84,6 +89,13 @@ func (n *NewsSyncer) syncSource(ctx context.Context, src string) error {
 			Stacks: it.Stacks, Tags: it.Tags, CVEs: it.CVEs, Affected: it.Affected, Fixed: it.Fixed,
 			Summary: it.Summary, StartedAt: it.StartedAt, UpdatedAt: it.UpdatedAt, ClosedAt: it.ClosedAt,
 		})
+	}
+	if feed.Articles {
+		if err := n.Store.MergeNews(ctx, src, items, next.ETag, next.LastModified, n.Now(), feed.Newest); err != nil {
+			return err
+		}
+		n.Log.Info("news fetched", "source", src, "articles", len(items), "no_cve", feed.Unrelated, "dropped", feed.Dropped)
+		return nil
 	}
 	removed, err := n.Store.ReplaceNews(ctx, src, items, next.ETag, next.LastModified, n.Now())
 	if err != nil {

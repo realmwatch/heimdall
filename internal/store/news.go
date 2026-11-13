@@ -93,11 +93,35 @@ func (s *Store) TouchNewsSource(ctx context.Context, source string, at time.Time
 	return err
 }
 
+// News source kinds: a curated incident list, or a feed of articles.
+const (
+	NewsIncidents = "incidents"
+	NewsArticles  = "articles"
+)
+
 // ReplaceNews makes a source's stored incidents exactly items, keeping the
 // IDs (and so the matches) of incidents it already had, and remembers the
 // response's validators. Callers pass only a successfully parsed, non-empty
 // feed: a failed fetch never reaches here, so the last good copy stays.
 func (s *Store) ReplaceNews(ctx context.Context, source string, items []NewsItem, etag, lastModified string, at time.Time) (removed int, err error) {
+	var newest time.Time
+	for _, it := range items {
+		if it.UpdatedAt.After(newest) {
+			newest = it.UpdatedAt
+		}
+	}
+	return s.putNews(ctx, source, NewsIncidents, items, etag, lastModified, at, newest)
+}
+
+// MergeNews adds or updates a feed's articles and keeps the ones that have
+// scrolled off it; they age out through CloseOldArticles and PruneNews.
+// published is when the feed last published anything, kept or not.
+func (s *Store) MergeNews(ctx context.Context, source string, items []NewsItem, etag, lastModified string, at, published time.Time) error {
+	_, err := s.putNews(ctx, source, NewsArticles, items, etag, lastModified, at, published)
+	return err
+}
+
+func (s *Store) putNews(ctx context.Context, source, kind string, items []NewsItem, etag, lastModified string, at, published time.Time) (removed int, err error) {
 	for _, it := range items {
 		if err := checkNewsItem(it); err != nil {
 			return 0, err
@@ -148,17 +172,25 @@ func (s *Store) ReplaceNews(ctx context.Context, source string, items []NewsItem
 				return err
 			}
 		}
-		res, err := tx.ExecContext(ctx,
-			`DELETE FROM news_items WHERE source = ? AND slug NOT IN (SELECT slug FROM temp.current_news)`, source)
-		if err != nil {
-			return err
+		if kind == NewsIncidents {
+			res, err := tx.ExecContext(ctx,
+				`DELETE FROM news_items WHERE source = ? AND slug NOT IN (SELECT slug FROM temp.current_news)`, source)
+			if err != nil {
+				return err
+			}
+			n, _ := res.RowsAffected()
+			removed = int(n)
 		}
-		n, _ := res.RowsAffected()
-		removed = int(n)
+		var pub sql.NullString
+		if !published.IsZero() {
+			pub = sql.NullString{String: published.UTC().Format(timeLayout), Valid: true}
+		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO news_sources (source, etag, last_modified, checked_at) VALUES (?, ?, ?, ?)
+			INSERT INTO news_sources (source, etag, last_modified, checked_at, kind, published_at) VALUES (?, ?, ?, ?, ?, ?)
 			ON CONFLICT (source) DO UPDATE SET etag = excluded.etag, last_modified = excluded.last_modified,
-				checked_at = excluded.checked_at`, source, etag, lastModified, ts); err != nil {
+				checked_at = excluded.checked_at, kind = excluded.kind,
+				published_at = max(coalesce(excluded.published_at, ''), coalesce(news_sources.published_at, ''))`,
+			source, etag, lastModified, ts, kind, pub); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `DELETE FROM temp.current_news`)
@@ -182,6 +214,57 @@ func (s *Store) DeleteNewsExcept(ctx context.Context, sources []string) (int, er
 		return err
 	})
 	return int(n), err
+}
+
+// CloseOldArticles closes live articles published before cutoff (their
+// sources say nothing about status; age is all there is), dated when they
+// stopped being current.
+func (s *Store) CloseOldArticles(ctx context.Context, cutoff time.Time) (int, error) {
+	c := cutoff.UTC().Format(timeLayout)
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE news_items SET status = 'closed', closed_at = ?
+		WHERE status = 'live' AND started_at < ?
+		  AND source IN (SELECT source FROM news_sources WHERE kind = 'articles')`, c, c)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+// NewsSource is one configured source's state.
+type NewsSource struct {
+	Source      string
+	Kind        string
+	CheckedAt   time.Time
+	PublishedAt time.Time // zero: unknown (never fetched since it was recorded)
+	Items       int
+}
+
+// NewsSources lists the sources Heimdall has fetched, in source order.
+func (s *Store) NewsSources(ctx context.Context) ([]NewsSource, error) {
+	rows, err := s.rd.QueryContext(ctx, `
+		SELECT ns.source, ns.kind, ns.checked_at, coalesce(ns.published_at, ''),
+		       (SELECT count(*) FROM news_items n WHERE n.source = ns.source)
+		FROM news_sources ns ORDER BY ns.source`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []NewsSource
+	for rows.Next() {
+		var ns NewsSource
+		var checked, published string
+		if err := rows.Scan(&ns.Source, &ns.Kind, &checked, &published, &ns.Items); err != nil {
+			return nil, err
+		}
+		ns.CheckedAt = parseTime(checked)
+		if published != "" {
+			ns.PublishedAt = parseTime(published)
+		}
+		out = append(out, ns)
+	}
+	return out, rows.Err()
 }
 
 // PruneNews deletes closed incidents that closed before cutoff (or, with no

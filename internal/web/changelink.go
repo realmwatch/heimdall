@@ -117,12 +117,16 @@ func (c ChangeLink) rebootLink(org, host string, needed bool) string {
 	return c.actionLink("system.reboot", org, host, nil)
 }
 
+// maxKernelRemove is the most kernels one removal proposal names.
+const maxKernelRemove = 50
+
 // kernelRemoveLink drafts removing old kernels (uname -r releases) through
 // the action template, or is "" with none. The tool's agent removes only
-// those still installed and older than the running kernel; the tool takes
-// at most 10.
+// those still installed and older than the running kernel. A server that
+// skipped many kernel updates keeps a dozen or more, so the link names up
+// to maxKernelRemove.
 func (c ChangeLink) kernelRemoveLink(org, host string, kernels []string) string {
-	if len(kernels) == 0 || len(kernels) > 10 {
+	if len(kernels) == 0 || len(kernels) > maxKernelRemove {
 		return ""
 	}
 	return c.actionLink("kernel.remove", org, host, url.Values{"kernels": {strings.Join(kernels, ",")}})
