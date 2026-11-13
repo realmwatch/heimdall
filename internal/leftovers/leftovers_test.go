@@ -191,7 +191,10 @@ func TestAnalyzeWithoutCollectorState(t *testing.T) {
 		Package{"libmbim-glib4", "1.28.0-1~ubuntu20.04.2", "libmbim", "1.28.0-1~ubuntu20.04.2"},
 		// a jammy build of an older fwupd, beside the current one
 		Package{"libfwupd2", "1.7.9-1~22.04.3", "fwupd", "1.7.9-1~22.04.3"},
-		Package{"fwupd", "2.0.20-1ubuntu2~22.04.2", "fwupd", "2.0.20-1ubuntu2~22.04.2"})
+		Package{"fwupd", "2.0.20-1ubuntu2~22.04.2", "fwupd", "2.0.20-1ubuntu2~22.04.2"},
+		// jammy's metapackage beside a stale pgdg focal build of its source
+		Package{"postgresql-client", "14+238", "postgresql-common", "238"},
+		Package{"postgresql-common", "278.pgdg20.04+1", "postgresql-common", "278.pgdg20.04+1"})
 	a := Analyze(jammy, pkgs, nil)
 	// The version alone: third-party builders' markers count on their own;
 	// the Ubuntu archive's only for a twin of a newer source, as does the
@@ -201,6 +204,7 @@ func TestAnalyzeWithoutCollectorState(t *testing.T) {
 		"libwebp6": "focal", "libpq5": "focal", "libzip4": "focal", "redis-tools": "focal",
 		"libssl1.1": "focal", "libldap-2.4-2": "focal", "libperl5.30": "focal", "libssl3": "", "vendor-agent": "",
 		"python3.8": "", "libmbim-glib4": "", "libfwupd2": "", "fwupd": "",
+		"postgresql-common": "focal", "postgresql-client": "",
 	} {
 		if got := a.BuiltFor[name].Codename; got != want {
 			t.Errorf("%s built for %q, want %q", name, got, want)
