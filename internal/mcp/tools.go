@@ -192,8 +192,9 @@ func (s *Server) registerTools() {
 		},
 	})
 	s.add("anomalies", tool{
-		description: "Open tripwire alerts (unplanned installs, downgrades, unexpected reboots, silent hosts, untrusted collector…).",
-		schema:      obj(map[string]any{}),
+		description: "Open tripwire alerts (unplanned installs, downgrades, unexpected reboots, silent hosts, untrusted collector…), " +
+			"plus ingest_down: orgs whose hosts went quiet at once (public ingest looks down).",
+		schema: obj(map[string]any{}),
 		run: func(ctx context.Context, c caller, _ map[string]any) (any, error) {
 			list, err := s.st.OpenAnomalies(ctx, c.scope)
 			if err != nil {
@@ -207,7 +208,21 @@ func (s *Server) registerTools() {
 			for _, v := range first(list, maxItems) {
 				out = append(out, a{v.ID, v.Host.OrgSlug, v.Host.Name, v.Rule, v.Severity, v.Summary, v.DetectedAt.UTC().Format("2006-01-02T15:04:05Z")})
 			}
-			return map[string]any{"anomalies": out, "total": len(list), "truncated": len(list) > maxItems}, nil
+			res := map[string]any{"anomalies": out, "total": len(list), "truncated": len(list) > maxItems}
+			qs, err := s.st.FleetQuietStates(ctx)
+			if err != nil {
+				return nil, err
+			}
+			var down []string
+			for _, q := range qs {
+				if q.Down() && c.scope.CanView(q.OrgID) {
+					down = append(down, q.Headline(s.now()))
+				}
+			}
+			if len(down) > 0 {
+				res["ingest_down"] = down
+			}
+			return res, nil
 		},
 	})
 	s.add("changes", tool{

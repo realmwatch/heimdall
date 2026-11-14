@@ -58,6 +58,17 @@ Collectors report on a schedule (hourly is recommended) and whenever packages ch
 
 The slower `stale_after` check (default 72h) still marks hosts as stale in the UI. It shares the same anomaly, so a silence is only raised once.
 
+### When the whole fleet goes quiet
+
+One host going silent is that host's problem. Most of an org's hosts going silent at once is the hub's: its public ingest (the reverse proxy in front of the ingest listener, its certificate, DNS or a firewall) is down, and every collector outside the hub's network fails its push. Heimdall checks for this every 5 minutes, with no configuration and whatever `alert_after` is set to:
+
+- **Which hosts count.** Hosts that usually report at least every 2 hours (the median gap between their last reports; the hourly timer qualifies) and reported in the last 48 hours. A host is quiet once it has missed twice its usual gap (at least 30 minutes). Hosts in a maintenance window, or with the `silence` rule suppressed, don't count.
+- **When it fires.** At least 2 hosts in an org are quiet and they are a majority of its hosts that count; or at least 2 hosts report from outside, all of them are quiet, and a host on the hub itself, the tailnet or a private network still reports. "Outside" is told from the address each host's last report came from (`report_ip`, the client address behind the proxy with `behind_proxy`): loopback is the hub's own collector, `100.64.0.0/10` and `fd7a:115c:a1e0::/48` are the tailnet, private ranges are the local network, anything else came through the public ingest.
+- **No flapping.** The condition must hold for 10 minutes before anything is shown or sent, and be gone for 10 minutes before "back" is. After the hub itself restarts, hosts get their usual time to report again before they count as quiet.
+- **Where you see it.** A banner on every page of the UI, for anyone who can see the org, while it lasts: *Public ingest looks down: 9 of 11 hosts in acme stopped reporting since 22:15 UTC; the hub's own collector still reports.* One alert per episode goes to the `[notify]` destinations, and an "ingest is back" notice when reports resume. MCP's `anomalies` tool lists it as `ingest_down`. The banner needs no destination, so a hub without `[notify]` still shows it.
+
+The quiet hosts still get their own silence alerts and anomalies as above.
+
 ### Change reporting disabled
 
 On every push the collector reports the state of its own triggers in an `X-Heimdall-Triggers` request header, never in the snapshot. For example:

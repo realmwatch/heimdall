@@ -1012,6 +1012,7 @@ details.repo-pick form { flex-wrap: wrap; align-items: flex-end; max-width: 560p
 .repo-ok { color: var(--ok-fg); }
 .repo-error { color: var(--med-fg); }
 .notice.notice-bad { background: var(--med-bg); color: var(--med-fg); }
+.notice.notice-down { background: var(--high-bg); color: var(--high-fg); margin-bottom: .75rem; }
 .handoff-lead { max-width: 80ch; margin-top: 0; }
 .handoff-card { display: grid; gap: 14px; max-width: 980px; }
 .handoff-facts { margin: 0; display: grid; gap: 10px 28px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }

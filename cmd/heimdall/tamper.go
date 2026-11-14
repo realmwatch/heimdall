@@ -25,7 +25,10 @@ import (
 //     never holds up the rules, the immediate notices: the fast silence
 //     check (hosts.alert_after), once per silence with a "back" notice when
 //     the host reports again, and new high-signal anomalies
-//     ([notify] alert_anomalies).
+//     ([notify] alert_anomalies);
+//   - the fleet-quiet check (internal/anomaly/fleet.go): most of an org's
+//     hosts quiet at once means the hub's public ingest looks down. It
+//     needs no configuration and runs whatever alert_after is.
 //
 // Ingest only ever hands hosts over on a buffered channel, without
 // waiting, so neither goroutine can block it.
@@ -64,9 +67,6 @@ func startTamperChecks(ctx context.Context, cfg config.Config, s *store.Store, h
 			watch = nil
 		}
 	}
-	if alertAfter <= 0 && watch == nil {
-		return
-	}
 	go func() {
 		var silence, anomalies <-chan time.Time
 		if alertAfter > 0 {
@@ -79,6 +79,8 @@ func startTamperChecks(ctx context.Context, cfg config.Config, s *store.Store, h
 			defer t.Stop()
 			anomalies = t.C
 		}
+		fleetT := time.NewTicker(fleetTick)
+		defer fleetT.Stop()
 		for {
 			select {
 			case <-ctx.Done():
@@ -91,6 +93,10 @@ func startTamperChecks(ctx context.Context, cfg config.Config, s *store.Store, h
 				if err := watch.check(ctx); err != nil {
 					log.Warn("anomaly alert failed", "err", err)
 				}
+			case <-fleetT.C:
+				if err := checkFleetQuiet(ctx, cfg, tripwires, s); err != nil {
+					log.Warn("fleet-quiet check failed", "err", err)
+				}
 			}
 		}
 	}()
@@ -98,6 +104,9 @@ func startTamperChecks(ctx context.Context, cfg config.Config, s *store.Store, h
 
 // anomalyTick is how often new anomalies are looked for.
 var anomalyTick = 30 * time.Second
+
+// fleetTick is how often the fleet-quiet check runs.
+var fleetTick = 5 * time.Minute
 
 // silenceTick is how often the fast silence check runs: every 5 minutes,
 // or more often for a short alert_after (as in tests).
@@ -168,6 +177,53 @@ func checkSilence(ctx context.Context, cfg config.Config, tripwires *anomaly.Eng
 		found.Back = nil
 	}
 	errs = append(errs, tripwires.MarkSilenceAlerts(ctx, found))
+	return errors.Join(errs...)
+}
+
+// checkFleetQuiet sends "public ingest looks down" for orgs whose hosts
+// went quiet at once, and "ingest is back" when they report again. Like
+// the silence notices, one no destination took is retried next tick; with
+// no destination the banner in the UI is the record.
+func checkFleetQuiet(ctx context.Context, cfg config.Config, tripwires *anomaly.Engine, s *store.Store) error {
+	found, err := tripwires.CheckFleetQuiet(ctx)
+	if err != nil || len(found.Down)+len(found.Back) == 0 {
+		return err
+	}
+	dests, cerr := senders(cfg)
+	if len(dests) == 0 && cerr != nil {
+		return cerr
+	}
+	errs := []error{cerr}
+	now := time.Now()
+	send := func(kind string, q store.FleetQuiet) bool {
+		if len(dests) == 0 {
+			return true
+		}
+		a := notify.Alert{Kind: kind, GeneratedAt: now.UTC(), URL: strings.TrimSuffix(cfg.UI.BaseURL, "/") + "/hosts",
+			Fleet: &notify.AlertFleet{Org: q.OrgSlug, Quiet: q.Quiet, Total: q.Total, QuietSince: q.QuietSince,
+				Still: q.Still, Headline: q.Headline(now)}}
+		if kind == notify.KindIngestDown {
+			for _, h := range q.Hosts {
+				a.Hosts = append(a.Hosts, q.OrgSlug+"/"+h)
+			}
+			a.Count = q.Quiet
+		}
+		ok, err := sendAlert(ctx, s, dests, a)
+		errs = append(errs, err)
+		return ok
+	}
+	var sent anomaly.FleetAlerts
+	for _, q := range found.Down {
+		if send(notify.KindIngestDown, q) {
+			sent.Down = append(sent.Down, q)
+		}
+	}
+	for _, q := range found.Back {
+		if send(notify.KindIngestBack, q) {
+			sent.Back = append(sent.Back, q)
+		}
+	}
+	errs = append(errs, tripwires.MarkFleetAlerts(ctx, sent))
 	return errors.Join(errs...)
 }
 

@@ -50,3 +50,28 @@ func TestAlertWebhook(t *testing.T) {
 		t.Errorf("subject = %q", s)
 	}
 }
+
+func TestIngestAlerts(t *testing.T) {
+	at := time.Date(2026, 10, 23, 23, 0, 0, 0, time.UTC)
+	fleet := &AlertFleet{Org: "acme", Quiet: 9, Total: 11, QuietSince: at.Add(-45 * time.Minute), Still: "hub",
+		Headline: "Public ingest looks down: 9 of 11 hosts in acme stopped reporting since 22:15 UTC; the hub's own collector still reports."}
+	a := Alert{Kind: KindIngestDown, GeneratedAt: at, Hosts: []string{"acme/web-01", "acme/web-02"}, Count: 9, Fleet: fleet,
+		URL: "https://heimdall.example.com/hosts"}
+	if s := a.Subject(); s != "Heimdall: public ingest looks down (acme)" {
+		t.Errorf("subject = %q", s)
+	}
+	if a.Severity() != "high" {
+		t.Errorf("severity = %q", a.Severity())
+	}
+	txt := a.Text()
+	if !strings.HasPrefix(txt, fleet.Headline) || !strings.Contains(txt, "  acme/web-01\n") || !strings.Contains(txt, "reverse proxy") {
+		t.Errorf("text:\n%s", txt)
+	}
+	a = Alert{Kind: KindIngestBack, GeneratedAt: at.Add(2 * time.Hour), Fleet: fleet}
+	if s := a.Subject(); s != "Heimdall: ingest is back (acme)" || a.Severity() != "ok" {
+		t.Errorf("back subject = %q, severity %q", s, a.Severity())
+	}
+	if txt := a.Text(); !strings.HasPrefix(txt, "Ingest is back: hosts in acme are reporting again as of 2026-10-24 01:00 UTC, after going quiet at 2026-10-23 22:15 UTC.") {
+		t.Errorf("back text:\n%s", txt)
+	}
+}
