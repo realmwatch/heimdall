@@ -498,6 +498,12 @@ type handoffBody struct {
 	RepoBranch       string
 	RepoBranchStale  bool
 	CanSetRepoBranch bool
+	// As is who an Amp thread starts as (asPersonal or asService), and
+	// CanPersonal whether the viewer has a key of their own to choose.
+	// AmpKeys: personal keys are on, so the page can point to them.
+	As          string
+	CanPersonal bool
+	AmpKeys     bool
 }
 
 // handoffProject is one choice in the Amp project picker.
@@ -525,6 +531,53 @@ type handoffTarget struct {
 	// repoBranch is the branch an operator made the repository's default
 	// target for hand-offs, or "" (store.RepoBranch).
 	repoBranch string
+	// An Amp agent's thread starts as (asPersonal or asService);
+	// canPersonal says the viewer has a key of their own to choose. For
+	// asPersonal, agent.Starter runs as them (runAs).
+	as          string
+	canPersonal bool
+}
+
+// Who an Amp hand-off's thread starts as: the viewer, with their own Amp
+// key (ampkeys.go), or the agent's service account.
+const (
+	asPersonal = "personal"
+	asService  = "service"
+)
+
+// runAs settles who t's Amp thread starts as: the viewer when they have a
+// key of their own (the default) unless as is asService, else the
+// service account. For the viewer, t.agent's Starter becomes theirs, so
+// listing projects and starting the thread both run as them.
+func (s *server) runAs(ctx context.Context, v *auth.Viewer, t *handoffTarget, as string) error {
+	if !t.agent.IsAmp() {
+		return nil
+	}
+	t.as = asService
+	key, _, err := s.personalAmpKey(ctx, v.UserID)
+	if errors.Is(err, errAmpKeyUnreadable) {
+		s.log.Warn("a personal Amp key can't be opened; using the service account", "user", v.UserID)
+		return nil
+	}
+	if err != nil || key == "" {
+		return err
+	}
+	t.canPersonal = true
+	if as == asService {
+		return nil
+	}
+	t.as = asPersonal
+	t.agent.Starter = s.cfg.PersonalAmp.Starter(t.agent, v.UserID, key)
+	return nil
+}
+
+// withAs adds a hand-off page's run-as choice to its URL: only the
+// service account needs saying, as the viewer's own key is the default.
+func withAs(u, as string) string {
+	if as == asService {
+		return u + "&as=" + asService
+	}
+	return u
 }
 
 // defaultTarget is where a hand-off's pull request goes when the operator
@@ -555,10 +608,15 @@ func (s *server) resolveAmpProject(ctx context.Context, t *handoffTarget) error 
 	}
 	lctx, cancel := context.WithTimeout(ctx, ampProjectsTimeout)
 	defer cancel()
+	// Whose projects: the viewer's own when the thread starts as them.
+	whose, who, access := t.agent.Name+"'s", t.agent.Name, "give the service account access to the right one"
+	if t.as == asPersonal {
+		whose, who, access = "your", "you", "check your Amp account can see the right one"
+	}
 	ps, err := t.agent.Starter.Projects(lctx)
 	if err != nil {
-		s.log.Warn("listing Amp projects failed", "agent", t.agent.Name, "err", err)
-		t.projectNote = "Couldn't list " + t.agent.Name + "'s Amp projects, so there's nowhere to start the thread. The hub log has the details."
+		s.log.Warn("listing Amp projects failed", "agent", t.agent.Name, "as", t.as, "err", err)
+		t.projectNote = "Couldn't list " + whose + " Amp projects, so there's nowhere to start the thread. The hub log has the details."
 		return nil
 	}
 	t.projects = slices.SortedFunc(slices.Values(ps), func(a, b handoff.Project) int { return strings.Compare(a.Ref(), b.Ref()) })
@@ -573,16 +631,21 @@ func (s *server) resolveAmpProject(ctx context.Context, t *handoffTarget) error 
 				return nil
 			}
 		}
-		t.projectNote = "The Amp project picked for this repository isn't one " + t.agent.Name + " can start threads in any more. Pick another."
-		return nil
+		// The viewer may not see the project picked for the service
+		// account (or the other way round): as them, it's matched by
+		// repository instead.
+		if t.as != asPersonal {
+			t.projectNote = "The Amp project picked for this repository isn't one " + who + " can start threads in any more. Pick another."
+			return nil
+		}
 	}
 	switch m := handoff.MatchProjects(ps, t.repo.Repo()); len(m) {
 	case 1:
 		t.project = m[0]
 	case 0:
-		t.projectNote = "None of " + t.agent.Name + "'s Amp projects uses this repository. Pick the project its threads should start in, or give the service account access to the right one."
+		t.projectNote = "None of " + whose + " Amp projects uses this repository. Pick the project its threads should start in, or " + access + "."
 	default:
-		t.projectNote = strconv.Itoa(len(m)) + " of " + t.agent.Name + "'s Amp projects use this repository. Pick the one its threads should start in."
+		t.projectNote = strconv.Itoa(len(m)) + " of " + whose + " Amp projects use this repository. Pick the one its threads should start in."
 	}
 	return nil
 }
@@ -742,8 +805,9 @@ func handoffTargetOf(mode, branch string, known []string) (handoff.Target, bool)
 
 // loadHandoff resolves and checks a hand-off request. ok is false when
 // the caller should answer 404 (a missing or out-of-scope host or site,
-// no agents, an unknown agent, or a viewer below operator).
-func (s *server) loadHandoff(ctx context.Context, v *auth.Viewer, org, hostName, root, agentName string) (handoffTarget, bool, error) {
+// no agents, an unknown agent, or a viewer below operator). as is who an
+// Amp agent's thread starts as (runAs).
+func (s *server) loadHandoff(ctx context.Context, v *auth.Viewer, org, hostName, root, agentName, as string) (handoffTarget, bool, error) {
 	var t handoffTarget
 	host, err := s.st.HostByName(ctx, org, hostName)
 	if err != nil {
@@ -789,6 +853,9 @@ func (s *server) loadHandoff(ctx context.Context, v *auth.Viewer, org, hostName,
 	if err := s.handoffSites(ctx, v, &t); err != nil {
 		return t, false, err
 	}
+	if err := s.runAs(ctx, v, &t, as); err != nil {
+		return t, false, err
+	}
 	if err := s.resolveAmpProject(ctx, &t); err != nil {
 		return t, false, err
 	}
@@ -815,7 +882,7 @@ func (s *server) handoffMessage(t handoffTarget, v *auth.Viewer, requestID strin
 		SitePath: t.site.Root, Repo: t.repo.Repo(), Findings: handoffFindings(t.h, t.site.Root),
 		RequestID: requestID, RequestedBy: v.DisplayName,
 		Link:  strings.TrimSuffix(s.cfg.BaseURL, "/") + siteURL(t.host.OrgSlug, t.host.Name, t.site.Root),
-		Facts: siteFacts(t.site), AmpProject: t.project,
+		Facts: siteFacts(t.site), AmpProject: t.project, AmpPersonal: t.as == asPersonal,
 	})
 }
 
@@ -867,6 +934,7 @@ func (s *server) handoffBody(t handoffTarget, msg handoff.Message, requestID str
 		SiteURL: siteURL(t.host.OrgSlug, t.host.Name, t.site.Root),
 		Agents:  agentNames(s.cfg.Agents), Agent: t.agent.Name, Amp: t.agent.IsAmp(), DefaultAgent: s.defaultAgent(),
 		RepoBranch: t.repoBranch, RepoBranchStale: stale, CanSetRepoBranch: handoff.RepoKey(repo) != "",
+		As: t.as, CanPersonal: t.canPersonal, AmpKeys: s.ampKeysOn(),
 		Repo: repo, RepoWeb: handoff.WebURL(repo), RepoManual: t.repo.Manual != "",
 		Content: msg.Content, Digest: msg.Digest, RequestID: requestID,
 		Packages: msg.Packages, Omitted: msg.Omitted,
@@ -877,7 +945,7 @@ func (s *server) handoffBody(t handoffTarget, msg handoff.Message, requestID str
 // handoffPage is the confirm step: exactly what will be posted.
 func (s *server) handoffPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer) {
 	q := r.URL.Query()
-	t, ok, err := s.loadHandoff(r.Context(), v, r.PathValue("org"), r.PathValue("host"), q.Get("root"), q.Get("agent"))
+	t, ok, err := s.loadHandoff(r.Context(), v, r.PathValue("org"), r.PathValue("host"), q.Get("root"), q.Get("agent"), q.Get("as"))
 	if err != nil {
 		s.fail(w, r, v, err)
 		return
@@ -932,7 +1000,7 @@ const badTargetNotice = "That branch isn't one of these sites' branches, so the 
 // handoffSend posts the message the operator confirmed.
 func (s *server) handoffSend(w http.ResponseWriter, r *http.Request, v *auth.Viewer) {
 	f := r.PostForm
-	t, ok, err := s.loadHandoff(r.Context(), v, r.PathValue("org"), r.PathValue("host"), f.Get("root"), f.Get("agent"))
+	t, ok, err := s.loadHandoff(r.Context(), v, r.PathValue("org"), r.PathValue("host"), f.Get("root"), f.Get("agent"), f.Get("as"))
 	if err != nil {
 		s.fail(w, r, v, err)
 		return
@@ -976,7 +1044,7 @@ func (s *server) handoffSend(w http.ResponseWriter, r *http.Request, v *auth.Vie
 	if f.Get("digest") != msg.Digest {
 		// The findings, repository, sites or target changed since the page
 		// was shown: the digest covers the whole message and file.
-		body.Notice = "The message changed since you opened this page (new findings, sites, branches, repository or Amp project). Check it again before sending."
+		body.Notice = "The message changed since you opened this page (new findings, sites, branches, repository, Amp project or who it runs as). Check it again before sending."
 		s.render(w, r, http.StatusConflict, "handoff", v, "Hand off to agent", "sites", body)
 		return
 	}
@@ -1011,7 +1079,7 @@ func (s *server) handoffSend(w http.ResponseWriter, r *http.Request, v *auth.Vie
 // agent can see can be picked.
 func (s *server) handoffProject(w http.ResponseWriter, r *http.Request, v *auth.Viewer) {
 	f := r.PostForm
-	t, ok, err := s.loadHandoff(r.Context(), v, r.PathValue("org"), r.PathValue("host"), f.Get("root"), f.Get("agent"))
+	t, ok, err := s.loadHandoff(r.Context(), v, r.PathValue("org"), r.PathValue("host"), f.Get("root"), f.Get("agent"), f.Get("as"))
 	if err != nil {
 		s.fail(w, r, v, err)
 		return
@@ -1030,7 +1098,7 @@ func (s *server) handoffProject(w http.ResponseWriter, r *http.Request, v *auth.
 		s.fail(w, r, v, err)
 		return
 	}
-	http.Redirect(w, r, handoffURL(t.host.OrgSlug, t.host.Name, t.site.Root, t.agent.Name)+"#project", http.StatusSeeOther)
+	http.Redirect(w, r, withAs(handoffURL(t.host.OrgSlug, t.host.Name, t.site.Root, t.agent.Name), t.as)+"#project", http.StatusSeeOther)
 }
 
 // handoffRepoBranch makes one of the sites' branches the default target of
@@ -1040,7 +1108,7 @@ func (s *server) handoffProject(w http.ResponseWriter, r *http.Request, v *auth.
 // set.
 func (s *server) handoffRepoBranch(w http.ResponseWriter, r *http.Request, v *auth.Viewer) {
 	f := r.PostForm
-	t, ok, err := s.loadHandoff(r.Context(), v, r.PathValue("org"), r.PathValue("host"), f.Get("root"), f.Get("agent"))
+	t, ok, err := s.loadHandoff(r.Context(), v, r.PathValue("org"), r.PathValue("host"), f.Get("root"), f.Get("agent"), f.Get("as"))
 	if err != nil {
 		s.fail(w, r, v, err)
 		return
@@ -1061,7 +1129,7 @@ func (s *server) handoffRepoBranch(w http.ResponseWriter, r *http.Request, v *au
 		s.fail(w, r, v, err)
 		return
 	}
-	http.Redirect(w, r, handoffURL(t.host.OrgSlug, t.host.Name, t.site.Root, t.agent.Name)+"#target", http.StatusSeeOther)
+	http.Redirect(w, r, withAs(handoffURL(t.host.OrgSlug, t.host.Name, t.site.Root, t.agent.Name), t.as)+"#target", http.StatusSeeOther)
 }
 
 // siteRepo sets or clears a site's repository (operator or admin).

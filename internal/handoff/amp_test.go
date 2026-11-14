@@ -60,6 +60,13 @@ func TestBuildAmp(t *testing.T) {
 	if m2, _ := Build(ampAgent, other); m.Digest == digest(m.Content, m.File) || m2.Digest == m.Digest || m2.Content != m.Content {
 		t.Error("digest")
 	}
+	// And whose key starts it: running as the user is another message to
+	// confirm, with the same prompt.
+	personal := ampRequest()
+	personal.AmpPersonal = true
+	if m3, _ := Build(ampAgent, personal); m3.Digest == m.Digest || m3.Content != m.Content || m3.Thread != m.Thread {
+		t.Error("digest as the user")
+	}
 }
 
 // A thread never starts without a project: it's what gives the orb the

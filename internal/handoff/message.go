@@ -142,6 +142,10 @@ type Request struct {
 	// AmpProject is the Amp project an Amp hand-off's thread starts in,
 	// chosen by the caller; required for an Amp agent.
 	AmpProject Project
+	// AmpPersonal: the thread starts with the requesting user's own Amp
+	// key instead of the agent's service account. It's part of what's
+	// confirmed, like the project.
+	AmpPersonal bool
 }
 
 // Message is a ready-to-post message.
@@ -416,7 +420,7 @@ func Build(agent Agent, req Request) (Message, error) {
 	name := "heimdall-handoff-" + req.RequestID + ".json"
 	if agent.IsAmp() {
 		return ampMessage(pkgs, file, name, proseFacts{repo: RepoShort(*repo), requestID: req.RequestID, composer: composer, npm: npm,
-			major: anyMajor(pkgs), target: target, sites: sites, listed: pkgs}, req.AmpProject), nil
+			major: anyMajor(pkgs), target: target, sites: sites, listed: pkgs}, req.AmpProject, req.AmpPersonal), nil
 	}
 	// The text lists as many packages as fit Discord's limit (the most
 	// urgent can't be told apart here, so it's the end of the sorted list

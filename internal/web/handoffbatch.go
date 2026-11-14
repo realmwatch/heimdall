@@ -88,6 +88,10 @@ type handoffBatchBody struct {
 	Amp          bool // the agent starts Amp threads
 	NoRepo       int  // Amp: repositories left out because a site's is unknown
 	NoProject    int  // Amp: repositories left out because no Amp project is chosen
+	// As is who the Amp threads start as (asPersonal or asService), for
+	// the whole batch; CanPersonal whether the viewer has a key to choose.
+	As          string
+	CanPersonal bool
 }
 
 type handoffBatchSite struct{ Org, Host, Root string }
@@ -107,11 +111,11 @@ func (s *server) loadHandoffBatch(ctx context.Context, v *auth.Viewer, f url.Val
 	}
 	seen := map[string]bool{}
 	for i := range orgs {
-		t, ok, err := s.loadHandoff(ctx, v, orgs[i], hs[i], rs[i], f.Get("agent"))
+		t, ok, err := s.loadHandoff(ctx, v, orgs[i], hs[i], rs[i], f.Get("agent"), f.Get("as"))
 		if err != nil || !ok {
 			return body, false, err
 		}
-		body.Agent, body.Amp = t.agent.Name, t.agent.IsAmp()
+		body.Agent, body.Amp, body.As, body.CanPersonal = t.agent.Name, t.agent.IsAmp(), t.as, t.canPersonal
 		// One per repository (or per site without one): another site on
 		// the same repository is covered by the first's pull request.
 		key := handoff.RepoKey(t.repo.Repo())
@@ -204,7 +208,7 @@ func (s *server) handoffBatchSend(w http.ResponseWriter, r *http.Request, v *aut
 			s.notFound(w, r, v)
 			return
 		}
-		body.Notice = "The messages changed since you opened this page (new findings, sites, branches or repositories). Check them again before sending."
+		body.Notice = "The messages changed since you opened this page (new findings, sites, branches, repositories or who they run as). Check them again before sending."
 		s.render(w, r, http.StatusConflict, "handoffbatch", v, "Hand off to agent", "sites", body)
 		return
 	}
@@ -248,12 +252,15 @@ func (s *server) auditHandoff(r *http.Request, v *auth.Viewer, t handoffTarget, 
 	}
 	if t.agent.IsAmp() {
 		detail["kind"] = "amp"
+		detail["as"] = t.as
 		if thread != "" {
 			detail["thread"] = thread
 		}
 	}
 	if postErr != nil {
-		s.log.Warn("hand-off not sent", "agent", t.agent.Name, "host", t.host.Name, "site", t.site.Root, "err", postErr)
+		// The CLI's output is in the error with any key masked
+		// (cmd/heimdall's ampStarter); the key itself never is.
+		s.log.Warn("hand-off not sent", "agent", t.agent.Name, "as", t.as, "host", t.host.Name, "site", t.site.Root, "err", postErr)
 		detail["error"] = "send failed"
 		if !t.agent.IsAmp() {
 			detail["error"] = "post failed"

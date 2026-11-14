@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Package secret generates and hashes bearer tokens.
+// Package secret generates and hashes bearer tokens, and seals the secrets
+// the hub keeps for users (seal.go).
 //
 // Only hashes are ever stored. Tokens carry 256 bits of randomness, so a fast
 // hash (SHA-256) is sufficient; a slow KDF is only needed for low-entropy

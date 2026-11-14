@@ -34,6 +34,7 @@ import (
 	"github.com/realmwatch/heimdall/internal/privilege"
 	"github.com/realmwatch/heimdall/internal/report"
 	"github.com/realmwatch/heimdall/internal/search"
+	"github.com/realmwatch/heimdall/internal/secret"
 	"github.com/realmwatch/heimdall/internal/store"
 	"github.com/realmwatch/heimdall/internal/updates"
 )
@@ -122,6 +123,14 @@ type Config struct {
 	// ChangeLink puts "Fix" links to a change-management tool on host
 	// pages (changelink.go); zero = off.
 	ChangeLink ChangeLink
+
+	// Secrets seals what the hub keeps in its database for a user (their
+	// own Amp key, ampkeys.go); nil without the heimdall-secrets
+	// credential, which turns personal Amp keys off.
+	Secrets *secret.Sealer
+	// PersonalAmp runs Amp agents as a user, with their own key
+	// (ampkeys.go); nil = off.
+	PersonalAmp PersonalAmp
 }
 
 // CSP is the Content-Security-Policy sent with every response.
@@ -244,6 +253,11 @@ func New(cfg Config, st *store.Store, a Authenticator, search SearchFunc, log *s
 	mux.HandleFunc("POST /account/assistants/revoke", s.requireAuth(s.assistantRevoke))
 	mux.HandleFunc("GET /account/assistants/heimdall.mcpb", s.requireAuth(s.assistantBundle))
 	mux.HandleFunc("GET /account/devices", s.requireAuth(s.devicesPage)) // where you're signed in (devices.go)
+	mux.HandleFunc("GET /account/amp", s.requireAuth(s.ampKeyPage))      // your own Amp key (ampkeys.go)
+	mux.HandleFunc("POST /account/amp/confirm", s.requireAuth(s.ampKeyConfirm))
+	mux.HandleFunc("POST /account/amp/save", s.requireAuth(s.ampKeySave))
+	mux.HandleFunc("POST /account/amp/test", s.requireAuth(s.ampKeyTest))
+	mux.HandleFunc("POST /account/amp/remove", s.requireAuth(s.ampKeyRemove))
 	mux.HandleFunc("POST /account/devices/revoke", s.requireAuth(s.deviceRevoke))
 	mux.HandleFunc("POST /admin/users/session-revoke", s.requireAuth(s.requireAdmin(s.adminSessionRevoke)))
 	// IP awareness: labels and policy (org admins), what's known about an address (ips.go).
@@ -545,6 +559,7 @@ type page struct {
 	IngestDown []string
 	News       bool      // threat news is on (shows the nav item)
 	MCP        bool      // MCP is on (shows the AI assistants link)
+	AmpKey     bool      // the viewer gets the "Amp key" link (ampkeys.go)
 	CF         bool      // [cloudflare] is on (shows the Cloudflare link to operators)
 	Perm       navPerm   // which sidebar links to show (nav.go)
 	Counts     navCounts // the sidebar's badges
@@ -558,6 +573,7 @@ func (s *server) render(w http.ResponseWriter, r *http.Request, status int, name
 	if v != nil {
 		p.Perm, p.Counts = navPermOf(v), s.navCountsFor(r, v)
 		p.StepUp = s.stepUpDialog(r, v)
+		p.AmpKey = s.ampKeyNav(v)
 		p.IngestDown = s.ingestDown(r, v)
 	}
 	if v != nil && v.IsAdmin && s.cfg.Updates != nil {
@@ -648,6 +664,7 @@ func parsePages() (map[string]*template.Template, error) {
 	names = append(names, "bans")                                // bans (bans.go)
 	names = append(names, "branding")                            // branding (branding.go)
 	names = append(names, "devices")                             // sessions (devices.go)
+	names = append(names, "ampkey")                              // your own Amp key (ampkeys.go)
 	names = append(names, "security", "stepup", "stepup_resume") // step-up codes (stepup.go)
 	names = append(names, "offline")                             // the app's offline page (pwa.go)
 	names = append(names, "alerts", "defense", "more")           // the phone layout's tabs (phone.go)

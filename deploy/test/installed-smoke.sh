@@ -87,6 +87,15 @@ curl -fs -o /dev/null http://127.0.0.1:8080/login || fail "UI not answering"
 expect 'v' sudo heimdall version
 expect 'acme' sudo heimdall org list
 expect 'config' sudo heimdall config update
+# secrets_ok: the hub's secrets key is there, root-only, 32 bytes, and the
+# unit loads it once.
+secrets_ok() {
+	[ "$(sudo stat -c '%U %a %s' /etc/heimdall/secrets-key)" = "root 600 32" ] ||
+		fail "secrets-key is $(sudo stat -c '%U %a %s' /etc/heimdall/secrets-key 2>&1), want root 600 32 ($1)"
+	[ "$(grep -c '^LoadCredential=heimdall-secrets:/etc/heimdall/secrets-key$' /etc/systemd/system/heimdall.service)" = 1 ] ||
+		fail "the unit doesn't load the secrets key once ($1)"
+}
+secrets_ok "after install"
 
 step "Key commands under sudo (stored as root, LoadCredential added)"
 printf 'smoke-cloudflare-token-0123456789\n' | sudo heimdall cloudflare set-token --stdin
@@ -248,8 +257,19 @@ sudo systemctl start heimdall-collect.timer
 sudo rm -rf /srv/zdt-site /srv/inplace-site /srv/new-site
 
 step "Upgrade in place (hub first, then the collector)"
+sum=$(sudo sha256sum /etc/heimdall/secrets-key)
 sudo sh "$dist/install-hub.sh" --from-dir "$dist" --skip-signature-check
 systemctl is-active --quiet heimdall || fail "hub not running after upgrade"
+secrets_ok "after upgrade"
+[ "$(sudo sha256sum /etc/heimdall/secrets-key)" = "$sum" ] || fail "the upgrade replaced the secrets key"
+
+step "An upgrade gives an older hub its secrets key"
+sudo sed -i '/^LoadCredential=heimdall-secrets:/d' /etc/systemd/system/heimdall.service
+sudo rm /etc/heimdall/secrets-key
+sudo systemctl daemon-reload
+sudo sh "$dist/install-hub.sh" --from-dir "$dist" --skip-signature-check
+systemctl is-active --quiet heimdall || fail "hub not running after upgrade"
+secrets_ok "after upgrading an older hub"
 refuse 'SHA256SUMS.sigstore.json' sudo sh "$dist/install.sh" --hub http://127.0.0.1:8443 --token-file /etc/heimdall-collect/token --from-dir "$dist"
 
 # The collector has no database, so the signed (older) release can go

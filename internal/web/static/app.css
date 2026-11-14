@@ -1025,6 +1025,8 @@ details.repo-pick form { flex-wrap: wrap; align-items: flex-end; max-width: 560p
 .handoff-project { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
 .handoff-project select { padding: 4px 6px; max-width: 100%; }
 .handoff-project button { padding: 4px 10px; font-size: 13px; }
+.handoff-runas { display: grid; gap: 6px; justify-items: start; }
+.handoff-runas button { padding: 4px 10px; font-size: 13px; }
 .handoff-h { margin: 4px 0 0; font-size: 15px; }
 .handoff-msg {
   margin: 0; padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border);

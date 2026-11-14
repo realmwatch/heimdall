@@ -35,6 +35,10 @@ ExecStart=/usr/local/bin/heimdall -c /etc/heimdall/heimdall.toml serve
 # An Amp agent ([[agents]] kind = "amp"): `sudo heimdall agent set-key
 # <name>` stores its API key and adds its line, e.g.
 #LoadCredential=heimdall-agent-amp:/etc/heimdall/agent-amp
+# The hub's secrets key, which encrypts users' own Amp keys in the
+# database: install-hub.sh makes /etc/heimdall/secrets-key (32 random
+# bytes, root-only) and adds this line on install and upgrade.
+#LoadCredential=heimdall-secrets:/etc/heimdall/secrets-key
 Restart=on-failure
 RestartSec=5s
 

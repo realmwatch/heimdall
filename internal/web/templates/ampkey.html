@@ -1,0 +1,60 @@
+{{define "content"}}{{$csrf := .CSRF}}{{with .Body}}
+<h1>Your Amp key</h1>
+{{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
+{{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
+<p class="muted">With your own Amp API key saved here, the Amp hand-offs you start can run as you: the thread is in your own Amp thread list, uses your Amp plan's included usage, and works with the GitHub account you connected to Amp. Without one, they run as {{.Agent}}'s service account, whose usage comes out of the workspace's shared credits. You choose which on each hand-off.</p>
+
+{{if not .On}}
+<section class="card" aria-labelledby="ak-off">
+  <h2 id="ak-off">Not available on this hub</h2>
+  <p>Personal Amp keys need the hub's secrets key, which encrypts them in the database, and this hub doesn't have one yet. An admin turns it on by upgrading the hub again (<code>sudo heimdall upgrade</code>, or running <code>install-hub.sh</code>): it creates <code>/etc/heimdall/secrets-key</code> and adds its <code>LoadCredential=heimdall-secrets</code> line to the unit. Hand-offs keep running as the service account until then.</p>
+  {{if .Saved}}<form method="post" action="/account/amp/remove" class="inline">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <button type="submit" class="secondary">Remove your saved key</button>
+  </form>{{end}}
+</section>
+{{else}}
+<section class="card" id="key" aria-labelledby="ak-h">
+  <h2 id="ak-h">{{if .Saved}}Saved key{{else}}Save your key{{end}}</h2>
+  {{if .Saved}}
+  <p><span class="pill ok">saved</span> Saved {{.SavedAt}} · ends <code>…{{.Hint}}</code>{{if .TestedAt}} · <span class="muted small">last tested OK {{.TestedAt}}</span>{{end}}</p>
+  {{if .Unreadable}}<p class="alert" role="alert">This key can't be read with the hub's current secrets key (it was replaced), so your hand-offs run as the service account. Remove it and save it again.</p>{{end}}
+  {{if .TestOK}}<p class="notice" role="status">It works: the Amp CLI ran with your key.</p>{{end}}
+  {{with .TestFail}}<div class="alert" role="alert"><p>The test failed. What the Amp CLI said:</p><pre class="handoff-msg">{{.}}</pre></div>{{end}}
+  <div>
+    <form method="post" action="/account/amp/test" class="inline">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <button type="submit">Test</button>
+    </form>
+    <form method="post" action="/account/amp/remove" class="inline">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <button type="submit" class="secondary">Remove</button>
+    </form>
+  </div>
+  {{end}}
+  {{if .Fresh}}
+  <form method="post" action="/account/amp/save" autocomplete="off">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label>{{if .Saved}}Replace it with another key{{else}}Your Amp API key{{end}} <input type="password" name="key" required minlength="20" maxlength="512" autocomplete="off" spellcheck="false" placeholder="sgamp_…"></label>
+    <p class="muted small">Create one in Amp's settings (ampcode.com/settings). It's sent once, encrypted with this hub's secrets key and never shown again.</p>
+    <button type="submit">Save key</button>
+  </form>
+  {{else}}
+  <form method="post" action="/account/amp/confirm" class="inline">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <p class="muted small">{{if .Saved}}To replace it,{{else}}To save one,{{end}} confirm it's you first.</p>
+    <button type="submit"{{if .Saved}} class="secondary"{{end}}>Confirm it's you</button>
+  </form>
+  {{end}}
+</section>
+
+<section class="card" aria-labelledby="ak-risk">
+  <h2 id="ak-risk">Before you save one</h2>
+  <ul class="small">
+    <li>Your key is stored encrypted, and only used to start the hand-offs you choose to run as you, and when you press Test. Admins can't see it or use it from Heimdall.</li>
+    <li>Anyone with root on the hub could still decrypt and use it, as they could the service account's. If the hub is ever compromised, revoke the key in Amp and make a new one.</li>
+    <li>You can remove it here at any time; it's also removed if your Heimdall account is disabled or deleted.</li>
+  </ul>
+</section>
+{{end}}
+{{end}}{{end}}

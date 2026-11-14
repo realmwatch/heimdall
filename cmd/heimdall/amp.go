@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -43,9 +46,23 @@ const ampOutputMax = 64 << 10
 type ampStarter struct {
 	path, key, home string
 
+	own    ampProjectCache
+	shared *ampProjectCache // a user's, kept by personalAmp; nil: own
+}
+
+// ampProjectCache is the last project list one account's CLI gave.
+type ampProjectCache struct {
 	mu       sync.Mutex
-	projects []handoff.Project // the last list, from projectsAt
+	projects []handoff.Project
 	listedAt time.Time
+	usedAt   time.Time // personalAmp evicts the least recently used
+}
+
+func (s *ampStarter) cache() *ampProjectCache {
+	if s.shared != nil {
+		return s.shared
+	}
+	return &s.own
 }
 
 // Projects change rarely: a list is reused for ampProjectsFresh, and an
@@ -119,20 +136,21 @@ func (s *ampStarter) StartThread(ctx context.Context, req handoff.ThreadRequest)
 // Projects lists the Amp projects the service account can start threads
 // in (`amp projects list --json`).
 func (s *ampStarter) Projects(ctx context.Context) ([]handoff.Project, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	c := s.cache()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	now := ampNow()
-	if s.projects != nil && now.Sub(s.listedAt) < ampProjectsFresh {
-		return s.projects, nil
+	if c.projects != nil && now.Sub(c.listedAt) < ampProjectsFresh {
+		return c.projects, nil
 	}
 	ps, err := s.listProjects(ctx)
 	if err != nil {
-		if s.projects != nil && now.Sub(s.listedAt) < ampProjectsStale {
-			return s.projects, nil
+		if c.projects != nil && now.Sub(c.listedAt) < ampProjectsStale {
+			return c.projects, nil
 		}
 		return nil, err
 	}
-	s.projects, s.listedAt = ps, now
+	c.projects, c.listedAt = ps, now
 	return ps, nil
 }
 
@@ -195,11 +213,15 @@ func (c *cappedBuffer) String() string { return string(c.b) }
 // ampHome is the Amp CLI's home: "amp" in the hub's state directory
 // (systemd's STATE_DIRECTORY, else the database's directory).
 func ampHome(cfg config.Config) string {
+	return filepath.Join(hubStateDir(cfg), "amp")
+}
+
+func hubStateDir(cfg config.Config) string {
 	dir, _, _ := strings.Cut(os.Getenv("STATE_DIRECTORY"), ":")
 	if dir == "" {
 		dir = filepath.Dir(cfg.Database)
 	}
-	return filepath.Join(dir, "amp")
+	return dir
 }
 
 // ampAgent builds an Amp agent's starter, or says why it can't.
@@ -325,3 +347,86 @@ func cmdAgentTest(a *app, args []string) error {
 	}
 	return nil
 }
+
+// personalAmp runs an Amp agent's CLI as one Heimdall user, with the key
+// they saved on their Amp key page (web.PersonalAmp): the agent's CLI,
+// its own home per user (amp-users/<id> in the state directory), and a
+// project list cached per user and key. The key is only in the starter
+// handed out for one request, never kept here.
+type personalAmp struct {
+	base string // amp-users in the state directory
+
+	mu    sync.Mutex
+	lists map[string]*ampProjectCache // by agent, user and the key's hash
+}
+
+// personalAmpLists bounds the cached project lists: the least recently
+// used goes first.
+const personalAmpLists = 64
+
+func newPersonalAmp(cfg config.Config) *personalAmp {
+	return &personalAmp{base: filepath.Join(hubStateDir(cfg), "amp-users"), lists: map[string]*ampProjectCache{}}
+}
+
+// starter is the agent's CLI, run as the user with key; ok is false for an
+// agent that isn't an Amp CLI one.
+func (p *personalAmp) starter(agent handoff.Agent, userID int64, key string) (*ampStarter, bool) {
+	svc, ok := agent.Starter.(*ampStarter)
+	if !ok || userID <= 0 || key == "" {
+		return nil, false
+	}
+	sum := sha256.Sum256([]byte(key))
+	id := agent.Name + "\x00" + strconv.FormatInt(userID, 10) + "\x00" + hex.EncodeToString(sum[:])
+	now := ampNow()
+	p.mu.Lock()
+	c := p.lists[id]
+	if c == nil {
+		if len(p.lists) >= personalAmpLists {
+			var oldest string
+			var at time.Time
+			for k, v := range p.lists {
+				if oldest == "" || v.usedAt.Before(at) {
+					oldest, at = k, v.usedAt
+				}
+			}
+			delete(p.lists, oldest)
+		}
+		c = &ampProjectCache{}
+		p.lists[id] = c
+	}
+	c.usedAt = now
+	p.mu.Unlock()
+	return &ampStarter{path: svc.path, key: key, home: filepath.Join(p.base, strconv.FormatInt(userID, 10)), shared: c}, true
+}
+
+// Starter implements web.PersonalAmp.
+func (p *personalAmp) Starter(agent handoff.Agent, userID int64, key string) handoff.Starter {
+	s, ok := p.starter(agent, userID, key)
+	if !ok {
+		return failingStarter{errors.New("amp: no Amp CLI for a personal key")}
+	}
+	return s
+}
+
+// Check implements web.PersonalAmp: like `agent test`, the key lists the
+// account's latest thread.
+func (p *personalAmp) Check(ctx context.Context, agent handoff.Agent, userID int64, key string) error {
+	s, ok := p.starter(agent, userID, key)
+	if !ok {
+		return errors.New("no Amp CLI is configured")
+	}
+	text, err := s.run(ctx, "", "threads", "list", "--limit", "1")
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, tail(text, 600))
+	}
+	return nil
+}
+
+// failingStarter is a Starter that only fails.
+type failingStarter struct{ err error }
+
+func (f failingStarter) StartThread(context.Context, handoff.ThreadRequest) (handoff.Thread, error) {
+	return handoff.Thread{}, f.err
+}
+
+func (f failingStarter) Projects(context.Context) ([]handoff.Project, error) { return nil, f.err }
