@@ -5,10 +5,13 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"html/template"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/realmwatch/heimdall/internal/auth"
@@ -107,21 +110,56 @@ func (s *server) personalAmpKey(ctx context.Context, userID int64) (key string, 
 	return string(b), k.Sealed, nil
 }
 
-// validAmpKey checks a pasted key loosely: one token of printable ASCII.
-// note is set for one that doesn't look like Amp's.
-func validAmpKey(key string) (note string, ok bool) {
-	if len(key) < ampKeyMin || len(key) > ampKeyMax {
-		return "", false
+// cleanAmpKey drops what copying a key tends to add: spaces and line
+// breaks anywhere in it (a wrapped key), and invisible format characters
+// such as zero-width spaces. A key itself never has any.
+func cleanAmpKey(raw string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, raw)
+}
+
+// validAmpKey checks a pasted (cleaned) key loosely: one token of
+// printable ASCII. When it isn't one, why is "short", "long" or "char",
+// and n is its length, or the 1-based position of the first character
+// that can't be in a key. note is set for one that doesn't look like Amp's.
+func validAmpKey(key string) (note, why string, n int, ok bool) {
+	switch {
+	case len(key) < ampKeyMin:
+		return "", "short", len(key), false
+	case len(key) > ampKeyMax:
+		return "", "long", len(key), false
 	}
-	for i := 0; i < len(key); i++ {
-		if key[i] <= ' ' || key[i] > '~' {
-			return "", false
+	for i, r := range key {
+		if r <= ' ' || r > '~' {
+			return "", "char", utf8.RuneCountInString(key[:i]) + 1, false
 		}
 	}
 	if !strings.HasPrefix(key, ampKeyPrefix) {
 		note = "Amp's API keys usually start with " + ampKeyPrefix + "; check you copied the whole key, then Test it."
 	}
-	return note, true
+	return note, "", 0, true
+}
+
+// ampKeyInvalid says why a pasted key was refused, from fixed text and a
+// number only: never any of the key.
+func ampKeyInvalid(why, n string) string {
+	k, err := strconv.Atoi(n)
+	if err != nil || k < 0 || k > 1<<20 {
+		return ampKeyNotices["invalid"]
+	}
+	switch why {
+	case "short":
+		return fmt.Sprintf("That key is only %d characters: Amp's are longer. Copy the whole key and paste it again.", k)
+	case "long":
+		return fmt.Sprintf("That's %d characters, more than an API key (at most %d). Paste only the key.", k, ampKeyMax)
+	case "char":
+		return fmt.Sprintf("Character %d of what you pasted can't be in an API key (keys are plain letters, digits and symbols). Copy the key again, ideally with Amp's copy button.", k)
+	}
+	return ampKeyNotices["invalid"]
 }
 
 // ampKeyHint is a key's last four characters.
@@ -186,6 +224,9 @@ func (s *server) ampKeyPage(w http.ResponseWriter, r *http.Request, v *auth.View
 	}
 	q := r.URL.Query()
 	body.Notice = ampKeyNotices[q.Get("ok")]
+	if q.Get("ok") == "invalid" && q.Get("why") != "" {
+		body.Notice = ampKeyInvalid(q.Get("why"), q.Get("n"))
+	}
 	if q.Get("ok") == "saved" && q.Get("note") == "prefix" {
 		body.Notice += " Amp's API keys usually start with " + ampKeyPrefix + ": check you copied the whole key."
 	}
@@ -219,10 +260,10 @@ func (s *server) ampKeySave(w http.ResponseWriter, r *http.Request, v *auth.View
 		http.Redirect(w, r, "/account/amp?ok=expired#key", http.StatusSeeOther)
 		return
 	}
-	key := strings.TrimSpace(r.PostForm.Get("key"))
-	note, ok := validAmpKey(key)
+	key := cleanAmpKey(r.PostForm.Get("key"))
+	note, why, n, ok := validAmpKey(key)
 	if !ok {
-		http.Redirect(w, r, "/account/amp?ok=invalid#key", http.StatusSeeOther)
+		http.Redirect(w, r, "/account/amp?ok=invalid&why="+why+"&n="+strconv.Itoa(n)+"#key", http.StatusSeeOther)
 		return
 	}
 	sealed := s.cfg.Secrets.Seal(ampKeyPurpose, v.UserID, []byte(key))
