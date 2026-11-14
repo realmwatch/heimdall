@@ -204,3 +204,7 @@ url = ""
 # name     = "amp"
 # kind     = "amp"
 # amp_path = "/usr/local/bin/amp"           # the default
+#
+# A hand-off uses the agent marked `default = true` (one at most) unless
+# the operator picks another; with none marked, the first amp agent, else
+# the first agent.

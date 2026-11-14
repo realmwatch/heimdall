@@ -326,7 +326,7 @@ It's **off by default** and needs the operator or admin role in the org. Clickin
    discord_user_id = "123456789012345678"    # the bot's user ID
    destination     = "discord:agents"        # the webhook below
    ```
-   Several `[[agents]]` are fine (up to 10). They can share a webhook.
+   Several `[[agents]]` are fine (up to 10). They can share a webhook. A hand-off uses the **default agent** unless you pick another on the confirm page: the one with `default = true` (at most one may have it), else the first `kind = "amp"` agent, else the first listed. The picker lists it first, marked "(default)". An agent left out at startup (see below) can't be the default; the next in that order is.
 4. **Store the webhook** and restart:
    ```sh
    sudo heimdall notify set-webhook discord agents   # paste the URL; it's never echoed
@@ -379,18 +379,20 @@ Each site's **branch** comes from the collector, which reads the site's `.git/HE
 
 The confirm page asks **where the pull request goes**:
 
-- **Default branch** (the default): one pull request against the repository's default branch. The other sites and their branches are listed for the agent as information.
+- **Default branch** (chosen unless the repository has a default branch for hand-offs, below): one pull request against the repository's default branch. The other sites and their branches are listed for the agent as information.
 - **Branch `<name>`**: one pull request against one of the sites' branches.
 - **Each branch**: one pull request per distinct known branch. The agent checks out each branch, runs the update there and changes only that branch's lock files, since branches can pin different versions. Sites whose branch is unknown are listed as "branch unknown" and not targeted. With no branch known this option is off.
 
-The choice is part of the message, so the page shows the message for it, and the digest that confirms what you saw covers it. Only a branch Heimdall knows for these sites (detected or set) is accepted: any other submitted text is refused with a 400, and nothing is sent. Nothing about the choice is stored.
+The choice is part of the message, so the page shows the message for it, and the digest that confirms what you saw covers it. Only a branch Heimdall knows for these sites (detected or set) is accepted: any other submitted text is refused with a 400, and nothing is sent.
+
+**A repository's default branch for hand-offs.** Teams often merge into `dev` rather than the repository's default branch. With a branch chosen, the page offers **Make `<branch>` this repository's default**: from then on, hand-offs on that repository (from any of its sites, by anyone in the org) open with that branch chosen, marked "(repository default)", and the site page says so under **Branch**. **Clear** goes back to the repository's default branch. Setting or clearing it needs the operator or admin role, is a POST with the CSRF token, and is audited as `handoff.branch`. Picking another option on the confirm page (**Default branch** for a hotfix while `dev` holds untested work, say) applies to that hand-off only and never changes the stored one. A stored branch that none of the sites is on any more is ignored: the page chooses **Default branch** and says why. The page always sends the target it showed, so the digest still covers it.
 
 ### Several repositories at once
 
 When a daily brief or host explanation step's update applies to sites on several repositories (a Laravel fix needed by eleven apps, say), the step has a button per repository and an **All N** button (up to 20). It opens one confirm page for all of them:
 
 - Each repository is listed with its sites, branches, installed versions and the exact message its own button would post (under **The message**). Sites on the same repository share one hand-off.
-- **Where the pull requests go:** each repository's **default branch**, or **each branch**, which works per repository as above: a repository whose sites' branches are known gets one pull request per branch, and one whose aren't goes to its default branch.
+- **Where the pull requests go:** each repository's **default branch** (or the branch made its default for hand-offs, while one of its sites is on it; each repository's heading says which: "into `dev` (repository default)" or "into the default branch"), or **each branch**, which works per repository as above: a repository whose sites' branches are known gets one pull request per branch, and one whose aren't goes to its default branch.
 - **Post N to Discord** posts each repository's hand-off in turn, one message each, so the agent opens one pull request per repository (and per branch with **each branch**). They're ordinary hand-offs: the same message, the same rate limit per site and repository (one handed off in the last few minutes is shown as skipped, and skipped when sending), and one `handoff.send` audit entry each, with `"batch": N` in its detail.
 - The page lists what happened to each: posted, not posted (Discord refused or timed out; the hub log says why), or skipped.
 - The same checks as one hand-off apply to every site: operator or admin of its org, and a digest per message, so if anything changed since the page was shown nothing is sent and the page shows the new messages.

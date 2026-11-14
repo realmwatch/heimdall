@@ -32,7 +32,7 @@ func handoffAgents(cfg config.Config, log *slog.Logger) []handoff.Agent {
 				log.Error("agent left out", "agent", a.Name, "err", err)
 				continue
 			}
-			out = append(out, handoff.Agent{Name: a.Name, Starter: s})
+			out = append(out, handoff.Agent{Name: a.Name, Starter: s, Default: a.Default})
 			continue
 		}
 		kind, name, _ := config.NotifyDestination(a.Destination)
@@ -47,7 +47,7 @@ func handoffAgents(cfg config.Config, log *slog.Logger) []handoff.Agent {
 				"err", fmt.Errorf("%w (store it with `sudo heimdall notify set-webhook discord %s`)", err, name))
 			continue
 		}
-		out = append(out, handoff.Agent{Name: a.Name, UserID: a.DiscordUserID, Poster: &notify.Discord{
+		out = append(out, handoff.Agent{Name: a.Name, UserID: a.DiscordUserID, Default: a.Default, Poster: &notify.Discord{
 			Label: a.Destination, URL: u, Client: handoffClient().HTTPClient(), Retry: handoffRetry}})
 	}
 	return out

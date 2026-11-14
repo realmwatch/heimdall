@@ -225,6 +225,7 @@ func New(cfg Config, st *store.Store, a Authenticator, search SearchFunc, log *s
 	mux.HandleFunc("GET /hosts/{org}/{host}/handoff", s.requireAuth(s.handoffPage))
 	mux.HandleFunc("POST /hosts/{org}/{host}/handoff", s.requireAuth(s.handoffSend))
 	mux.HandleFunc("POST /hosts/{org}/{host}/handoff/project", s.requireAuth(s.handoffProject))
+	mux.HandleFunc("POST /hosts/{org}/{host}/handoff/branch", s.requireAuth(s.handoffRepoBranch))
 	mux.HandleFunc("GET /handoff/batch", s.requireAuth(s.handoffBatchPage))
 	mux.HandleFunc("POST /handoff/batch", s.requireAuth(s.handoffBatchSend))
 	mux.HandleFunc("GET /hosts/{org}/{host}/changes", s.requireAuth(s.changesPage))

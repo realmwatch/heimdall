@@ -953,6 +953,7 @@ type siteBody struct {
 	RepoError     bool
 	BranchNotice  string // fixed text after saving the branch
 	BranchError   bool
+	RepoBranch    string // the repository's default hand-off target (store.RepoBranch), or ""
 	HandoffURL    string // "Hand off to agent", when allowed and there's something to fix
 	HandoffNote   string // fixed text after a hand-off
 	HandoffError  bool
@@ -1027,6 +1028,12 @@ func (s *server) sitePage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 	body.RepoNotice, body.RepoError = repoNotices[rn], rn == "invalid"
 	bn := r.URL.Query().Get("branch")
 	body.BranchNotice, body.BranchError = branchNotices[bn], bn == "invalid"
+	if key := handoff.RepoKey(body.Repo.Repo()); key != "" && len(s.cfg.Agents) > 0 {
+		if body.RepoBranch, err = s.st.RepoBranch(ctx, host.OrgID, key); err != nil {
+			s.fail(w, r, v, err)
+			return
+		}
+	}
 	if s.canHandoff(v, host.OrgID) && len(handoffFindings(h, root)) > 0 {
 		body.HandoffURL = handoffURL(host.OrgSlug, host.Name, root, "")
 		if body.Repo.Repo() != "" {

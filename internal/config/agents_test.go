@@ -68,3 +68,28 @@ destination = "discord:agents"
 		t.Errorf("duplicate agent: %v", err)
 	}
 }
+
+// One agent can be marked the default; two can't.
+func TestAgentsDefault(t *testing.T) {
+	c, err := parse([]byte(`
+[[agents]]
+name = "pr-bot"
+discord_user_id = "123456789012345678"
+destination = "discord:agents"
+
+[[agents]]
+name = "amp"
+kind = "amp"
+default = true
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Validate(); err != nil || c.Agents[0].Default || !c.Agents[1].Default {
+		t.Fatalf("default agent: %+v %v", c.Agents, err)
+	}
+	c.Agents[0].Default = true
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "agents[1].default: only one agent can be the default") {
+		t.Errorf("two defaults: %v", err)
+	}
+}

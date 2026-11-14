@@ -57,6 +57,7 @@
       </form>
     </details>{{end}}
     {{with .BranchNotice}}<span class="small {{if $.Body.BranchError}}repo-error{{else}}repo-ok{{end}}" role="status">{{.}}</span>{{end}}
+    {{with .RepoBranch}}<span class="muted small">Hand-offs on this repository go to <code>{{.}}</code> by default{{if $.Body.HandoffURL}} (<a href="{{$.Body.HandoffURL}}#target">change</a>){{end}}.</span>{{end}}
   </div>
 </section>
 

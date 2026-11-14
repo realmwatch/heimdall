@@ -1048,6 +1048,9 @@ details.repo-pick form { flex-wrap: wrap; align-items: flex-end; max-width: 560p
 .handoff-opt:has(input:checked) { border-color: var(--accent); background: var(--code-bg); }
 .handoff-opt.disabled { cursor: not-allowed; opacity: .7; }
 .handoff-opt > span { min-width: 0; overflow-wrap: anywhere; }
+.handoff-repobranch { display: grid; gap: 6px; justify-items: start; margin-top: 8px; }
+.handoff-repobranch form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0; overflow-wrap: anywhere; }
+.handoff-repobranch button { padding: 4px 10px; font-size: 13px; }
 .branch-row { gap: 6px 10px; }
 @media (max-width: 560px) {
   .handoff-msg { font-size: 12px; padding: 10px; }
