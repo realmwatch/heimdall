@@ -228,12 +228,28 @@ func TestAmpKeySave(t *testing.T) {
 	if w := e.post("/account/amp/save", url.Values{"key": {aliceKey}}, signedIn(e), origin(e.baseURL)); w.Code != http.StatusForbidden {
 		t.Errorf("save without CSRF: %d", w.Code)
 	}
-	for _, bad := range []string{"short", "sgamp_ has spaces in it 0000000", strings.Repeat("x", 513), "sgamp_test_00000000000\x01000"} {
-		if w := e.post("/account/amp/save", csrfForm("key", bad), signedIn(e), origin(e.baseURL)); w.Header().Get("Location") != "/account/amp?ok=invalid#key" {
-			t.Errorf("saved %q: %s", bad, w.Header().Get("Location"))
+	for bad, want := range map[string]string{
+		"short":                               "why=short&n=5",
+		strings.Repeat("x", 513):              "why=long&n=513",
+		"sgamp_test_00000000000\x01000":       "why=char&n=23",
+		"sgamp_test_0000000000\u00e90000":     "why=char&n=22",
+		"sgamp_ has spaces in it\u200b\u00a0": "why=short&n=19",
+	} {
+		w := e.post("/account/amp/save", csrfForm("key", bad), signedIn(e), origin(e.baseURL))
+		if loc := w.Header().Get("Location"); loc != "/account/amp?ok=invalid&"+want+"#key" {
+			t.Errorf("saved %q: %s", bad, loc)
 		}
 	}
-	if w := e.post("/account/amp/save", csrfForm("key", "  "+aliceKey+"\n"), signedIn(e), origin(e.baseURL)); w.Header().Get("Location") != "/account/amp?ok=saved" {
+	page = e.get("/account/amp?ok=invalid&why=char&n=23", signedIn(e)).Body.String()
+	if !strings.Contains(page, "Character 23 of what you pasted") {
+		t.Error("no reason for a refused key")
+	}
+	if page := e.get("/account/amp?ok=invalid&why=char&n=%3Cb%3E", signedIn(e)).Body.String(); !strings.Contains(page, "That doesn&#39;t look like an API key") {
+		t.Error("a bad n isn't the generic notice")
+	}
+	// Copying adds spaces, line breaks and invisible characters: they're dropped.
+	wrapped := "  " + aliceKey[:10] + "\n" + aliceKey[10:20] + " \u200b" + aliceKey[20:] + "\u00a0\n"
+	if w := e.post("/account/amp/save", csrfForm("key", wrapped), signedIn(e), origin(e.baseURL)); w.Header().Get("Location") != "/account/amp?ok=saved" {
 		t.Fatalf("save: %d %s", w.Code, w.Header().Get("Location"))
 	}
 	k, ok, err := e.st.AmpKeyOf(t.Context(), uid)
