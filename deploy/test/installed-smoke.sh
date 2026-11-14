@@ -261,4 +261,50 @@ step "install.sh checks it, and refuses a tampered SHA256SUMS"
 refuse 'signature verification FAILED' sudo sh "$dist/install.sh" --hub http://127.0.0.1:8443 --token-file /etc/heimdall-collect/token --from-dir "$bad"
 expect 'Sigstore signature verified' sudo sh "$dist/install.sh" --hub http://127.0.0.1:8443 --token-file /etc/heimdall-collect/token --from-dir "$rel"
 systemctl is-active --quiet heimdall || fail "hub not running"
+# Caddy (public ingest) beside `tailscale serve` (the UI): both want port 443.
+# A Caddy site with no bind line listens on every address, so whichever
+# started first held 443 and the other failed. A stand-in for the tailnet:
+# a listener on 100.100.100.100:443 (Tailscale's range).
+step "Public ingest binds clear of the tailnet's port 443, in either restart order"
+sudo ip addr add 100.100.100.100/32 dev lo
+printf '[Service]\nExecStart=/usr/bin/python3 -m http.server 443 --bind 100.100.100.100 --directory /var/empty\n' |
+	sudo tee /run/systemd/system/fake-tailnet-serve.service >/dev/null
+sudo mkdir -p /var/empty
+sudo systemctl daemon-reload
+sudo systemctl start fake-tailnet-serve
+# A self-signed origin certificate, so Caddy doesn't ask ACME for a fake name.
+sudo install -d -m 0755 /etc/caddy
+sudo openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=ingest.example.com \
+	-keyout /etc/caddy/heimdall-origin.key -out /etc/caddy/heimdall-origin.pem 2>/dev/null
+sudo chmod 0644 /etc/caddy/heimdall-origin.key
+# both_up WHEN: Caddy and the stand-in both listen on 443.
+both_up() {
+	for _ in 1 2 3 4 5 6 7 8 9 10; do
+		on=$(ss -Hltn 'sport = :443' | awk '{ print $4 }')
+		if systemctl is-active --quiet caddy && systemctl is-active --quiet fake-tailnet-serve &&
+			printf '%s\n' "$on" | grep -qF 100.100.100.100: && [ "$(printf '%s\n' "$on" | grep -cv 100.100.100.100)" -gt 0 ]; then
+			return 0
+		fi
+		sleep 1
+	done
+	fail "$1: caddy $(systemctl is-active caddy), the tailnet stand-in $(systemctl is-active fake-tailnet-serve); on 443: $on"
+}
+expect 'Installing Caddy' sudo sh "$dist/install-hub.sh" --from-dir "$dist" --skip-signature-check --ingest-host ingest.example.com
+grep -q '^	bind ' /etc/caddy/Caddyfile || fail "the Caddyfile has no bind line: $(cat /etc/caddy/Caddyfile)"
+! grep -q '100\.100\.100\.100' /etc/caddy/Caddyfile || fail "Caddy binds the tailnet's address"
+both_up "after install"
+sudo systemctl restart fake-tailnet-serve && sudo systemctl restart caddy
+both_up "tailnet, then Caddy"
+sudo systemctl restart caddy && sudo systemctl restart fake-tailnet-serve
+both_up "Caddy, then tailnet"
+
+step "An upgrade binds an older install's Caddyfile"
+sudo sed -i '/^	bind /d' /etc/caddy/Caddyfile
+sudo systemctl restart caddy 2>/dev/null || true
+echo "unbound Caddy beside the tailnet's 443: $(systemctl is-active caddy)"
+expect 'Binding Caddy to' sudo sh "$dist/install-hub.sh" --from-dir "$dist" --skip-signature-check
+ls /etc/caddy/Caddyfile.bak-* >/dev/null 2>&1 || fail "no copy of the previous Caddyfile"
+both_up "after the upgrade"
+sudo systemctl stop fake-tailnet-serve
+sudo ip addr del 100.100.100.100/32 dev lo
 printf '\nSMOKE OK\n'

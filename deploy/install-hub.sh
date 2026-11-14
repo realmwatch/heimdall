@@ -11,6 +11,8 @@
 #   --tailnet-only       every server is on your tailnet: ingest is published
 #                        with `tailscale serve`, nothing is public
 # The UI (and MCP with --mcp) is always tailnet-only via `tailscale serve`.
+# Beside it, Caddy binds only this box's non-tailnet addresses (or
+# --public-bind ADDR): both use port 443, on different addresses.
 #
 # Upgrading an existing hub: run the new release's script with just
 #   sudo sh install-hub.sh
@@ -88,7 +90,7 @@ usage() {
 usage: install-hub.sh --org SLUG (--ingest-host NAME | --tailnet-only)
                       [--org-name "Acme Corp"] [--admin EMAIL] [--mcp]
                       [--version vX.Y.Z] [--from-dir DIR] [--no-tailscale]
-                      [--skip-signature-check]
+                      [--skip-signature-check] [--public-bind ADDR|auto]
        install-hub.sh --org SLUG --no-tailscale --ui-url URL --ingest-url URL ...
 
   --no-tailscale   skip tailscale (UI stays on 127.0.0.1:8080; for testing or
@@ -98,6 +100,11 @@ usage: install-hub.sh --org SLUG (--ingest-host NAME | --tailnet-only)
                    Cloudflare Tunnel with Access) forwards URL to the UI on
                    127.0.0.1:8080 and the ingest URL to 127.0.0.1:8443. No
                    Caddy is installed; both trust the proxy's client address
+  --public-bind ADDR|auto
+                   the addresses Caddy listens on (repeat it, or separate
+                   them with commas). By default, beside `tailscale serve`
+                   on 443, Caddy binds every global address except the
+                   tailnet's ("auto"); otherwise every address
   --skip-signature-check
                    don't check the release's Sigstore signature, only its
                    checksums (where cosign can't run; not advised)
@@ -106,7 +113,7 @@ EOF
 }
 
 org='' org_name='' ingest_host='' tailnet_only=0 admin='' mcp=0 version=$HEIMDALL_VERSION from_dir='' use_ts=1 sigcheck=1
-proxy_ui='' proxy_ingest=''
+proxy_ui='' proxy_ingest='' public_bind=''
 while [ $# -gt 0 ]; do
 	case $1 in
 	--org) org=${2:-}; shift ;;
@@ -121,6 +128,7 @@ while [ $# -gt 0 ]; do
 	--ui-url) proxy_ui=${2:-}; shift ;;
 	--ingest-url) proxy_ingest=${2:-}; shift ;;
 	--skip-signature-check) sigcheck=0 ;;
+	--public-bind) public_bind="$public_bind ${2:-}"; shift ;;
 	*) usage ;;
 	esac
 	shift
@@ -151,6 +159,16 @@ if [ -n "$proxy_ui$proxy_ingest" ]; then
 		case $u in https://*/* | *[!A-Za-z0-9:/.-]*) die "--ui-url and --ingest-url must be https://name, with no path" ;; https://?*) ;; *) die "--ui-url and --ingest-url must both be given, as https://name" ;; esac
 	done
 fi
+public_bind=$(printf '%s' "$public_bind" | tr ',' ' ' | xargs)
+for a in $public_bind; do
+	case $a in
+	auto) [ "$public_bind" = auto ] || die "--public-bind auto can't be combined with addresses" ;;
+	*[!0-9A-Fa-f:.]* | '') die "--public-bind takes IP addresses (or auto), not $a" ;;
+	*[.:]*) ;;
+	*) die "--public-bind takes IP addresses (or auto), not $a" ;;
+	esac
+done
+[ -z "$public_bind" ] || [ -n "$ingest_host" ] || [ "$upgrade" = 1 ] || die "--public-bind goes with --ingest-host"
 case $version in v[0-9]*.[0-9]*.[0-9]* | dev) ;; *) die "bad --version $version" ;; esac
 [ -n "$from_dir" ] || [ "$version" != dev ] || die "this script isn't from a release; pass --version vX.Y.Z or --from-dir"
 [ -d /run/systemd/system ] || die "systemd is required"
@@ -277,6 +295,130 @@ collector_version=$(sed -n 's/^VERSION=//p' "$work/collect.sh" | head -n 1)
 collector_sha=$(sha256sum "$work/collect.sh" | cut -d ' ' -f 1)
 hd collector trust --version "$collector_version" --note "release $version" "$collector_sha" >/dev/null 2>&1 || true
 
+# Caddy and `tailscale serve` share port 443 on this box: serve listens on
+# the tailnet addresses only (the UI, and 8443/8444), Caddy on the others.
+# A Caddy site with no bind line listens on every address, so whichever of
+# the two starts first holds 443 and the other fails; a reboot, or
+# needrestart restarting both after a libc update, flips which one. So
+# beside a tailnet listener on 443, Caddy's sites bind the box's other
+# global addresses.
+caddy_marker="# Written by Heimdall's install-hub.sh"
+
+# public_addrs: this box's global addresses, minus Tailscale's
+# (100.64.0.0/10, fd7a:115c:a1e0::/48) and container bridges' (which come
+# and go), one per line.
+public_addrs() {
+	ip -o addr show scope global 2>/dev/null | awk '
+		$2 ~ /^(tailscale|docker|br-|veth|virbr|lxc|lxd|cni|flannel|cali|podman)/ { next }
+		/ (temporary|deprecated|tentative|dadfailed)( |$)/ { next }
+		{
+			split($4, a, "/"); ip = tolower(a[1])
+			if ($3 == "inet") { split(ip, o, "."); if (o[1] == 100 && o[2] >= 64 && o[2] < 128) next }
+			else if (ip ~ /^fd7a:115c:a1e0:/) next
+			print ip
+		}'
+}
+
+# tailnet_443: whether the tailnet has port 443 here: `tailscale serve`
+# publishes on it, or something listens on a tailnet address's 443.
+tailnet_443() {
+	if have tailscale && tailscale serve status --json 2>/dev/null | grep -qE '"443"|:443"'; then
+		return 0
+	fi
+	have ss && ss -Hltn 'sport = :443' 2>/dev/null | awk '{ print $4 }' |
+		grep -qE '^(\[?fd7a:115c:a1e0:|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.)'
+}
+
+# caddy_binds: the addresses Caddy's sites bind, space-separated, or
+# nothing for every address (no tailnet listener to keep clear of, and no
+# --public-bind). Exits when there's none to bind.
+caddy_binds() {
+	case $public_bind in
+	'') tailnet_443 || return 0; b=$(public_addrs) ;;
+	auto) b=$(public_addrs) ;;
+	*) b=$public_bind ;;
+	esac
+	# shellcheck disable=SC2086 # one address per word
+	b=$(printf '%s\n' $b | sort -u | xargs)
+	[ -n "$b" ] || die "found no address outside the tailnet for Caddy to listen on; pass --public-bind ADDR"
+	echo "$b"
+}
+
+# install_caddyfile NEW: check NEW, keep a copy of a different Caddyfile,
+# put NEW in place and (re)start Caddy. check_ports reports a Caddy that
+# doesn't come up.
+install_caddyfile() {
+	caddy validate --adapter caddyfile --config "$1" >"$work/caddy-validate.log" 2>&1 ||
+		die "the new Caddyfile doesn't validate (the old one is untouched): $(tail -n 1 "$work/caddy-validate.log")"
+	if [ -e /etc/caddy/Caddyfile ]; then
+		if cmp -s "$1" /etc/caddy/Caddyfile; then
+			systemctl is-active --quiet caddy || systemctl restart caddy || true
+			return 0
+		fi
+		bak=/etc/caddy/Caddyfile.bak-$(date -u +%Y%m%d%H%M%S)
+		cp -p /etc/caddy/Caddyfile "$bak"
+		say "Previous Caddyfile kept as $bak"
+	fi
+	install -m 0644 "$1" /etc/caddy/Caddyfile
+	systemctl reload caddy 2>/dev/null || systemctl restart caddy || true
+}
+
+# fix_caddy_bind: on an upgrade, an older install-hub.sh's Caddyfile has no
+# bind line. Beside a tailnet listener on 443 (or with --public-bind), bind
+# its sites now.
+fix_caddy_bind() {
+	f=/etc/caddy/Caddyfile
+	[ -e "$f" ] && have caddy || return 0
+	has_bind=0
+	! grep -qE '^[[:space:]]*bind[[:space:]]' "$f" || has_bind=1
+	if ! grep -qF "$caddy_marker" "$f"; then
+		[ "$has_bind" = 1 ] || ! tailnet_443 ||
+			say "WARNING: $f has no bind line, and tailscale serve uses port 443 too: add 'bind ADDR' (this box's non-tailnet addresses) to each site block, or Caddy and the UI will take turns failing"
+		return 0
+	fi
+	[ "$has_bind" = 0 ] || [ -n "$public_bind" ] || return 0
+	binds=$(caddy_binds) || exit 1
+	[ -n "$binds" ] || return 0
+	say "Binding Caddy to $binds, clear of the tailnet's port 443"
+	awk -v b="	bind $binds" '
+		/^[[:space:]]*bind[[:space:]]/ { next }
+		{ print }
+		/^[^#[:space:]{(][^{]*[[:space:]]\{[[:space:]]*$/ { print b }' "$f" >"$work/Caddyfile"
+	install_caddyfile "$work/Caddyfile"
+}
+
+# check_ports: Caddy and the tailnet's listener on 443 must both be up, on
+# their own addresses; fail loudly otherwise.
+check_ports() {
+	have ss || return 0
+	f=/etc/caddy/Caddyfile ours=0 tsip=''
+	[ ! -e "$f" ] || ! grep -qF "$caddy_marker" "$f" || ours=1
+	if have tailscale && tailscale serve status --json 2>/dev/null | grep -qE '"443"|:443"'; then
+		tsip=$(tailscale ip -4 2>/dev/null | head -n 1)
+	fi
+	[ "$ours" = 1 ] || [ -n "$tsip" ] || return 0
+	binds=''
+	[ "$ours" = 0 ] || binds=$(sed -n 's/^[[:space:]]*bind[[:space:]]\{1,\}//p' "$f" | head -n 1)
+	# tailscaled retries a busy port, backing off up to 30s.
+	for _ in $(seq 45); do
+		problem=''
+		on=$(ss -Hltn 'sport = :443' 2>/dev/null | awk '{ print $4 }')
+		if [ "$ours" = 1 ]; then
+			systemctl is-active --quiet caddy || problem="caddy.service isn't running"
+			for a in $binds; do
+				printf '%s\n' "$on" | grep -qF -e "$a:443" -e "[$a]:443" || problem="${problem:+$problem; }Caddy isn't listening on $a:443"
+			done
+		fi
+		if [ -n "$tsip" ] && ! printf '%s\n' "$on" | grep -qF -e "$tsip%" -e "$tsip:443"; then
+			problem="${problem:+$problem; }tailscale serve isn't listening on $tsip:443"
+		fi
+		[ -n "$problem" ] || return 0
+		sleep 1
+	done
+	[ "$ours" = 0 ] || journalctl -u caddy -n 5 --no-pager -o cat >&2 2>/dev/null || true
+	die "port check FAILED: $problem. Public ingest (Caddy) and the UI (tailscale serve) both need port 443, each on its own addresses; see docs/deployment.md"
+}
+
 # setup_caddy publishes only the ingest path, plus a blank splash page at
 # GET / (with --ingest-host). Everything else is an empty 404.
 #
@@ -293,13 +435,17 @@ setup_caddy() {
 		install -m 0644 "$work/splash.html" /etc/caddy/heimdall-splash/index.html
 		# Keep a certificate installed with `heimdall ingest cert` (e.g. a
 		# Cloudflare Origin certificate).
+		binds=$(caddy_binds) || exit 1
+		bind_line=''
+		[ -z "$binds" ] || bind_line="	bind $binds"
 		tls_line=''
 		[ ! -e /etc/caddy/heimdall-origin.pem ] || [ ! -e /etc/caddy/heimdall-origin.key ] ||
 			tls_line="	tls /etc/caddy/heimdall-origin.pem /etc/caddy/heimdall-origin.key"
-		cat >/etc/caddy/Caddyfile <<EOF
-# Written by Heimdall's install-hub.sh: only the ingest path and a blank
+		cat >"$work/Caddyfile" <<EOF
+$caddy_marker: only the ingest path and a blank
 # splash page at / are public. Nothing names the software or its version.
 $ingest_host {
+$bind_line
 $tls_line
 	header {
 		-Server
@@ -340,6 +486,7 @@ $tls_line
 # Plain HTTP only redirects (ACME challenges are answered before this), and
 # without the Server header Caddy's automatic redirect would send.
 http:// {
+$bind_line
 	header {
 		-Server
 		defer
@@ -349,7 +496,7 @@ http:// {
 	respond 404
 }
 EOF
-		systemctl reload caddy 2>/dev/null || systemctl restart caddy
+		install_caddyfile "$work/Caddyfile"
 	fi
 }
 
@@ -367,7 +514,9 @@ setup_admin() {
 
 if [ "$upgrade" = 1 ]; then
 	setup_caddy
+	[ -n "$ingest_host" ] || fix_caddy_bind
 	setup_admin
+	check_ports
 	say "Done. Previous binary: /usr/local/bin/heimdall.previous; pre-upgrade database: $db.pre-upgrade"
 	say "Servers: re-run install.sh from $version to update their collectors."
 	exit 0
@@ -382,6 +531,7 @@ fi
 
 setup_caddy
 setup_admin
+check_ports
 
 ui_shown="http://127.0.0.1:8080 (put HTTPS in front)"
 [ -z "$proxy_ui" ] || ui_shown="$proxy_ui (through your proxy to 127.0.0.1:8080)"

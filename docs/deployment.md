@@ -14,6 +14,29 @@ sudo sh install-hub.sh --org acme --ingest-host ingest.acme.example.com --admin 
 ```
 It downloads the verified release, creates the `heimdall-hub` user, config and database, starts the sandboxed service, publishes the UI (and MCP) with `tailscale serve`, and, with `--ingest-host`, installs Caddy to serve only the ingest path publicly. The ingest host's root (`GET /`) serves a blank splash page (just the logo, a strict CSP, no `Server` header); every other path is an empty 404. Re-running it is safe: it keeps the existing config and just migrates.
 
+### Port 443: Caddy and `tailscale serve` side by side
+
+With `--ingest-host`, two things on the hub listen on port 443:
+
+| Listener | Addresses | Serves |
+|---|---|---|
+| `tailscale serve` (tailscaled) | the tailnet's only (`100.x.y.z`, `fd7a:115c:a1e0::…`) | the UI on 443, MCP on 8444 |
+| Caddy | the hub's other global addresses (`bind` in each site block) | public ingest and the splash page on 443, redirects on 80 |
+
+A Caddy site with no `bind` line listens on every address, including the tailnet's. Then whichever of Caddy and tailscaled starts first holds 443, and the other fails. A reboot, or `needrestart` restarting both after a libc update, can flip which one wins. If Caddy loses, public ingest goes down: every collector outside the tailnet fails its push while the hub's own collector keeps reporting.
+
+So the installer binds Caddy's sites to every global address except Tailscale's (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`), container bridges and temporary IPv6 addresses. It does this whenever `tailscale serve` uses 443 or something already listens on a tailnet address's 443.
+- To choose the addresses yourself, pass `--public-bind ADDR` (repeat it or separate with commas).
+- To bind the non-tailnet addresses even without a tailnet listener, pass `--public-bind auto`.
+
+Behind a NAT (AWS, Azure, GCP), bind the private address; the public IP's NAT reaches it.
+
+On an upgrade (`sudo heimdall upgrade`, or re-running the script), a Caddyfile from an older installer that has no `bind` line gets one the same way. The old file is kept as `/etc/caddy/Caddyfile.bak-<time>`. A Caddyfile the installer didn't write is never edited; it only gets a warning.
+
+Both installs and upgrades end with a port check. It fails loudly unless `caddy.service` is running and listening on its addresses, and `tailscale serve` holds 443 on the hub's tailnet address.
+
+If the hub's addresses change, re-run the installer with `--public-bind`, or edit the `bind` lines in `/etc/caddy/Caddyfile` and run `sudo systemctl restart caddy`.
+
 **New VM?** Paste [`deploy/cloud-init-hub.yaml`](../deploy/cloud-init-hub.yaml) as user data instead. It installs Tailscale and runs the same installer on first boot.
 
 **Each server:** in the UI go to **Hosts → Add a host**. Heimdall registers the server and shows the token once, plus a ready-to-paste command for Linux, cloud-init or Windows:
