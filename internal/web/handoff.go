@@ -131,10 +131,26 @@ func (s *server) agent(name string) (handoff.Agent, bool) {
 	return handoff.Agent{}, false
 }
 
+// defaultAgent is the agent a hand-off uses when none is picked
+// (handoff.DefaultAgent): the one marked default, else the first Amp
+// agent, else the first.
+func (s *server) defaultAgent() string {
+	a, _ := handoff.DefaultAgent(s.cfg.Agents)
+	return a.Name
+}
+
+// agentNames are the agent picker's choices: the default first, then the
+// others in config order.
 func agentNames(agents []handoff.Agent) []string {
-	out := make([]string, len(agents))
-	for i, a := range agents {
-		out[i] = a.Name
+	def, ok := handoff.DefaultAgent(agents)
+	if !ok {
+		return nil
+	}
+	out := []string{def.Name}
+	for _, a := range agents {
+		if a.Name != def.Name {
+			out = append(out, a.Name)
+		}
 	}
 	return out
 }
@@ -472,6 +488,16 @@ type handoffBody struct {
 	Project, ProjectID, ProjectNote string
 	ProjectPicked                   bool
 	Projects                        []handoffProject
+	// DefaultAgent is the agent used when none is picked, marked in the
+	// picker.
+	DefaultAgent string
+	// RepoBranch is the branch an operator made the repository's default
+	// target ("" for none), RepoBranchStale whether it isn't one of the
+	// sites' branches any more (so the default branch is preselected),
+	// and CanSetRepoBranch whether there's a repository to set it for.
+	RepoBranch       string
+	RepoBranchStale  bool
+	CanSetRepoBranch bool
 }
 
 // handoffProject is one choice in the Amp project picker.
@@ -496,6 +522,23 @@ type handoffTarget struct {
 	projectPicked bool
 	projectNote   string
 	projects      []handoff.Project
+	// repoBranch is the branch an operator made the repository's default
+	// target for hand-offs, or "" (store.RepoBranch).
+	repoBranch string
+}
+
+// defaultTarget is where a hand-off's pull request goes when the operator
+// didn't choose: the repository's default target branch while it's one of
+// the sites' known branches, else the repository's default branch. stale
+// reports a stored branch that isn't known any more.
+func (t handoffTarget) defaultTarget() (target handoff.Target, stale bool) {
+	if t.repoBranch == "" {
+		return handoff.Target{Mode: handoff.TargetDefault}, false
+	}
+	if slices.Contains(handoff.Branches(t.sites), t.repoBranch) {
+		return handoff.Target{Mode: handoff.TargetBranch, Branches: []string{t.repoBranch}}, false
+	}
+	return handoff.Target{Mode: handoff.TargetDefault}, true
 }
 
 // ampProjectsTimeout bounds listing an Amp agent's projects.
@@ -715,7 +758,7 @@ func (s *server) loadHandoff(ctx context.Context, v *auth.Viewer, org, hostName,
 	}
 	t.host = host
 	if agentName == "" {
-		agentName = s.cfg.Agents[0].Name
+		agentName = s.defaultAgent()
 	}
 	if t.agent, err = s.agentOK(agentName); err != nil {
 		return t, false, nil
@@ -748,6 +791,11 @@ func (s *server) loadHandoff(ctx context.Context, v *auth.Viewer, org, hostName,
 	}
 	if err := s.resolveAmpProject(ctx, &t); err != nil {
 		return t, false, err
+	}
+	if key := handoff.RepoKey(t.repo.Repo()); key != "" {
+		if t.repoBranch, err = s.st.RepoBranch(ctx, host.OrgID, key); err != nil {
+			return t, false, err
+		}
 	}
 	return t, true, nil
 }
@@ -810,13 +858,15 @@ func (s *server) handoffBody(t handoffTarget, msg handoff.Message, requestID str
 	for i, p := range t.projects {
 		projects[i] = handoffProject{ID: p.ID, Ref: p.Ref(), Repo: handoff.RepoShort(p.RepositoryURL)}
 	}
+	_, stale := t.defaultTarget()
 	return handoffBody{
 		Project: t.project.Ref(), ProjectID: t.project.ID, ProjectPicked: t.projectPicked, ProjectNote: t.projectNote, Projects: projects,
 		Sites: rows, Branches: handoff.Branches(t.sites), Unknown: unknown,
 		Target: cmp.Or(target.Mode, handoff.TargetDefault), TargetBranch: tb,
 		Org: t.host.OrgSlug, Host: t.host.Name, Root: t.site.Root, Site: siteName(t.site),
 		SiteURL: siteURL(t.host.OrgSlug, t.host.Name, t.site.Root),
-		Agents:  agentNames(s.cfg.Agents), Agent: t.agent.Name, Amp: t.agent.IsAmp(),
+		Agents:  agentNames(s.cfg.Agents), Agent: t.agent.Name, Amp: t.agent.IsAmp(), DefaultAgent: s.defaultAgent(),
+		RepoBranch: t.repoBranch, RepoBranchStale: stale, CanSetRepoBranch: handoff.RepoKey(repo) != "",
 		Repo: repo, RepoWeb: handoff.WebURL(repo), RepoManual: t.repo.Manual != "",
 		Content: msg.Content, Digest: msg.Digest, RequestID: requestID,
 		Packages: msg.Packages, Omitted: msg.Omitted,
@@ -837,10 +887,15 @@ func (s *server) handoffPage(w http.ResponseWriter, r *http.Request, v *auth.Vie
 		return
 	}
 	status, notice := http.StatusOK, ""
-	target, ok := handoffTargetOf(q.Get("target"), q.Get("branch"), handoff.Branches(t.sites))
-	if !ok {
-		status, notice = http.StatusBadRequest, badTargetNotice
-		target = handoff.Target{Mode: handoff.TargetDefault}
+	// No target chosen: the repository's default target. A chosen one
+	// overrides it for this hand-off only. (The send posts the target the
+	// page shows, so it never falls back on its own.)
+	target, _ := t.defaultTarget()
+	if q.Get("target") != "" {
+		if target, ok = handoffTargetOf(q.Get("target"), q.Get("branch"), handoff.Branches(t.sites)); !ok {
+			status, notice = http.StatusBadRequest, badTargetNotice
+			target = handoff.Target{Mode: handoff.TargetDefault}
+		}
 	}
 	id := handoff.RequestID()
 	msg, err := s.handoffMessage(t, v, id, target)
@@ -976,6 +1031,37 @@ func (s *server) handoffProject(w http.ResponseWriter, r *http.Request, v *auth.
 		return
 	}
 	http.Redirect(w, r, handoffURL(t.host.OrgSlug, t.host.Name, t.site.Root, t.agent.Name)+"#project", http.StatusSeeOther)
+}
+
+// handoffRepoBranch makes one of the sites' branches the default target of
+// hand-offs on a site's repository, or with clear goes back to the
+// repository's default branch; then shows the confirm page again, with
+// the new default chosen. Only one of the sites' known branches can be
+// set.
+func (s *server) handoffRepoBranch(w http.ResponseWriter, r *http.Request, v *auth.Viewer) {
+	f := r.PostForm
+	t, ok, err := s.loadHandoff(r.Context(), v, r.PathValue("org"), r.PathValue("host"), f.Get("root"), f.Get("agent"))
+	if err != nil {
+		s.fail(w, r, v, err)
+		return
+	}
+	key := handoff.RepoKey(t.repo.Repo())
+	if !ok || key == "" {
+		s.notFound(w, r, v)
+		return
+	}
+	branch := f.Get("branch")
+	if f.Get("clear") != "" {
+		branch = ""
+	} else if !slices.Contains(handoff.Branches(t.sites), branch) {
+		s.notFound(w, r, v)
+		return
+	}
+	if err := s.st.SetRepoBranch(r.Context(), actorOf(v), t.host.OrgID, key, branch, s.now()); err != nil {
+		s.fail(w, r, v, err)
+		return
+	}
+	http.Redirect(w, r, handoffURL(t.host.OrgSlug, t.host.Name, t.site.Root, t.agent.Name)+"#target", http.StatusSeeOther)
 }
 
 // siteRepo sets or clears a site's repository (operator or admin).

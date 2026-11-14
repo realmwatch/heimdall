@@ -73,7 +73,11 @@ type handoffBatchItem struct {
 type handoffBatchBody struct {
 	Agents       []string
 	Agent        string
-	Target       string // handoff.TargetDefault or handoff.TargetEach
+	DefaultAgent string // used when none is picked, marked in the picker
+	// Target is handoff.TargetDefault (each repository's default target:
+	// its default branch, or the branch an operator made its default) or
+	// handoff.TargetEach.
+	Target       string
 	Back         string
 	Items        []handoffBatchItem
 	Query        []handoffBatchSite // the sites, for the forms
@@ -94,7 +98,7 @@ type handoffBatchSite struct{ Org, Host, Root string }
 // is one the viewer couldn't hand off on its own.
 func (s *server) loadHandoffBatch(ctx context.Context, v *auth.Viewer, f url.Values, ids []string) (handoffBatchBody, bool, error) {
 	orgs, hs, rs := f["o"], f["h"], f["r"]
-	body := handoffBatchBody{Agents: agentNames(s.cfg.Agents), Back: safeNext(f.Get("back")), Target: handoff.TargetDefault}
+	body := handoffBatchBody{Agents: agentNames(s.cfg.Agents), DefaultAgent: s.defaultAgent(), Back: safeNext(f.Get("back")), Target: handoff.TargetDefault}
 	if len(orgs) == 0 || len(orgs) > handoffBatchMax || len(hs) != len(orgs) || len(rs) != len(orgs) || (ids != nil && len(ids) != len(orgs)) {
 		return body, false, nil
 	}
@@ -118,7 +122,9 @@ func (s *server) loadHandoffBatch(ctx context.Context, v *auth.Viewer, f url.Val
 			continue
 		}
 		seen[key] = true
-		target := handoff.Target{Mode: handoff.TargetDefault}
+		// Each repository's default target (its default branch, or the
+		// branch an operator made its default), unless "each branch".
+		target, _ := t.defaultTarget()
 		if body.Target == handoff.TargetEach && len(handoff.Branches(t.sites)) > 0 {
 			target = handoff.Target{Mode: handoff.TargetEach}
 		}

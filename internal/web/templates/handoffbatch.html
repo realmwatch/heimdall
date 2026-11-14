@@ -27,7 +27,7 @@
     <div><dt>Agent</dt><dd>{{if gt (len .Agents) 1}}<form method="get" action="" class="handoff-agent">
       {{range .Query}}<input type="hidden" name="o" value="{{.Org}}"><input type="hidden" name="h" value="{{.Host}}"><input type="hidden" name="r" value="{{.Root}}">{{end}}
       <input type="hidden" name="back" value="{{.Back}}"><input type="hidden" name="target" value="{{.Target}}">
-      <select name="agent" aria-label="Agent" data-autosubmit>{{range .Agents}}<option value="{{.}}"{{if eq . $.Body.Agent}} selected{{end}}>{{.}}</option>{{end}}</select>
+      <select name="agent" aria-label="Agent" data-autosubmit>{{range .Agents}}<option value="{{.}}"{{if eq . $.Body.Agent}} selected{{end}}>{{.}}{{if eq . $.Body.DefaultAgent}} (default){{end}}</option>{{end}}</select>
       <button type="submit" class="secondary" data-autosubmit-hide>Show messages</button>
     </form>{{else}}<strong>{{.Agent}}</strong>{{end}}</dd></div>
     <div><dt>Pull requests</dt><dd>{{len .Items}}, one per repository</dd></div>
@@ -39,7 +39,7 @@
     <fieldset>
       <legend>Where the pull requests go</legend>
       <label class="handoff-opt"><input type="radio" name="target" value="default"{{if eq .Target "default"}} checked{{end}} data-autosubmit>
-        <span><strong>Default branch</strong> <span class="muted small">One pull request per repository, against its default branch.</span></span></label>
+        <span><strong>Default branch</strong> <span class="muted small">One pull request per repository, against its default branch, or the branch made its default on its own hand-off page (shown below).</span></span></label>
       <label class="handoff-opt"><input type="radio" name="target" value="each"{{if eq .Target "each"}} checked{{end}} data-autosubmit>
         <span><strong>Each branch</strong> <span class="muted small">For a repository whose sites' branches are known, one pull request per branch, each changing only that branch's lock file. The others go to their default branch.</span></span></label>
     </fieldset>
@@ -49,7 +49,7 @@
   {{range $i, $it := .Items}}
   <section class="handoff-item{{if .Limited}} limited{{end}}">
     <h2 class="handoff-h">{{with .RepoWeb}}<a href="{{.}}" rel="noopener noreferrer"><code class="path">{{$it.Short}}</code></a>{{else}}<code class="path">{{.Short}}</code>{{end}}
-      <span class="muted small">{{len .Sites}} site{{if gt (len .Sites) 1}}s{{end}} · {{.Packages}} package{{if ne .Packages 1}}s{{end}}{{if eq .Target "each"}} · each branch{{end}}</span>
+      <span class="muted small">{{len .Sites}} site{{if gt (len .Sites) 1}}s{{end}} · {{.Packages}} package{{if ne .Packages 1}}s{{end}}{{if eq .Target "each"}} · each branch{{else if eq .Target "branch"}} · into <code>{{.TargetBranch}}</code> (repository default){{else}} · into the default branch{{if .RepoBranchStale}} (its default here, <code>{{.RepoBranch}}</code>, isn't one of its sites' branches any more){{end}}{{end}}</span>
       {{if not .Repo}}<span class="pill warn">repo unknown</span>{{end}}
       {{if .Limited}}<span class="pill muted">skipped: handed to {{$.Body.Agent}} in the last few minutes</span>{{end}}</h2>
     <div class="scroll"><table class="handoff-sites">

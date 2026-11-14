@@ -46,10 +46,27 @@ type Agent struct {
 	UserID  string // the bot's Discord user ID (snowflake)
 	Poster  Poster
 	Starter Starter // an Amp agent's; nil for a Discord bot
+	Default bool    // marked default = true in the config
 }
 
 // IsAmp reports whether the agent starts Amp threads.
 func (a Agent) IsAmp() bool { return a.Starter != nil }
+
+// DefaultAgent is the agent a hand-off uses when none is picked: the one
+// marked default, else the first Amp agent, else the first. ok is false
+// with no agents.
+func DefaultAgent(agents []Agent) (a Agent, ok bool) {
+	if len(agents) == 0 {
+		return Agent{}, false
+	}
+	if i := slices.IndexFunc(agents, func(a Agent) bool { return a.Default }); i >= 0 {
+		return agents[i], true
+	}
+	if i := slices.IndexFunc(agents, Agent.IsAmp); i >= 0 {
+		return agents[i], true
+	}
+	return agents[0], true
+}
 
 // Discord's limit on a message's content.
 const MaxContent = 2000

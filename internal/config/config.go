@@ -63,6 +63,10 @@ type Agent struct {
 	DiscordUserID string `toml:"discord_user_id"` // discord: the bot's user ID (17-20 digits)
 	Destination   string `toml:"destination"`     // discord: "discord:<name>", a stored webhook
 	AmpPath       string `toml:"amp_path"`        // amp: the Amp CLI (default DefaultAmpPath)
+	// Default makes this the agent a hand-off uses when none is picked
+	// (at most one agent). With none marked, it's the first amp agent,
+	// else the first agent.
+	Default bool `toml:"default"`
 }
 
 // Agent kinds.
@@ -113,7 +117,13 @@ func validateAgents(agents []Agent, add func(string, ...any)) {
 		add("agents: at most %d", MaxAgents)
 	}
 	seen := map[string]bool{}
+	defaults := 0
 	for i, a := range agents {
+		if a.Default {
+			if defaults++; defaults == 2 {
+				add("agents[%d].default: only one agent can be the default", i)
+			}
+		}
 		if !agentNameRe.MatchString(a.Name) {
 			add("agents[%d].name: must be 1-32 lowercase letters, digits or '-', e.g. \"pr-bot\"", i)
 		} else if seen[a.Name] {
