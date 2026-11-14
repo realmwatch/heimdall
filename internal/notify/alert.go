@@ -15,6 +15,10 @@ const (
 	KindBack    = "back"    // hosts reporting again after a silence alert
 	KindAnomaly = "anomaly" // new high-signal anomalies (see AlertRule)
 	KindTest    = "test"    // `heimdall notify test`
+	// The fleet went quiet at once: the hub's public ingest looks down
+	// (internal/anomaly/fleet.go), and later, it's back.
+	KindIngestDown = "ingest_down"
+	KindIngestBack = "ingest_back"
 )
 
 // Alert is an immediate notice: hosts went silent, came back, or raised a
@@ -31,6 +35,18 @@ type Alert struct {
 	Anomalies   []AlertAnomaly `json:"anomalies,omitempty"`   // KindAnomaly only
 	URL         string         `json:"url"`                   // link to the UI's Anomalies page
 	Ban         *AlertBan      `json:"ban,omitempty"`         // KindBan and KindBanShadow only (ban.go)
+	Fleet       *AlertFleet    `json:"fleet,omitempty"`       // KindIngestDown and KindIngestBack only
+}
+
+// AlertFleet is an org whose hosts went quiet at once: counts, when, and
+// what still reports. Hosts lists the quiet ones.
+type AlertFleet struct {
+	Org        string    `json:"org"`
+	Quiet      int       `json:"quiet"`
+	Total      int       `json:"total"`
+	QuietSince time.Time `json:"quiet_since"`
+	Still      string    `json:"still,omitempty"` // hub, tailnet, local or ""
+	Headline   string    `json:"headline"`        // "Public ingest looks down: 9 of 11 hosts in acme …"
 }
 
 // AlertAnomaly is one anomaly in an alert: where, which rule, how bad.
@@ -100,6 +116,10 @@ func (a Alert) Subject() string {
 		return a.banSubject()
 	}
 	switch a.Kind {
+	case KindIngestDown:
+		return "Heimdall: public ingest looks down (" + clean(a.fleet().Org, 64) + ")"
+	case KindIngestBack:
+		return "Heimdall: ingest is back (" + clean(a.fleet().Org, 64) + ")"
 	case KindBack:
 		return fmt.Sprintf("Heimdall: %d %s reporting again", a.Count, plural(a.Count, "host is", "hosts are"))
 	case KindAnomaly:
@@ -119,7 +139,7 @@ func (a Alert) Severity() string {
 		return map[bool]string{true: "info", false: "medium"}[a.Kind == KindBanShadow]
 	}
 	switch a.Kind {
-	case KindBack:
+	case KindBack, KindIngestBack:
 		return "ok"
 	case KindTest:
 		return "info"
@@ -153,6 +173,12 @@ func (a Alert) lead() string {
 	}
 	at := a.GeneratedAt.UTC().Format("2006-01-02 15:04 UTC")
 	switch a.Kind {
+	case KindIngestDown:
+		return clean(a.fleet().Headline, 400) + " Quiet:"
+	case KindIngestBack:
+		f := a.fleet()
+		return "Ingest is back: hosts in " + clean(f.Org, 64) + " are reporting again as of " + at +
+			", after going quiet at " + f.QuietSince.UTC().Format("2006-01-02 15:04 UTC") + "."
 	case KindBack:
 		return "Reporting again as of " + at + ", after a silence alert:"
 	case KindAnomaly:
@@ -169,6 +195,10 @@ func (a Alert) note() string {
 		return a.banNote()
 	}
 	switch a.Kind {
+	case KindIngestDown:
+		return "When most hosts stop at once, the path to the hub is the likely cause, not the hosts: check the reverse proxy in front of the ingest listener, its certificate, DNS and the firewall. A \"back\" notice follows when reports resume."
+	case KindIngestBack:
+		return "Hosts that stayed quiet still get their own silence alerts."
 	case KindBack:
 		return "The silence anomaly stays open until someone acknowledges it."
 	case KindAnomaly:
@@ -186,6 +216,9 @@ func (a Alert) lines() []hostLine {
 			return nil
 		}
 		return a.banHosts()
+	}
+	if a.Kind == KindIngestBack {
+		return nil
 	}
 	if a.Kind == KindAnomaly {
 		out := make([]hostLine, 0, len(a.Anomalies))
@@ -259,7 +292,20 @@ func (a Alert) capped() Alert {
 	if a.Ban != nil {
 		a.Ban = a.banCapped()
 	}
+	if a.Fleet != nil {
+		f := *a.Fleet
+		f.Org, f.Still, f.Headline = clean(f.Org, 64), clean(f.Still, 16), clean(f.Headline, 400)
+		a.Fleet = &f
+	}
 	return a
+}
+
+// fleet is the alert's fleet facts (empty if missing).
+func (a Alert) fleet() AlertFleet {
+	if a.Fleet == nil {
+		return AlertFleet{}
+	}
+	return *a.Fleet
 }
 
 // shortDuration formats 3h0m0s as "3h" and 1h30m0s as "1h30m".

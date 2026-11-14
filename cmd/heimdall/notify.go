@@ -249,14 +249,23 @@ func sampleAlert(kind, baseURL string) (notify.Alert, error) {
 			{Host: "example/db-01", Rule: "privileged_access", Severity: "medium"}}
 	case notify.KindTest:
 		a.Hosts, a.Count, a.URL = nil, 0, strings.TrimSuffix(baseURL, "/")+"/"
+	case notify.KindIngestDown, notify.KindIngestBack:
+		q := store.FleetQuiet{OrgSlug: "example", Quiet: 2, Total: 3, QuietSince: a.GeneratedAt.Add(-3 * time.Hour), Still: "hub"}
+		a.Fleet = &notify.AlertFleet{Org: q.OrgSlug, Quiet: q.Quiet, Total: q.Total, QuietSince: q.QuietSince, Still: q.Still,
+			Headline: q.Headline(a.GeneratedAt)}
+		a.URL = strings.TrimSuffix(baseURL, "/") + "/hosts"
+		if kind == notify.KindIngestBack {
+			a.Hosts, a.Count = nil, 0
+		}
 	default:
-		return a, fmt.Errorf("--alert must be %s, %s, %s or %s", notify.KindSilent, notify.KindBack, notify.KindAnomaly, notify.KindTest)
+		return a, fmt.Errorf("--alert must be %s, %s, %s, %s, %s or %s", notify.KindSilent, notify.KindBack, notify.KindAnomaly,
+			notify.KindIngestDown, notify.KindIngestBack, notify.KindTest)
 	}
 	return a, nil
 }
 
 func cmdNotifyPreview(a *app, args []string) error {
-	fs := a.flags("notify preview", "[--alert silent|back|anomaly|test]")
+	fs := a.flags("notify preview", "[--alert silent|back|anomaly|ingest_down|ingest_back|test]")
 	alertKind := fs.String("alert", "", "preview an alert with example hosts instead of the digest")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err

@@ -265,7 +265,7 @@ The default sources are [pwn.watch](https://pwn.watch), which publishes curated 
 
 Heimdall sends two kinds of message, to every destination you turn on (several at once is fine, for example Slack and Discord):
 
-- **Immediate alerts:** a host went silent (`[hosts] alert_after`, default 3h) and, later, is back; and new high-signal anomalies: change reporting disabled, privilege watch disabled, privileged access outside a maintenance window, and anything high severity (collector changed, package downgraded, packages vanished, a replayed report). New anomalies are checked every 30 seconds and sent as one message. `[notify] alert_anomalies = false` keeps only the silence alerts.
+- **Immediate alerts:** a host went silent (`[hosts] alert_after`, default 3h) and, later, is back; and new high-signal anomalies: change reporting disabled, privilege watch disabled, privileged access outside a maintenance window, and anything high severity (collector changed, package downgraded, packages vanished, a replayed report). New anomalies are checked every 30 seconds and sent as one message. `[notify] alert_anomalies = false` keeps only the silence alerts. When most of an org's hosts go quiet at once, one "public ingest looks down" alert is sent, and "ingest is back" when they report again ([anomaly-signals.md](anomaly-signals.md#when-the-whole-fleet-goes-quiet)).
 - **The digest** (`[notify] every`, e.g. `"24h"`): counts only.
 
 **What's in a message.** Counts, `org/host` names and a fixed label per rule ("privilege watch disabled"), with a link to the hub (`[ui] base_url`, sign-in required). Never package names, versions, CVEs, user names, inventory or an anomaly's own summary. The digest has no host names at all.

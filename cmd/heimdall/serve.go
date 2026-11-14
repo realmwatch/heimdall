@@ -65,7 +65,7 @@ func cmdServe(a *app, args []string) error {
 		default: // queue full; the next scheduled sync catches up
 		}
 	}
-	tripwires := &anomaly.Engine{Store: s, Now: time.Now, Log: log}
+	tripwires := &anomaly.Engine{Store: s, Now: time.Now, Log: log, Started: time.Now()}
 	startTamperChecks(a.ctx, cfg, s, h, tripwires, log) // fast silence alerts; rules for unchanged reports
 	// The report webhook (reporthook.go): unchanged reports right away,
 	// new snapshots once their findings are recomputed (runFindings).

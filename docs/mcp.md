@@ -126,7 +126,7 @@ The Desktop extension and Claude Code run on your own machine, so they reach the
 | `host` | One host: OS and lifecycle, runtimes, findings (each with its `id`), sites, containers, and its machine ID hash. Pass `machine` (the hash) instead of `host` to find a host by machine; see [integrations](integrations.md#reading-findings) |
 | `finding` | Findings by id, open or resolved: status, last seen, resolved at, package and versions. Checks that a fix took effect; see [integrations](integrations.md#reading-findings) |
 | `sites` | Laravel/PHP apps: versions, lifecycle, `require.php` mismatches, findings |
-| `anomalies` | Open tripwire alerts |
+| `anomalies` | Open tripwire alerts, plus `ingest_down` when an org's hosts went quiet at once (public ingest looks down) |
 | `changes` | What changed between a host's last two check-ins |
 | `drift` | Packages that differ across hosts sharing a tag |
 | `threats` | Attacker addresses: failed SSH logins (and Cloudflare web events) across visible hosts, with ban score, network and ban status. Filters: `since`, `org`, `min_score`, `min_hosts`, `source`, `limit`. See [Threat list](threats.md). |

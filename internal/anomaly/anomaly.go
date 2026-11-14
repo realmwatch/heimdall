@@ -26,6 +26,10 @@ type Engine struct {
 	Store *store.Store
 	Now   func() time.Time
 	Log   *slog.Logger
+	// Started is when the hub started (zero: unknown). Hosts that couldn't
+	// report while it was down aren't counted quiet until they've had time
+	// to report again (CheckFleetQuiet).
+	Started time.Time
 }
 
 // OnSnapshot runs the change rules on a host's newest snapshot.

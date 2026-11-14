@@ -66,7 +66,8 @@
 </header>
 {{end}}
 <main>
-{{with .Update}}<p class="notice" role="status">Heimdall <strong>{{.Version}}</strong> is available (this hub runs {{$.Version}}). <a href="{{.URL}}" rel="noopener">Release notes</a> · upgrade on the hub with <code>sudo sh install-hub.sh</code> from that release.</p>{{end}}
+{{range .IngestDown}}<p class="notice notice-down" role="alert">{{.}} <a href="/hosts">Hosts</a></p>
+{{end}}{{with .Update}}<p class="notice" role="status">Heimdall <strong>{{.Version}}</strong> is available (this hub runs {{$.Version}}). <a href="{{.URL}}" rel="noopener">Release notes</a> · upgrade on the hub with <code>sudo sh install-hub.sh</code> from that release.</p>{{end}}
 {{template "content" .}}
 </main>
 {{if .StepUp}}{{/* app.js asks for a step-up code here before sending a form that needs one (stepup.go) */}}

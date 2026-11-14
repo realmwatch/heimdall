@@ -539,14 +539,17 @@ type page struct {
 	Version string
 	Refresh string           // same-site path for a meta refresh (SSO hand-off), or ""
 	Update  *updates.Release // a newer release, shown to admins
-	News    bool             // threat news is on (shows the nav item)
-	MCP     bool             // MCP is on (shows the AI assistants link)
-	CF      bool             // [cloudflare] is on (shows the Cloudflare link to operators)
-	Perm    navPerm          // which sidebar links to show (nav.go)
-	Counts  navCounts        // the sidebar's badges
-	Brand   brandView        // the hub's name, logo and icons (branding.go)
-	StepUp  string           // paths app.js asks a step-up code for (stepup.go), or ""
-	Body    any
+	// IngestDown: "public ingest looks down" for orgs the viewer can see
+	// whose hosts went quiet at once (internal/anomaly/fleet.go).
+	IngestDown []string
+	News       bool      // threat news is on (shows the nav item)
+	MCP        bool      // MCP is on (shows the AI assistants link)
+	CF         bool      // [cloudflare] is on (shows the Cloudflare link to operators)
+	Perm       navPerm   // which sidebar links to show (nav.go)
+	Counts     navCounts // the sidebar's badges
+	Brand      brandView // the hub's name, logo and icons (branding.go)
+	StepUp     string    // paths app.js asks a step-up code for (stepup.go), or ""
+	Body       any
 }
 
 func (s *server) render(w http.ResponseWriter, r *http.Request, status int, name string, v *auth.Viewer, title, nav string, body any) {
@@ -554,6 +557,7 @@ func (s *server) render(w http.ResponseWriter, r *http.Request, status int, name
 	if v != nil {
 		p.Perm, p.Counts = navPermOf(v), s.navCountsFor(r, v)
 		p.StepUp = s.stepUpDialog(r, v)
+		p.IngestDown = s.ingestDown(r, v)
 	}
 	if v != nil && v.IsAdmin && s.cfg.Updates != nil {
 		if rel, ok := s.cfg.Updates(); ok {
@@ -561,6 +565,23 @@ func (s *server) render(w http.ResponseWriter, r *http.Request, status int, name
 		}
 	}
 	s.renderPage(w, r, status, name, p)
+}
+
+// ingestDown is the fleet-quiet banner: one line per open, confirmed
+// episode in an org the viewer can see.
+func (s *server) ingestDown(r *http.Request, v *auth.Viewer) []string {
+	qs, err := s.st.FleetQuietStates(r.Context())
+	if err != nil {
+		s.log.Warn("ingest banner", "err", err)
+		return nil
+	}
+	var out []string
+	for _, q := range qs {
+		if q.Down() && v.Scope.CanView(q.OrgID) {
+			out = append(out, q.Headline(s.now()))
+		}
+	}
+	return out
 }
 
 // renderPage renders a fully specified page (e.g. one with a Refresh).
