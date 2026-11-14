@@ -240,6 +240,15 @@ func newUIServer(cfg config.Config, s *store.Store, log *slog.Logger, aiSvc *ai.
 		Tailnet:      cfg.Tailscale.Enabled,
 		ChangeLink:   web.ChangeLink{URL: cfg.ChangeLink.URL, UpdatesURL: cfg.ChangeLink.UpdatesURL, CollectorURL: cfg.ChangeLink.CollectorURL, ActionURL: cfg.ChangeLink.ActionURL, Label: cfg.ChangeLink.LinkLabel(), AgentService: cfg.ChangeLink.AgentService},
 	}
+	// Users' own Amp keys (web/ampkeys.go): with an Amp agent, and sealed
+	// with the secrets key when there is one.
+	for _, a := range wcfg.Agents {
+		if a.IsAmp() {
+			wcfg.PersonalAmp = newPersonalAmp(cfg)
+			wcfg.Secrets = hubSealer(log)
+			break
+		}
+	}
 	wcfg.Bans = bansService // set by startBans (bans.go)
 	if pushService != nil { // set by startPush (push.go)
 		wcfg.Push = pushService

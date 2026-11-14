@@ -174,6 +174,13 @@ func (s *Store) SetUserDisabled(ctx context.Context, actor, email string, disabl
 		if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, uid); err != nil {
 			return err
 		}
+		// A disabled account's own Amp key goes too: nobody can use it,
+		// and re-enabling it doesn't bring it back.
+		if disabled {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM user_amp_keys WHERE user_id = ?`, uid); err != nil {
+				return err
+			}
+		}
 		return audit(ctx, tx, AuditEntry{Actor: actor, Action: action, Target: email})
 	})
 }
@@ -186,9 +193,10 @@ func (si SignInMethods) allows(kind string) bool {
 	return kind == "local" && si.Local || kind == "entra" && si.Entra
 }
 
-// DeleteUser removes a user for good. Their memberships, sessions and MCP
-// tokens go with them (ON DELETE CASCADE); plans and acknowledgements they
-// made keep their rows with no author; the audit log keeps its entries.
+// DeleteUser removes a user for good. Their memberships, sessions, MCP
+// tokens and own Amp key go with them (ON DELETE CASCADE); plans and
+// acknowledgements they made keep their rows with no author; the audit
+// log keeps its entries.
 // actor "user:<id>" can't delete themselves, and nobody can delete the
 // last active global admin who can sign in with the methods in si.
 func (s *Store) DeleteUser(ctx context.Context, actor string, id int64, si SignInMethods) error {

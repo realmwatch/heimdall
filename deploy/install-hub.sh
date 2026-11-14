@@ -210,6 +210,25 @@ say "Checksums verified"
 
 hd() { (cd /var/lib/heimdall && runuser -u heimdall-hub -- /usr/local/bin/heimdall -c /etc/heimdall/heimdall.toml "$@"); }
 
+# secrets_key UNIT: the hub's secrets key, which encrypts what it keeps in
+# its database for a user (their own Amp API key): 32 random bytes in
+# /etc/heimdall/secrets-key, root-only, made once and never printed or
+# replaced (a new one would make the saved keys unreadable). UNIT gets
+# its LoadCredential line when it hasn't one.
+secrets_key() {
+	if [ ! -s /etc/heimdall/secrets-key ]; then
+		(umask 077 && head -c 32 /dev/urandom >/etc/heimdall/secrets-key.new) ||
+			die "couldn't create /etc/heimdall/secrets-key"
+		mv /etc/heimdall/secrets-key.new /etc/heimdall/secrets-key
+	fi
+	chown root:root /etc/heimdall/secrets-key
+	chmod 0600 /etc/heimdall/secrets-key
+	if ! grep -q '^LoadCredential=heimdall-secrets:' "$1"; then
+		awk '{ print } /^\[Service\]$/ { print "LoadCredential=heimdall-secrets:/etc/heimdall/secrets-key" }' "$1" >"$1.new" &&
+			mv "$1.new" "$1"
+	fi
+}
+
 # healthy waits for the service to stay up and the UI to answer.
 healthy() {
 	for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
@@ -248,6 +267,7 @@ if [ "$upgrade" = 1 ]; then
 		awk -v f="$work/creds" '{ if ($0 ~ /^#?LoadCredential=/) next; print } /^\[Service\]$/ { while ((getline l < f) > 0) print l }' \
 			"$work/heimdall.service" >"$work/heimdall.service.new" && mv "$work/heimdall.service.new" "$work/heimdall.service"
 	fi
+	secrets_key "$work/heimdall.service"
 	install -m 0644 "$work/heimdall.service" /etc/systemd/system/heimdall.service
 	systemctl daemon-reload
 	if ! hd migrate || ! systemctl start heimdall || ! healthy; then
@@ -283,6 +303,7 @@ else
 	hd init "$@" 2>/dev/null
 	hd org create "$org" --name "${org_name:-$org}" 2>/dev/null
 	hd env create prod 2>/dev/null
+	secrets_key "$work/heimdall.service"
 	install -m 0644 "$work/heimdall.service" /etc/systemd/system/heimdall.service
 	systemctl daemon-reload
 	systemctl enable --now heimdall >/dev/null 2>&1

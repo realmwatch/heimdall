@@ -11,15 +11,23 @@
 <section class="card handoff-card">
   <dl class="handoff-facts">
     <div><dt>Agent</dt><dd>{{if gt (len .Agents) 1}}<form method="get" action="" class="handoff-agent">
-      <input type="hidden" name="root" value="{{.Root}}"><input type="hidden" name="target" value="{{.Target}}">{{with .TargetBranch}}<input type="hidden" name="branch" value="{{.}}">{{end}}
+      <input type="hidden" name="root" value="{{.Root}}"><input type="hidden" name="target" value="{{.Target}}">{{with .TargetBranch}}<input type="hidden" name="branch" value="{{.}}">{{end}}{{if .CanPersonal}}<input type="hidden" name="as" value="{{.As}}">{{end}}
       <select name="agent" aria-label="Agent" data-autosubmit>{{range .Agents}}<option value="{{.}}"{{if eq . $.Body.Agent}} selected{{end}}>{{.}}{{if eq . $.Body.DefaultAgent}} (default){{end}}</option>{{end}}</select>
       <button type="submit" class="secondary" data-autosubmit-hide>Show message</button>
     </form>{{else}}<strong>{{.Agent}}</strong>{{end}}</dd></div>
+    {{if .Amp}}<div id="runas"><dt>Run as</dt><dd>{{if .CanPersonal}}<form method="get" action="" class="handoff-runas">
+      <input type="hidden" name="root" value="{{.Root}}"><input type="hidden" name="agent" value="{{.Agent}}"><input type="hidden" name="target" value="{{.Target}}">{{with .TargetBranch}}<input type="hidden" name="branch" value="{{.}}">{{end}}
+      <label class="handoff-opt"><input type="radio" name="as" value="personal"{{if eq .As "personal"}} checked{{end}} data-autosubmit>
+        <span><strong>You</strong> <span class="muted small">with your own Amp key: the thread is in your Amp thread list, uses your plan's included usage and your connected GitHub.</span></span></label>
+      <label class="handoff-opt"><input type="radio" name="as" value="service"{{if eq .As "service"}} checked{{end}} data-autosubmit>
+        <span><strong>The service account</strong> <span class="muted small">{{.Agent}}'s key: the workspace's shared credits.</span></span></label>
+      <button type="submit" class="secondary" data-autosubmit-hide>Show message</button>
+    </form>{{else}}<strong>The service account</strong> <span class="muted small">{{.Agent}}'s key{{if .AmpKeys}}. To run hand-offs as you, <a href="/account/amp">save your own Amp key</a>.{{end}}</span>{{end}}</dd></div>{{end}}
     <div><dt>Site</dt><dd><a href="{{.SiteURL}}">{{with .Site}}{{.}}{{else}}{{$.Body.Root}}{{end}}</a> <span class="muted small">on {{.Host}}</span><br><code class="path">{{pathBreak .Root}}</code></dd></div>
     <div><dt>Repository</dt><dd>{{with .Repo}}{{with $.Body.RepoWeb}}<a href="{{.}}" rel="noopener noreferrer"><code class="path">{{$.Body.Repo}}</code></a>{{else}}<code class="path">{{.}}</code>{{end}} <span class="muted small">{{if $.Body.RepoManual}}set by an operator{{else}}found by the collector{{end}}</span>{{else}}<span class="pill warn">repo unknown</span> <span class="small">{{if $.Body.Amp}}Amp needs it.{{else}}The agent will be told the repository is unknown.{{end}} <a href="{{$.Body.SiteURL}}#repo">Set it on the site page</a>{{if not $.Body.Amp}} first if you can{{end}}.</span>{{end}}</dd></div>
     {{if and .Amp .Repo}}<div id="project"><dt>Amp project</dt><dd>{{if .Project}}<strong>{{.Project}}</strong> <span class="muted small">{{if .ProjectPicked}}picked for this repository{{else}}matched by repository{{end}}</span>{{else}}<span class="pill warn">none</span>{{end}}
       {{if .Projects}}<form method="post" action="{{hostURL .Org .Host}}/handoff/project" class="handoff-project">
-        <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="root" value="{{.Root}}"><input type="hidden" name="agent" value="{{.Agent}}">
+        <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="root" value="{{.Root}}"><input type="hidden" name="agent" value="{{.Agent}}">{{if .CanPersonal}}<input type="hidden" name="as" value="{{.As}}">{{end}}
         <select name="project" aria-label="Amp project for this repository"><option value="">Automatic: the project using this repository</option>{{range .Projects}}<option value="{{.ID}}"{{if and $.Body.ProjectPicked (eq .ID $.Body.ProjectID)}} selected{{end}}>{{.Ref}}{{with .Repo}} · {{.}}{{end}}</option>{{end}}</select>
         <button type="submit" class="secondary">Use for this repository</button>
       </form>{{end}}</dd></div>{{end}}
@@ -38,7 +46,7 @@
   </table></div>
 
   <form method="get" action="" class="handoff-target" id="target">
-    <input type="hidden" name="root" value="{{.Root}}"><input type="hidden" name="agent" value="{{.Agent}}">
+    <input type="hidden" name="root" value="{{.Root}}"><input type="hidden" name="agent" value="{{.Agent}}">{{if .CanPersonal}}<input type="hidden" name="as" value="{{.As}}">{{end}}
     <fieldset>
       <legend>Where the pull request goes</legend>
       {{if .RepoBranchStale}}<p class="muted small">This repository's hand-offs default to <code>{{.RepoBranch}}</code>, which isn't one of these sites' branches any more, so the default branch is chosen.</p>{{end}}
@@ -53,11 +61,11 @@
   </form>
   {{if and .CanSetRepoBranch (or .RepoBranch (eq .Target "branch"))}}<div class="handoff-repobranch small">
     {{if and (eq .Target "branch") (ne .TargetBranch .RepoBranch)}}<form method="post" action="{{hostURL .Org .Host}}/handoff/branch">
-      <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="root" value="{{.Root}}"><input type="hidden" name="agent" value="{{.Agent}}"><input type="hidden" name="branch" value="{{.TargetBranch}}">
+      <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="root" value="{{.Root}}"><input type="hidden" name="agent" value="{{.Agent}}"><input type="hidden" name="branch" value="{{.TargetBranch}}">{{if .CanPersonal}}<input type="hidden" name="as" value="{{.As}}">{{end}}
       <button type="submit" class="secondary">Make <code>{{.TargetBranch}}</code> this repository's default</button>
     </form>{{end}}
     {{with .RepoBranch}}<form method="post" action="{{hostURL $.Body.Org $.Body.Host}}/handoff/branch">
-      <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="root" value="{{$.Body.Root}}"><input type="hidden" name="agent" value="{{$.Body.Agent}}"><input type="hidden" name="clear" value="1">
+      <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="root" value="{{$.Body.Root}}"><input type="hidden" name="agent" value="{{$.Body.Agent}}"><input type="hidden" name="clear" value="1">{{if $.Body.CanPersonal}}<input type="hidden" name="as" value="{{$.Body.As}}">{{end}}
       <span class="muted">Hand-offs on this repository go to <code>{{.}}</code> unless you pick another target here.</span>
       <button type="submit" class="secondary">Clear</button>
     </form>{{end}}
@@ -72,8 +80,9 @@
   </details>
 
   <div class="handoff-note small">
-    <p><strong>What this shares:</strong> the package names, installed and fixed versions and advisories above (in the attached file: with their CVEs, severity and known-exploited status), the site's framework and PHP versions, plus the host and site names, the site's path and repository, {{if gt (len .Sites) 1}}each listed site's host, name, path, branch and installed versions, {{end}}and your display name. That's more than Heimdall's alerts, which carry counts only. {{if .Amp}}Anyone in your Amp workspace who can see the service account's threads can read it.{{else}}Everyone and every bot in that Discord channel can read it.{{end}}</p>
-    {{if .Amp}}<p><strong>Where it goes:</strong> a new Amp thread in the project <strong>{{.Project}}</strong>, in an orb with the project's repository and environment, started with {{.Agent}}'s API key. Heimdall links to it once it's started.</p>{{else}}<p><strong>Who it pings:</strong> only {{.Agent}}. The message allows no other mentions.</p>{{end}}
+    <p><strong>What this shares:</strong> the package names, installed and fixed versions and advisories above (in the attached file: with their CVEs, severity and known-exploited status), the site's framework and PHP versions, plus the host and site names, the site's path and repository, {{if gt (len .Sites) 1}}each listed site's host, name, path, branch and installed versions, {{end}}and your display name. That's more than Heimdall's alerts, which carry counts only. {{if eq .As "personal"}}The thread is yours in Amp: who else can read it follows your Amp account's sharing settings.{{else if .Amp}}Anyone in your Amp workspace who can see the service account's threads can read it.{{else}}Everyone and every bot in that Discord channel can read it.{{end}}</p>
+    {{if eq .As "personal"}}<p><strong>Where it goes:</strong> a new Amp thread in the project <strong>{{.Project}}</strong>, in an orb with the project's repository and environment, started with your own Amp API key: it's in your Amp thread list, uses your Amp plan's included usage, and opens the pull request with the GitHub account you connected to Amp. Heimdall links to it once it's started.</p>
+    {{else if .Amp}}<p><strong>Where it goes:</strong> a new Amp thread in the project <strong>{{.Project}}</strong>, in an orb with the project's repository and environment, started with {{.Agent}}'s API key. Heimdall links to it once it's started.</p>{{else}}<p><strong>Who it pings:</strong> only {{.Agent}}. The message allows no other mentions.</p>{{end}}
     <p><strong>The agent acts on it.</strong> The wording is fixed and every value comes from Heimdall's own data, never from the AI triage text.</p>
   </div>
 
@@ -85,7 +94,8 @@
     <input type="hidden" name="branch" value="{{.TargetBranch}}">
     <input type="hidden" name="request_id" value="{{.RequestID}}">
     <input type="hidden" name="digest" value="{{.Digest}}">
-    <button type="submit">{{if .Amp}}Start Amp thread{{else}}Post to Discord{{end}}</button>
+    {{if .CanPersonal}}<input type="hidden" name="as" value="{{.As}}">{{end}}
+    <button type="submit">{{if .Amp}}Start Amp thread{{if eq .As "personal"}} as you{{end}}{{else}}Post to Discord{{end}}</button>
     <a class="button secondary" href="{{.SiteURL}}">Cancel</a>
   </form>
   {{end}}

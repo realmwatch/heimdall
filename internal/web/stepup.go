@@ -44,6 +44,10 @@ var (
 	everyStepPaths = []string{"/bans/", "/anomalies/"}
 )
 
+// alwaysStepPaths need a fresh step-up whatever the setting: confirming
+// it's you before saving your own Amp key (ampkeys.go).
+var alwaysStepPaths = []string{"/account/amp/confirm"}
+
 func hasPrefix(path string, prefixes []string) bool {
 	return slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(path, p) })
 }
@@ -112,7 +116,8 @@ func (s *server) stepUpDialog(r *http.Request, v *auth.Viewer) string {
 // the POST may go ahead: no step-up is needed, or the request carries a
 // good code. Otherwise it has answered with the prompt.
 func (s *server) stepUp(w http.ResponseWriter, r *http.Request, v *auth.Viewer) bool {
-	if !hasPrefix(r.URL.Path, s.stepUpPaths(r, v)) {
+	always := hasPrefix(r.URL.Path, alwaysStepPaths) && !v.Fresh(s.now())
+	if !always && !hasPrefix(r.URL.Path, s.stepUpPaths(r, v)) {
 		return true
 	}
 	if v.Kind == "entra" {
@@ -191,6 +196,10 @@ func stepUpWhat(path string) string {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	last := parts[len(parts)-1]
 	switch parts[0] {
+	case "account":
+		if hasPrefix(path, alwaysStepPaths) {
+			return "Saving your Amp key"
+		}
 	case "bans":
 		switch last {
 		case "approve":

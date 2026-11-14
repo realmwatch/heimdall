@@ -26,16 +26,25 @@
   <dl class="handoff-facts">
     <div><dt>Agent</dt><dd>{{if gt (len .Agents) 1}}<form method="get" action="" class="handoff-agent">
       {{range .Query}}<input type="hidden" name="o" value="{{.Org}}"><input type="hidden" name="h" value="{{.Host}}"><input type="hidden" name="r" value="{{.Root}}">{{end}}
-      <input type="hidden" name="back" value="{{.Back}}"><input type="hidden" name="target" value="{{.Target}}">
+      <input type="hidden" name="back" value="{{.Back}}"><input type="hidden" name="target" value="{{.Target}}">{{if .CanPersonal}}<input type="hidden" name="as" value="{{.As}}">{{end}}
       <select name="agent" aria-label="Agent" data-autosubmit>{{range .Agents}}<option value="{{.}}"{{if eq . $.Body.Agent}} selected{{end}}>{{.}}{{if eq . $.Body.DefaultAgent}} (default){{end}}</option>{{end}}</select>
       <button type="submit" class="secondary" data-autosubmit-hide>Show messages</button>
     </form>{{else}}<strong>{{.Agent}}</strong>{{end}}</dd></div>
+    {{if .Amp}}<div id="runas"><dt>Run as</dt><dd>{{if .CanPersonal}}<form method="get" action="" class="handoff-runas">
+      {{range .Query}}<input type="hidden" name="o" value="{{.Org}}"><input type="hidden" name="h" value="{{.Host}}"><input type="hidden" name="r" value="{{.Root}}">{{end}}
+      <input type="hidden" name="back" value="{{.Back}}"><input type="hidden" name="agent" value="{{.Agent}}"><input type="hidden" name="target" value="{{.Target}}">
+      <label class="handoff-opt"><input type="radio" name="as" value="personal"{{if eq .As "personal"}} checked{{end}} data-autosubmit>
+        <span><strong>You</strong> <span class="muted small">with your own Amp key, for every thread: your Amp thread list, your plan's included usage and your connected GitHub.</span></span></label>
+      <label class="handoff-opt"><input type="radio" name="as" value="service"{{if eq .As "service"}} checked{{end}} data-autosubmit>
+        <span><strong>The service account</strong> <span class="muted small">{{.Agent}}'s key: the workspace's shared credits.</span></span></label>
+      <button type="submit" class="secondary" data-autosubmit-hide>Show messages</button>
+    </form>{{else}}<strong>The service account</strong> <span class="muted small">{{.Agent}}'s key</span>{{end}}</dd></div>{{end}}
     <div><dt>Pull requests</dt><dd>{{len .Items}}, one per repository</dd></div>
   </dl>
 
   <form method="get" action="" class="handoff-target">
     {{range .Query}}<input type="hidden" name="o" value="{{.Org}}"><input type="hidden" name="h" value="{{.Host}}"><input type="hidden" name="r" value="{{.Root}}">{{end}}
-    <input type="hidden" name="back" value="{{.Back}}"><input type="hidden" name="agent" value="{{.Agent}}">
+    <input type="hidden" name="back" value="{{.Back}}"><input type="hidden" name="agent" value="{{.Agent}}">{{if .CanPersonal}}<input type="hidden" name="as" value="{{.As}}">{{end}}
     <fieldset>
       <legend>Where the pull requests go</legend>
       <label class="handoff-opt"><input type="radio" name="target" value="default"{{if eq .Target "default"}} checked{{end}} data-autosubmit>
@@ -70,8 +79,9 @@
   {{end}}
 
   <div class="handoff-note small">
-    <p><strong>What this shares:</strong> for each repository, what its own hand-off shares: the package names, installed and fixed versions and advisories (in the attached files: with their CVEs, severity and known-exploited status), each site's host, name, path, branch, framework and PHP versions, the repository, and your display name. {{if .Amp}}Anyone in your Amp workspace who can see the service account's threads can read it.{{else}}Everyone and every bot in that Discord channel can read it.{{end}}</p>
-    {{if .Amp}}<p><strong>Where they go:</strong> one new Amp thread per repository, each in an orb, started with {{.Agent}}'s API key.</p>{{else}}<p><strong>Who it pings:</strong> only {{.Agent}}, once per repository. The messages allow no other mentions.</p>{{end}}
+    <p><strong>What this shares:</strong> for each repository, what its own hand-off shares: the package names, installed and fixed versions and advisories (in the attached files: with their CVEs, severity and known-exploited status), each site's host, name, path, branch, framework and PHP versions, the repository, and your display name. {{if eq .As "personal"}}The threads are yours in Amp: who else can read them follows your Amp account's sharing settings.{{else if .Amp}}Anyone in your Amp workspace who can see the service account's threads can read it.{{else}}Everyone and every bot in that Discord channel can read it.{{end}}</p>
+    {{if eq .As "personal"}}<p><strong>Where they go:</strong> one new Amp thread per repository, each in an orb, started with your own Amp API key: in your Amp thread list, on your Amp plan's included usage, with the GitHub account you connected to Amp.</p>
+    {{else if .Amp}}<p><strong>Where they go:</strong> one new Amp thread per repository, each in an orb, started with {{.Agent}}'s API key.</p>{{else}}<p><strong>Who it pings:</strong> only {{.Agent}}, once per repository. The messages allow no other mentions.</p>{{end}}
     <p><strong>The agent acts on them.</strong> The wording is fixed and every value comes from Heimdall's own data, never from the AI triage text.</p>
   </div>
 
@@ -81,7 +91,8 @@
     <input type="hidden" name="back" value="{{.Back}}">
     <input type="hidden" name="agent" value="{{.Agent}}">
     <input type="hidden" name="target" value="{{.Target}}">
-    <button type="submit">{{if .Amp}}Start {{len .Items}} Amp thread{{if gt (len .Items) 1}}s{{end}}{{else}}Post {{len .Items}} to Discord{{end}}</button>
+    {{if .CanPersonal}}<input type="hidden" name="as" value="{{.As}}">{{end}}
+    <button type="submit">{{if .Amp}}Start {{len .Items}} Amp thread{{if gt (len .Items) 1}}s{{end}}{{if eq .As "personal"}} as you{{end}}{{else}}Post {{len .Items}} to Discord{{end}}</button>
     <a class="button secondary" href="{{.Back}}">Cancel</a>
   </form>{{else}}<p><a class="button secondary" href="{{.Back}}">Back</a></p>{{end}}
 </section>
