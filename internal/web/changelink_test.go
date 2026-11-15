@@ -306,3 +306,49 @@ func TestKernelRemoveLink(t *testing.T) {
 		t.Error("16 kernels refused")
 	}
 }
+
+func TestPHPUpgradeLink(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	day := func(y int, m time.Month, d int) *time.Time { t := time.Date(y, m, d, 0, 0, 0, 0, time.UTC); return &t }
+	cycles := []store.EOLCycle{
+		{Cycle: "8.1", EOL: day(2025, 12, 31)},
+		{Cycle: "8.2", EOL: day(2026, 12, 31)},
+		{Cycle: "8.4", EOL: day(2028, 12, 31)},
+		{Cycle: "8.3", EOL: day(2027, 12, 31)},
+		{Cycle: "8.6", ReleaseDate: day(2027, 11, 20)}, // not released yet
+		{Cycle: "7.4", EOLReached: true},
+		{Cycle: "next"},
+	}
+	for from, want := range map[string]string{"8.1": "8.4", "7.4": "8.4", "8.3": "8.4", "8.4": "", "8.10": ""} {
+		if got := newerPHP(cycles, from, now); got != want {
+			t.Errorf("newerPHP(%s) = %q, want %q", from, got, want)
+		}
+	}
+	if got := newerPHP(nil, "8.1", now); got != "" {
+		t.Errorf("no lifecycle data: %q", got)
+	}
+	if got := newerPHP([]store.EOLCycle{{Cycle: "8.5", EOLReached: true}, {Cycle: "8.2", EOL: day(2026, 11, 1)}}, "8.1", now); got != "" {
+		t.Errorf("only end-of-life cycles: %q", got)
+	}
+
+	c := ChangeLink{ActionURL: "https://changes.example.com/propose?action={action}&org={org}&host={host}&{params}"}
+	site := report.Site{Root: "/var/www/app & co", WebServer: "nginx", PHPFPM: "8.1"}
+	if got, want := c.phpUpgradeLink("acme", "web-01", site, "8.4"),
+		"https://changes.example.com/propose?action=php.upgrade&org=acme&host=web-01&from=8.1&site=%2Fvar%2Fwww%2Fapp+%26+co"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	apache, unknown, odd := site, site, site
+	apache.WebServer, unknown.PHPFPM, odd.PHPFPM = "apache", "", "8.1&x=1"
+	for name, l := range map[string]string{
+		"no newer PHP": c.phpUpgradeLink("acme", "web-01", site, ""),
+		"apache":       c.phpUpgradeLink("acme", "web-01", apache, "8.4"),
+		"unknown PHP":  c.phpUpgradeLink("acme", "web-01", unknown, "8.4"),
+		"odd version":  c.phpUpgradeLink("acme", "web-01", odd, "8.4"),
+		"no template":  (ChangeLink{}).phpUpgradeLink("acme", "web-01", site, "8.4"),
+	} {
+		if l != "" {
+			t.Errorf("%s: got a link %q", name, l)
+		}
+	}
+}

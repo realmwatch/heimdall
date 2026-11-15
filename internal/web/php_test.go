@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/realmwatch/heimdall/internal/auth"
 	"github.com/realmwatch/heimdall/internal/ingest"
+	"github.com/realmwatch/heimdall/internal/store"
 )
 
 // A host with PHP 8.1 and 8.4 installed and one site on 8.4: once the
@@ -172,5 +174,64 @@ func TestHostPagePHPRemoveAllButton(t *testing.T) {
 	}
 	if !strings.Contains(page, "php=8.1\"") || !strings.Contains(page, "php=8.2\"") {
 		t.Error("each version keeps its own link")
+	}
+}
+
+// An nginx site on PHP 8.1 with 8.4 supported: operators get "Propose PHP
+// upgrade" on the site page; viewers, and hubs without action_url, don't.
+func TestSitePagePHPUpgradeButton(t *testing.T) {
+	t.Parallel()
+	const action = "https://changes.example.com/propose?action={action}&org={org}&host={host}&{params}"
+	seed := func(t *testing.T, e *env, server string) {
+		ctx := t.Context()
+		e.st.CreateOrg(ctx, "test", "acme", "Acme")
+		e.st.CreateEnv(ctx, "test", "acme", "prod", "")
+		if _, _, err := e.st.AddHost(ctx, "test", "acme", "prod", "web-01", nil); err != nil {
+			t.Fatal(err)
+		}
+		host, _ := e.st.HostByName(ctx, "acme", "web-01")
+		raw, err := os.ReadFile("../snapshot/testdata/debian12-v2.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var snap map[string]any
+		json.Unmarshal(raw, &snap)
+		snap["collected_at"] = testNow.Format(time.RFC3339)
+		snap["sites"] = []any{map[string]any{"root": "/var/www/app", "document_root": "/var/www/app/public", "server_names": []string{"app.example.com"},
+			"web_server": server, "readable": true, "php_fpm_version": "8.1"}}
+		raw, _ = json.Marshal(snap)
+		acc := ingest.Accepter{Store: e.st, Now: func() time.Time { return testNow }}
+		if res, err := acc.Accept(ctx, host, "push", raw); err != nil || res.Status != http.StatusCreated {
+			t.Fatalf("seed: %+v %v", res, err)
+		}
+		past, future := testNow.AddDate(-1, 0, 0), testNow.AddDate(2, 0, 0)
+		if err := e.st.ReplaceEOL(ctx, "php", []store.EOLCycle{{Cycle: "8.1", EOL: &past}, {Cycle: "8.4", EOL: &future}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const page = "/hosts/acme/web-01/site?root=%2Fvar%2Fwww%2Fapp"
+	want := `href="https://changes.example.com/propose?action=php.upgrade&amp;org=acme&amp;host=web-01&amp;from=8.1&amp;site=%2Fvar%2Fwww%2Fapp"`
+
+	e := newEnvCfg(t, "http://127.0.0.1:8080", nil, func(c *Config) { c.ChangeLink.ActionURL = action })
+	seed(t, e, "nginx")
+	body := e.get(page, signedIn(e)).Body.String()
+	if !strings.Contains(body, want) || !strings.Contains(body, ">Propose PHP upgrade</a>") || !strings.Contains(body, "newest supported: 8.4") {
+		t.Errorf("operator: no upgrade link in the site page")
+	}
+	e.auth.viewer = &auth.Viewer{UserID: 3, Kind: "local", SessionToken: goodToken, Scope: store.Scope{Orgs: map[int64]store.Role{1: store.RoleViewer}}}
+	if body := e.get(page, signedIn(e)).Body.String(); strings.Contains(body, "php.upgrade") || !strings.Contains(body, "app.example.com") {
+		t.Error("viewer: upgrade link shown, or the page didn't render")
+	}
+
+	e = newEnv(t, "http://127.0.0.1:8080", nil)
+	seed(t, e, "nginx")
+	if body := e.get(page, signedIn(e)).Body.String(); strings.Contains(body, "Propose PHP upgrade") {
+		t.Error("shown without action_url")
+	}
+
+	e = newEnvCfg(t, "http://127.0.0.1:8080", nil, func(c *Config) { c.ChangeLink.ActionURL = action })
+	seed(t, e, "apache")
+	if body := e.get(page, signedIn(e)).Body.String(); strings.Contains(body, "Propose PHP upgrade") {
+		t.Error("shown for an apache site")
 	}
 }
