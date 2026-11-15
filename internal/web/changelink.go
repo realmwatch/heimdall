@@ -6,9 +6,11 @@ import (
 	"cmp"
 	"maps"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/realmwatch/heimdall/internal/report"
 	"github.com/realmwatch/heimdall/internal/store"
@@ -126,6 +128,40 @@ func (c ChangeLink) releaseCleanupLink(org, host string, left bool) string {
 		return ""
 	}
 	return c.actionLink("release.cleanup", org, host, nil)
+}
+
+// phpUpgradeLink drafts moving one site to a newer PHP through the action
+// template (php.upgrade, with {params} site=<root>&from=<x.y>), or is ""
+// unless the site is served by nginx with a known PHP-FPM version and
+// newer is a newer supported PHP (newerPHP). It names no target: the tool
+// offers the versions the host's OS can install, and runs the change in
+// stages (code first, then the new PHP-FPM beside the old, then the switch).
+func (c ChangeLink) phpUpgradeLink(org, host string, site report.Site, newer string) string {
+	if site.WebServer != "nginx" || !phpMinor.MatchString(site.PHPFPM) || newer == "" {
+		return ""
+	}
+	return c.actionLink("php.upgrade", org, host, url.Values{"site": {site.Root}, "from": {site.PHPFPM}})
+}
+
+// phpMinor is a PHP minor version as the collector reports a site's
+// PHP-FPM: "8.1".
+var phpMinor = regexp.MustCompile(`^[0-9]{1,2}\.[0-9]{1,2}$`)
+
+// newerPHP is the newest PHP release cycle that is newer than from,
+// released and not end-of-life at now, or "" with none (or no lifecycle
+// data yet).
+func newerPHP(cycles []store.EOLCycle, from string, now time.Time) string {
+	best := ""
+	for _, c := range cycles {
+		if !phpMinor.MatchString(c.Cycle) || compareMinor(c.Cycle, from) <= 0 || c.EOLReached ||
+			(c.EOL != nil && !c.EOL.After(now)) || (c.ReleaseDate != nil && c.ReleaseDate.After(now)) {
+			continue
+		}
+		if best == "" || compareMinor(c.Cycle, best) > 0 {
+			best = c.Cycle
+		}
+	}
+	return best
 }
 
 // maxKernelRemove is the most kernels one removal proposal names.

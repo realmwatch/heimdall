@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/realmwatch/heimdall/internal/auth"
+	"github.com/realmwatch/heimdall/internal/feeds/eol"
 	"github.com/realmwatch/heimdall/internal/findings"
 	"github.com/realmwatch/heimdall/internal/handoff"
 	"github.com/realmwatch/heimdall/internal/report"
@@ -958,6 +959,9 @@ type siteBody struct {
 	HandoffNote   string // fixed text after a hand-off
 	HandoffError  bool
 	HandoffThread string // the Amp thread a hand-off started
+	// PHPUpgradeURL drafts moving the site to a newer PHP (operators only,
+	// ChangeLink.phpUpgradeLink), and PHPNewest is the newest supported one.
+	PHPUpgradeURL, PHPNewest string
 
 	Cloudflare cloudflareHTML // the Cloudflare card, or "" (cloudflare.go)
 	Surface    surfaceHTML    // "public as ..." line, or "" (surface.go)
@@ -1044,6 +1048,15 @@ func (s *server) sitePage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 	body.HandoffNote, body.HandoffError = handoffNotices[hn], hn == "failed"
 	if hn == "sent" {
 		body.HandoffThread = handoff.ThreadURL(r.URL.Query().Get("thread"))
+	}
+	if body.CanOperate && s.cfg.ChangeLink.ActionURL != "" && body.Site.PHPFPM != "" {
+		cycles, err := s.st.EOLCycles(ctx, eol.ProductPHP)
+		if err != nil {
+			s.fail(w, r, v, err)
+			return
+		}
+		body.PHPNewest = newerPHP(cycles, body.Site.PHPFPM, s.now())
+		body.PHPUpgradeURL = s.cfg.ChangeLink.phpUpgradeLink(host.OrgSlug, host.Name, body.Site, body.PHPNewest)
 	}
 	body.Cloudflare = s.cloudflareCard(ctx, v, host.OrgID, host.Name, root)
 	body.Surface = s.surfaceLineFor(ctx, v, host.OrgID, host.Name, root)
