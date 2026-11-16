@@ -151,17 +151,25 @@ var phpMinor = regexp.MustCompile(`^[0-9]{1,2}\.[0-9]{1,2}$`)
 // released and not end-of-life at now, or "" with none (or no lifecycle
 // data yet).
 func newerPHP(cycles []store.EOLCycle, from string, now time.Time) string {
-	best := ""
+	if vs := newerPHPs(cycles, from, now); len(vs) > 0 {
+		return vs[0]
+	}
+	return ""
+}
+
+// newerPHPs are the PHP release cycles newer than from, released and not
+// end-of-life at now, newest first.
+func newerPHPs(cycles []store.EOLCycle, from string, now time.Time) []string {
+	var out []string
 	for _, c := range cycles {
 		if !phpMinor.MatchString(c.Cycle) || compareMinor(c.Cycle, from) <= 0 || c.EOLReached ||
-			(c.EOL != nil && !c.EOL.After(now)) || (c.ReleaseDate != nil && c.ReleaseDate.After(now)) {
+			(c.EOL != nil && !c.EOL.After(now)) || (c.ReleaseDate != nil && c.ReleaseDate.After(now)) || slices.Contains(out, c.Cycle) {
 			continue
 		}
-		if best == "" || compareMinor(c.Cycle, best) > 0 {
-			best = c.Cycle
-		}
+		out = append(out, c.Cycle)
 	}
-	return best
+	slices.SortFunc(out, func(a, b string) int { return compareMinor(b, a) })
+	return out
 }
 
 // maxKernelRemove is the most kernels one removal proposal names.

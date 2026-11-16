@@ -1098,7 +1098,18 @@ func (s *server) handoffProject(w http.ResponseWriter, r *http.Request, v *auth.
 		s.fail(w, r, v, err)
 		return
 	}
-	http.Redirect(w, r, withAs(handoffURL(t.host.OrgSlug, t.host.Name, t.site.Root, t.agent.Name), t.as)+"#project", http.StatusSeeOther)
+	back := handoffURL(t.host.OrgSlug, t.host.Name, t.site.Root, t.agent.Name)
+	if f.Get("kind") == "php" { // from the PHP upgrade page (phphandoff.go): back to it
+		stage, to := f.Get("stage"), f.Get("to")
+		if stage != handoff.PHPFloor {
+			stage = handoff.PHPCompat
+		}
+		if !handoff.PHPMinorRe.MatchString(to) {
+			to = ""
+		}
+		back = phpHandoffURL(t.host.OrgSlug, t.host.Name, t.site.Root, stage, to) + "&agent=" + url.QueryEscape(t.agent.Name)
+	}
+	http.Redirect(w, r, withAs(back, t.as)+"#project", http.StatusSeeOther)
 }
 
 // handoffRepoBranch makes one of the sites' branches the default target of

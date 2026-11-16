@@ -1,0 +1,105 @@
+{{define "content"}}{{$csrf := .CSRF}}{{with .Body}}
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/sites">Sites</a> <span aria-hidden="true">/</span> <a href="{{hostURL .Org .Host}}">{{.Host}}</a> <span aria-hidden="true">/</span> <a href="{{.SiteURL}}">{{with .Site}}{{.}}{{else}}{{$.Body.Root}}{{end}}</a> <span aria-hidden="true">/</span> PHP upgrade</nav>
+<div class="head">
+  <h1>Hand off PHP upgrade</h1>
+</div>
+<p class="muted handoff-lead">Ask Amp for the code side of moving this site to a newer PHP: a pull request on its repository. The server side (installing the new PHP-FPM and switching the site to it) is done separately, through <strong>Propose PHP upgrade</strong> on the site page. Check the prompt below: it's exactly what the new Amp thread starts with.</p>
+{{with .Notice}}<p class="notice notice-bad" role="alert">{{.}}</p>{{end}}
+{{with .Blocked}}<p class="notice notice-bad" role="alert">{{.}}</p>{{end}}
+{{if .NeedRepo}}<p class="notice notice-bad" role="alert">{{.Agent}} starts an Amp thread that works in the site's repository, and this site's isn't known. <a href="{{.SiteURL}}#repo">Set it on the site page</a>, then hand off again.</p>{{end}}
+{{if .NeedProject}}<p class="notice notice-bad" role="alert">{{.ProjectNote}}{{if .Projects}} <a href="#project">Pick it below</a>; nothing is sent until there's a project, so the thread always starts with the repository.{{end}}</p>{{end}}
+
+<section class="card handoff-card">
+  <form method="get" action="" class="handoff-stage" id="stage">
+    <input type="hidden" name="root" value="{{.Root}}"><input type="hidden" name="agent" value="{{.Agent}}">{{if .CanPersonal}}<input type="hidden" name="as" value="{{.As}}">{{end}}
+    <fieldset>
+      <legend>Which pull request</legend>
+      <label class="handoff-opt"><input type="radio" name="stage" value="compat"{{if eq .Stage "compat"}} checked{{end}} data-autosubmit>
+        <span><strong>1. Run on both versions</strong> <span class="muted small">Before the switch. Updates the packages that block the new PHP and fixes code that breaks on it, while everything keeps working on {{with .From}}PHP {{.}}{{else}}the current PHP{{end}}. Doesn't raise the minimum.</span></span></label>
+      <label class="handoff-opt"><input type="radio" name="stage" value="floor"{{if eq .Stage "floor"}} checked{{end}} data-autosubmit>
+        <span><strong>2. Make the new PHP the minimum</strong> <span class="muted small">After every site on the repository has switched. Once it's deployed, they can't go back to an older PHP.</span></span></label>
+    </fieldset>
+    {{if and (eq .Stage "compat") .Tos}}<label class="handoff-to">Target PHP <select name="to" aria-label="Target PHP" data-autosubmit>{{range .Tos}}<option value="{{.}}"{{if eq . $.Body.To}} selected{{end}}>PHP {{.}}</option>{{end}}</select></label>
+    <p class="muted small">Supported versions newer than PHP {{.From}}. Heimdall can't tell which ones the server can install; the change-management tool checks that.</p>{{end}}
+    <button type="submit" class="secondary" data-autosubmit-hide>Show prompt</button>
+  </form>
+
+  <dl class="handoff-facts">
+    <div><dt>Agent</dt><dd>{{if gt (len .Agents) 1}}<form method="get" action="" class="handoff-agent">
+      <input type="hidden" name="root" value="{{.Root}}"><input type="hidden" name="stage" value="{{.Stage}}"><input type="hidden" name="to" value="{{.To}}">{{if .CanPersonal}}<input type="hidden" name="as" value="{{.As}}">{{end}}
+      <select name="agent" aria-label="Agent" data-autosubmit>{{range .Agents}}<option value="{{.}}"{{if eq . $.Body.Agent}} selected{{end}}>{{.}}</option>{{end}}</select>
+      <button type="submit" class="secondary" data-autosubmit-hide>Show prompt</button>
+    </form>{{else}}<strong>{{.Agent}}</strong>{{end}}</dd></div>
+    <div id="runas"><dt>Run as</dt><dd>{{if .CanPersonal}}<form method="get" action="" class="handoff-runas">
+      <input type="hidden" name="root" value="{{.Root}}"><input type="hidden" name="agent" value="{{.Agent}}"><input type="hidden" name="stage" value="{{.Stage}}"><input type="hidden" name="to" value="{{.To}}">
+      <label class="handoff-opt"><input type="radio" name="as" value="personal"{{if eq .As "personal"}} checked{{end}} data-autosubmit>
+        <span><strong>You</strong> <span class="muted small">with your own Amp key: the thread is in your Amp thread list, uses your plan's included usage and your connected GitHub.</span></span></label>
+      <label class="handoff-opt"><input type="radio" name="as" value="service"{{if eq .As "service"}} checked{{end}} data-autosubmit>
+        <span><strong>The service account</strong> <span class="muted small">{{.Agent}}'s key: the workspace's shared credits.</span></span></label>
+      <button type="submit" class="secondary" data-autosubmit-hide>Show prompt</button>
+    </form>{{else}}<strong>The service account</strong> <span class="muted small">{{.Agent}}'s key{{if .AmpKeys}}. To run hand-offs as you, <a href="/account/amp">save your own Amp key</a>.{{end}}</span>{{end}}</dd></div>
+    <div><dt>Site</dt><dd><a href="{{.SiteURL}}">{{with .Site}}{{.}}{{else}}{{$.Body.Root}}{{end}}</a> <span class="muted small">on {{.Host}}</span><br><code class="path">{{pathBreak .Root}}</code></dd></div>
+    <div><dt>PHP</dt><dd>{{if eq .Stage "compat"}}{{with .From}}{{.}}{{else}}unknown{{end}}{{with .To}} → <strong>{{.}}</strong>{{end}}{{else}}minimum <strong>{{.To}}</strong>{{end}} <span class="muted small">composer.json requires {{with .Requirement}}<code>{{.}}</code>{{else}}nothing stated{{end}}</span></dd></div>
+    <div><dt>Repository</dt><dd>{{with .Repo}}{{with $.Body.RepoWeb}}<a href="{{.}}" rel="noopener noreferrer"><code class="path">{{$.Body.Repo}}</code></a>{{else}}<code class="path">{{.}}</code>{{end}} <span class="muted small">{{if $.Body.RepoManual}}set by an operator{{else}}found by the collector{{end}}</span>{{else}}<span class="pill warn">repo unknown</span> <span class="small">Amp needs it. <a href="{{$.Body.SiteURL}}#repo">Set it on the site page</a>.</span>{{end}}</dd></div>
+    {{if .Repo}}<div id="project"><dt>Amp project</dt><dd>{{if .Project}}<strong>{{.Project}}</strong> <span class="muted small">{{if .ProjectPicked}}picked for this repository{{else}}matched by repository{{end}}</span>{{else}}<span class="pill warn">none</span>{{end}}
+      {{if .Projects}}<form method="post" action="{{hostURL .Org .Host}}/handoff/project" class="handoff-project">
+        <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="root" value="{{.Root}}"><input type="hidden" name="agent" value="{{.Agent}}">{{if .CanPersonal}}<input type="hidden" name="as" value="{{.As}}">{{end}}
+        <input type="hidden" name="kind" value="php"><input type="hidden" name="stage" value="{{.Stage}}"><input type="hidden" name="to" value="{{.To}}">
+        <select name="project" aria-label="Amp project for this repository"><option value="">Automatic: the project using this repository</option>{{range .Projects}}<option value="{{.ID}}"{{if and $.Body.ProjectPicked (eq .ID $.Body.ProjectID)}} selected{{end}}>{{.Ref}}{{with .Repo}} · {{.}}{{end}}</option>{{end}}</select>
+        <button type="submit" class="secondary">Use for this repository</button>
+      </form>{{end}}</dd></div>{{end}}
+  </dl>
+
+  <h2 class="handoff-h">{{if gt (len .Sites) 1}}Sites on this repository{{else}}Site{{end}}</h2>
+  <div class="scroll"><table class="handoff-sites">
+    <thead><tr><th>Site</th><th>Branch</th><th>PHP-FPM</th><th>Requires PHP</th></tr></thead>
+    <tbody>{{range .Sites}}<tr>
+      <td><a href="{{.URL}}">{{.Name}}</a>{{with .Label}} <span class="site-label label-{{.}}">{{.}}</span>{{end}}{{if .This}} <span class="muted small">this hand-off</span>{{end}}<br><span class="muted small">on {{.Host}}</span></td>
+      <td>{{with .Branch}}<code>{{.}}</code>{{else}}<span class="pill muted">branch unknown</span>{{end}}</td>
+      <td>{{with .PHP}}{{.}}{{else}}<span class="muted">unknown</span>{{end}}{{if .Behind}} <span class="pill warn">not switched</span>{{end}}</td>
+      <td class="small">{{with .Requirement}}<code>{{.}}</code>{{else}}<span class="muted">not stated</span>{{end}}</td>
+    </tr>{{end}}</tbody>
+  </table></div>
+
+  <form method="get" action="" class="handoff-target" id="target">
+    <input type="hidden" name="root" value="{{.Root}}"><input type="hidden" name="agent" value="{{.Agent}}"><input type="hidden" name="stage" value="{{.Stage}}"><input type="hidden" name="to" value="{{.To}}">{{if .CanPersonal}}<input type="hidden" name="as" value="{{.As}}">{{end}}
+    <fieldset>
+      <legend>Where the pull request goes</legend>
+      <label class="handoff-opt"><input type="radio" name="target" value="default"{{if eq .Target "default"}} checked{{end}} data-autosubmit>
+        <span><strong>Default branch</strong> <span class="muted small">The repository's default branch.</span></span></label>
+      {{range .Branches}}<label class="handoff-opt"><input type="radio" name="target" value="branch:{{.}}"{{if and (eq $.Body.Target "branch") (eq . $.Body.TargetBranch)}} checked{{end}} data-autosubmit>
+        <span><strong>Branch <code>{{.}}</code></strong>{{if eq . $.Body.RepoBranch}} <span class="muted small">(repository default)</span>{{end}}</span></label>{{end}}
+    </fieldset>
+    <button type="submit" class="secondary" data-autosubmit-hide>Show prompt</button>
+  </form>
+
+  {{if .Content}}
+  <h2 class="handoff-h">The prompt</h2>
+  <pre class="handoff-msg" id="handoff-msg">{{.Content}}</pre>
+  <details class="handoff-file">
+    <summary>Then, in the prompt: <code>{{.FileName}}</code> <span class="muted small">the site, the repository's sites with their branches and PHP versions</span></summary>
+    <pre class="handoff-msg" id="handoff-file">{{.File}}</pre>
+  </details>
+
+  <div class="handoff-note small">
+    <p><strong>What this shares:</strong> the PHP versions and composer.json's PHP requirement, the host and site names, each listed site's path, branch and PHP version, the repository, and your display name. {{if eq .As "personal"}}The thread is yours in Amp: who else can read it follows your Amp account's sharing settings.{{else}}Anyone in your Amp workspace who can see the service account's threads can read it.{{end}}</p>
+    <p><strong>Where it goes:</strong> a new Amp thread in the project <strong>{{.Project}}</strong>, started with {{if eq .As "personal"}}your own Amp API key{{else}}{{.Agent}}'s API key{{end}}. Heimdall links to it once it's started.</p>
+  </div>
+
+  <form method="post" action="" class="actions handoff-send">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <input type="hidden" name="root" value="{{.Root}}">
+    <input type="hidden" name="agent" value="{{.Agent}}">
+    <input type="hidden" name="stage" value="{{.Stage}}">
+    <input type="hidden" name="to" value="{{.To}}">
+    <input type="hidden" name="target" value="{{.Target}}">
+    <input type="hidden" name="branch" value="{{.TargetBranch}}">
+    <input type="hidden" name="request_id" value="{{.RequestID}}">
+    <input type="hidden" name="digest" value="{{.Digest}}">
+    {{if .CanPersonal}}<input type="hidden" name="as" value="{{.As}}">{{end}}
+    <button type="submit">Start Amp thread{{if eq .As "personal"}} as you{{end}}</button>
+    <a class="button secondary" href="{{.SiteURL}}">Cancel</a>
+  </form>
+  {{end}}
+</section>
+{{end}}{{end}}

@@ -962,6 +962,9 @@ type siteBody struct {
 	// PHPUpgradeURL drafts moving the site to a newer PHP (operators only,
 	// ChangeLink.phpUpgradeLink), and PHPNewest is the newest supported one.
 	PHPUpgradeURL, PHPNewest string
+	// PHPHandoffURL hands the code side of a PHP upgrade to an Amp agent
+	// (phphandoff.go): operators, with an Amp agent and a known PHP-FPM.
+	PHPHandoffURL string
 
 	Cloudflare cloudflareHTML // the Cloudflare card, or "" (cloudflare.go)
 	Surface    surfaceHTML    // "public as ..." line, or "" (surface.go)
@@ -1057,6 +1060,9 @@ func (s *server) sitePage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 		}
 		body.PHPNewest = newerPHP(cycles, body.Site.PHPFPM, s.now())
 		body.PHPUpgradeURL = s.cfg.ChangeLink.phpUpgradeLink(host.OrgSlug, host.Name, body.Site, body.PHPNewest)
+	}
+	if s.canHandoff(v, host.OrgID) && len(ampAgents(s.cfg.Agents)) > 0 && handoff.PHPMinorRe.MatchString(body.Site.PHPFPM) {
+		body.PHPHandoffURL = phpHandoffURL(host.OrgSlug, host.Name, root, "", "")
 	}
 	body.Cloudflare = s.cloudflareCard(ctx, v, host.OrgID, host.Name, root)
 	body.Surface = s.surfaceLineFor(ctx, v, host.OrgID, host.Name, root)
