@@ -231,7 +231,7 @@ sudo sh "$dist/install.sh" --hub http://127.0.0.1:8443 --token-file /etc/heimdal
 spool=/var/lib/heimdall-viti
 [ "$(stat -c '%U %a' "$spool")" = "heimdall 1733" ] || fail "the spool is $(stat -c '%U %a' "$spool")"
 grep -qx "PathChanged=$spool" "$unit" || fail "$unit doesn't watch the spool"
-grep -qx 'HEIMDALL_TRIPWIRES=on' /etc/heimdall-collect/collect.env || fail "collect.env doesn't keep --tripwires"
+sudo grep -qx 'HEIMDALL_TRIPWIRES=on' /etc/heimdall-collect/collect.env || fail "collect.env doesn't keep --tripwires"
 trip_id=01JD7Q3V9X8K2M4N6P0R2S4T6V
 trip() { # as the app would: a dot name, then renamed into place
 	printf '{"schema":"viti.trip.v1","id":"%s","site":"app.example.com","root":"/srv/app","tripwire":"honey_user","token":"login","severity":"high","occurred_at":"%s","request":{"ip":"203.0.113.9","method":"POST","path":"/login","query_keys":[],"headers":{}},"actor":{"authenticated":false,"user_id":null},"context":{},"package_version":"smoke"}' \

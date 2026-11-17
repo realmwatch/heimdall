@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -88,9 +89,10 @@ func TestTripsFromCollector(t *testing.T) {
 	}
 	os.Symlink(secret, filepath.Join(spool, "01JD7Q3V9X8K2M4N6P0R2S4T6Z.json"))
 
-	up := true
+	var up atomic.Bool
+	up.Store(true)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !up { // a hub from before trips: the body isn't a snapshot
+		if !up.Load() { // a hub from before trips: the body isn't a snapshot
 			respond(w, http.StatusUnsupportedMediaType, "content type must be application/json")
 			return
 		}
@@ -113,7 +115,7 @@ func TestTripsFromCollector(t *testing.T) {
 		return names
 	}
 
-	up = false
+	up.Store(false)
 	if out := run(); !strings.Contains(out, "not sent") {
 		t.Errorf("older hub: %q", out)
 	}
@@ -121,7 +123,7 @@ func TestTripsFromCollector(t *testing.T) {
 		t.Fatalf("older hub: spool has %v, want the 2 trips and the dot file", l)
 	}
 
-	up = true
+	up.Store(true)
 	if out := run(); out != "" {
 		t.Errorf("push-trips: %q", out)
 	}
