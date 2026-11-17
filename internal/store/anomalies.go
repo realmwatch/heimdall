@@ -20,6 +20,7 @@ var AnomalyRules = []string{"silence", "replay", "clock_skew", "package_change",
 	"silent_online", // not reporting, yet up on the tailnet (internal/anomaly/tailnet.go)
 	// Failed logins and the surface map (internal/anomaly/bans.go).
 	"login_then_succeeded", "dns_unproxied", "cname_takeover",
+	"tripwire", // an app's decoy or honey credential (internal/ingest/trips.go)
 	// Reports that don't add up (consistency with the host's own history).
 	"uptime_inconsistent", "inventory_reverted", "package_drop", "collector_downgrade", "os_changed"}
 

@@ -229,6 +229,8 @@ Both run `/usr/local/lib/heimdall-collect/soon.sh` as root. It returns at once a
 
 Event reports count toward the hub's rate limit of 30 reports per hour per host (`[ingest] rate_per_host`; hubs set up before v0.4.13 have `"10/h"` in their config, which still fits hourly reports plus a few events). The 60-second wait keeps a busy upgrade to one of them.
 
+New [tripwire reports](tripwires.md) (`--tripwires`) start an event report the same way.
+
 #### The cap on event reports
 
 With systemd, at most **12 event reports** go out per rolling hour: those after package changes, site deploys, `heimdall-collect deployed` and the privilege watch. The hourly report is never capped. Anyone on the server can set off a deploy report, so without a cap a local user could keep the host over the hub's limit of 30 reports an hour, and the hub would reject its hourly reports too. With the cap, a host sends at most about 12 + 1 + (a boot) reports an hour, whatever happens on it.

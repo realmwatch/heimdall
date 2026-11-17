@@ -92,6 +92,7 @@ var ruleLabels = map[string]string{
 	"login_then_succeeded":     "failed logins, then a successful one, from an unknown address",
 	"dns_unproxied":            "a public name stopped going through Cloudflare",
 	"cname_takeover":           "a public name points at a CNAME anyone could claim",
+	"tripwire":                 "an app's tripwire was tripped (a decoy or honey credential)",
 	"collector_changed":        "collector changed",
 	"collector_downgrade":      "collector downgraded",
 	"package_downgrade":        "package downgraded",

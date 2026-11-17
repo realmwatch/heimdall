@@ -92,7 +92,8 @@ usage: install.sh --hub https://ingest.example.com [--token-stdin | --token-file
                   [--version vX.Y.Z] [--from-dir DIR] [--no-push]
                   [--sites "/srv/app ..."] [--lockfiles "/srv/app/package-lock.json ..."]
                   [--watch-privilege [--watch-privilege-users] | --no-watch-privilege]
-                  [--watch-logins | --no-watch-logins] [--skip-signature-check]
+                  [--watch-logins | --no-watch-logins] [--tripwires | --no-tripwires]
+                  [--skip-signature-check]
 
   --hub          the hub's ingest URL (https://)
   (default)      prompt for the ingest token on the terminal, without echo
@@ -114,14 +115,19 @@ usage: install.sh --hub https://ingest.example.com [--token-stdin | --token-file
   --watch-logins           count failed SSH logins per source address (counts
                            only; never usernames); see docs/failed-logins.md
   --no-watch-logins        remove the login watch
+  --tripwires              send the tripwire reports apps on this server write
+                           (the Laravel package laravel-viti) to
+                           /var/lib/heimdall-viti; see docs/tripwires.md
+  --no-tripwires           stop, and delete the reports waiting
   --skip-signature-check   don't check the release's Sigstore signature, only
                            its checksums (where cosign can't run; not advised)
-  (re-running keeps the current privilege and login watch choices)
+  (re-running keeps the current privilege watch, login watch and tripwires
+  choices)
 EOF
 	exit 2
 }
 
-token_given=0 hub='' token='' enroll='' awaiting=0 name='' version=$HEIMDALL_VERSION from_dir='' push=1 sites='' lockfiles='' privilege='' logins='' sigcheck=1
+token_given=0 hub='' token='' enroll='' awaiting=0 name='' version=$HEIMDALL_VERSION from_dir='' push=1 sites='' lockfiles='' privilege='' logins='' tripwires='' sigcheck=1
 while [ $# -gt 0 ]; do
 	case $1 in
 	--hub) hub=${2:-}; shift ;;
@@ -139,6 +145,8 @@ while [ $# -gt 0 ]; do
 	--no-watch-privilege) privilege=off ;;
 	--watch-logins) logins=on ;;
 	--no-watch-logins) logins=off ;;
+	--tripwires) tripwires=on ;;
+	--no-tripwires) tripwires=off ;;
 	--skip-signature-check) sigcheck=0 ;;
 	-h | --help) usage ;;
 	*) usage ;;
@@ -282,6 +290,8 @@ conf=/etc/heimdall
 case $privilege in on | users | off) ;; *) privilege='' ;; esac
 [ -n "$logins" ] || logins=$(sed -n 's/^HEIMDALL_LOGIN_WATCH=//p' "$conf/collect.env" 2>/dev/null | tail -n 1)
 case $logins in on | off) ;; *) logins='' ;; esac
+[ -n "$tripwires" ] || tripwires=$(sed -n 's/^HEIMDALL_TRIPWIRES=//p' "$conf/collect.env" 2>/dev/null | tail -n 1)
+case $tripwires in on | off) ;; *) tripwires='' ;; esac
 if [ -n "$enroll" ]; then
 	# Re-running on a server that already reports (e.g. an ssh loop over the
 	# whole fleet) keeps its token: it's an upgrade, not a second host.
@@ -321,8 +331,24 @@ chmod 0400 "$conf/token"
 	[ -z "$lockfiles" ] || printf "HEIMDALL_LOCKFILES='%s'\n" "$lockfiles"
 	[ -z "$privilege" ] || printf 'HEIMDALL_PRIVILEGE_WATCH=%s\n' "$privilege"
 	[ -z "$logins" ] || printf 'HEIMDALL_LOGIN_WATCH=%s\n' "$logins"
+	[ -z "$tripwires" ] || printf 'HEIMDALL_TRIPWIRES=%s\n' "$tripwires"
 } >"$conf/collect.env"
 chmod 0644 "$conf/collect.env"
+
+# Tripwire reports (--tripwires): the spool apps write trips to. Mode 1733:
+# any user (each site's PHP user) may add a file but not list or read the
+# others; heimdall owns it, so the collector can read and delete them. Made
+# before the change watch below, which watches it once it exists.
+spool=/var/lib/heimdall-viti
+case $tripwires in
+on)
+	if [ -L "$spool" ] || { [ -e "$spool" ] && [ ! -d "$spool" ]; }; then rm -f "$spool"; fi
+	install -d "$spool"
+	chown heimdall:0 "$spool"
+	chmod 1733 "$spool"
+	;;
+off) rm -rf "$spool" ;;
+esac
 
 # Root runs these, so they live in a root-owned directory, not in $conf
 # (which the heimdall user owns). The push itself reads collect.env as heimdall.
