@@ -1,0 +1,14 @@
+# Heimdall collector: send apps' tripwire reports seconds after they're
+# written (install.sh --tripwires). Each change in the spool starts
+# heimdall-collect-trips.service, which waits 5 seconds (a scanner's burst
+# goes in one request) and sends every trip waiting. See docs/tripwires.md.
+
+[Unit]
+Description=Watch the tripwire spool for Heimdall
+Documentation=https://github.com/realmwatch/heimdall/blob/main/docs/tripwires.md
+
+[Path]
+PathChanged=/var/lib/heimdall-viti
+
+[Install]
+WantedBy=paths.target

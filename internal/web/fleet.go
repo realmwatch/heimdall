@@ -863,6 +863,7 @@ var anomalyRules = map[string]string{
 	"privilege_unknown_source": "privileged access from an unknown address", "privilege_off_tailnet": "SSH from outside the tailnet",
 	"silent_online":        "stopped reporting while still on the tailnet",
 	"login_then_succeeded": "failed, then logged in", "dns_unproxied": "name no longer proxied", "cname_takeover": "CNAME takeover risk",
+	"tripwire": "tripwire tripped",
 }
 
 func ruleLabel(rule string) string {

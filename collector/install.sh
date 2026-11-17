@@ -92,7 +92,8 @@ usage: install.sh --hub https://ingest.example.com [--token-stdin | --token-file
                   [--version vX.Y.Z] [--from-dir DIR] [--no-push]
                   [--sites "/srv/app ..."] [--lockfiles "/srv/app/package-lock.json ..."]
                   [--watch-privilege [--watch-privilege-users] | --no-watch-privilege]
-                  [--watch-logins | --no-watch-logins] [--skip-signature-check]
+                  [--watch-logins | --no-watch-logins] [--tripwires | --no-tripwires]
+                  [--skip-signature-check]
 
   --hub          the hub's ingest URL (https://)
   (default)      prompt for the ingest token on the terminal, without echo
@@ -114,14 +115,19 @@ usage: install.sh --hub https://ingest.example.com [--token-stdin | --token-file
   --watch-logins           count failed SSH logins per source address (counts
                            only; never usernames); see docs/failed-logins.md
   --no-watch-logins        remove the login watch
+  --tripwires              send the tripwire reports apps on this server write
+                           (the Laravel package laravel-viti) to
+                           /var/lib/heimdall-viti; see docs/tripwires.md
+  --no-tripwires           stop, and delete the reports waiting
   --skip-signature-check   don't check the release's Sigstore signature, only
                            its checksums (where cosign can't run; not advised)
-  (re-running keeps the current privilege and login watch choices)
+  (re-running keeps the current privilege watch, login watch and tripwires
+  choices)
 EOF
 	exit 2
 }
 
-token_given=0 hub='' token='' enroll='' awaiting=0 name='' version=$HEIMDALL_VERSION from_dir='' push=1 sites='' lockfiles='' privilege='' logins='' sigcheck=1
+token_given=0 hub='' token='' enroll='' awaiting=0 name='' version=$HEIMDALL_VERSION from_dir='' push=1 sites='' lockfiles='' privilege='' logins='' tripwires='' sigcheck=1
 while [ $# -gt 0 ]; do
 	case $1 in
 	--hub) hub=${2:-}; shift ;;
@@ -139,6 +145,8 @@ while [ $# -gt 0 ]; do
 	--no-watch-privilege) privilege=off ;;
 	--watch-logins) logins=on ;;
 	--no-watch-logins) logins=off ;;
+	--tripwires) tripwires=on ;;
+	--no-tripwires) tripwires=off ;;
 	--skip-signature-check) sigcheck=0 ;;
 	-h | --help) usage ;;
 	*) usage ;;
@@ -259,6 +267,11 @@ if grep -qx 'Unit=heimdall-collect-soon.service' "$work/heimdall-collect-soon.ti
 	fetch heimdall-collect-soon.service
 	units="$units heimdall-collect-soon.service"
 fi
+# The tripwire reports' watch (0.5.34 on): fetched when the release lists it.
+if awk '$2 == "heimdall-collect-trips.path" { found = 1 } END { exit !found }' "$work/SHA256SUMS"; then
+	for f in heimdall-collect-trips.path heimdall-collect-trips.service; do fetch "$f"; done
+	units="$units heimdall-collect-trips.path heimdall-collect-trips.service"
+fi
 if [ "$sigcheck" = 1 ]; then
 	fetch SHA256SUMS.sigstore.json
 	verify_release "$work"
@@ -282,6 +295,8 @@ conf=/etc/heimdall
 case $privilege in on | users | off) ;; *) privilege='' ;; esac
 [ -n "$logins" ] || logins=$(sed -n 's/^HEIMDALL_LOGIN_WATCH=//p' "$conf/collect.env" 2>/dev/null | tail -n 1)
 case $logins in on | off) ;; *) logins='' ;; esac
+[ -n "$tripwires" ] || tripwires=$(sed -n 's/^HEIMDALL_TRIPWIRES=//p' "$conf/collect.env" 2>/dev/null | tail -n 1)
+case $tripwires in on | off) ;; *) tripwires='' ;; esac
 if [ -n "$enroll" ]; then
 	# Re-running on a server that already reports (e.g. an ssh loop over the
 	# whole fleet) keeps its token: it's an upgrade, not a second host.
@@ -321,8 +336,24 @@ chmod 0400 "$conf/token"
 	[ -z "$lockfiles" ] || printf "HEIMDALL_LOCKFILES='%s'\n" "$lockfiles"
 	[ -z "$privilege" ] || printf 'HEIMDALL_PRIVILEGE_WATCH=%s\n' "$privilege"
 	[ -z "$logins" ] || printf 'HEIMDALL_LOGIN_WATCH=%s\n' "$logins"
+	[ -z "$tripwires" ] || printf 'HEIMDALL_TRIPWIRES=%s\n' "$tripwires"
 } >"$conf/collect.env"
 chmod 0644 "$conf/collect.env"
+
+# Tripwire reports (--tripwires): the spool apps write trips to. Mode 1733:
+# any user (each site's PHP user) may add a file but not list or read the
+# others; heimdall owns it, so the collector can read and delete them.
+# heimdall-collect-trips.path (below) sends them seconds after they arrive.
+spool=/var/lib/heimdall-viti
+case $tripwires in
+on)
+	if [ -L "$spool" ] || { [ -e "$spool" ] && [ ! -d "$spool" ]; }; then rm -f "$spool"; fi
+	install -d "$spool"
+	chown heimdall:0 "$spool"
+	chmod 1733 "$spool"
+	;;
+off) rm -rf "$spool" ;;
+esac
 
 # Root runs these, so they live in a root-owned directory, not in $conf
 # (which the heimdall user owns). The push itself reads collect.env as heimdall.
@@ -385,6 +416,20 @@ if [ -d /run/systemd/system ] && have systemctl; then
 	if [ "${found:-0}" -gt 50 ]; then
 		say "WARNING: watching deploys of the first 50 of $found sites; use 'heimdall-collect deployed' for the rest"
 	fi
+	# Tripwire reports: their own watch, seconds after an app writes one.
+	if [ "$tripwires" = on ] && [ ! -f "$work/heimdall-collect-trips.path" ]; then
+		say "WARNING: this release has no tripwire reports' watch"
+		tripwires_watch=0
+		systemctl disable --now heimdall-collect-trips.path >/dev/null 2>&1 || true
+		rm -f /etc/systemd/system/heimdall-collect-trips.path /etc/systemd/system/heimdall-collect-trips.service
+	elif [ "$tripwires" = on ]; then
+		tripwires_watch=1
+		install -m 0644 "$work/heimdall-collect-trips.path" /etc/systemd/system/
+		sed "s#/etc/heimdall/collect.env#$conf/collect.env#" "$work/heimdall-collect-trips.service" >/etc/systemd/system/heimdall-collect-trips.service
+	else
+		systemctl disable --now heimdall-collect-trips.path >/dev/null 2>&1 || true
+		rm -f /etc/systemd/system/heimdall-collect-trips.path /etc/systemd/system/heimdall-collect-trips.service
+	fi
 	if [ "$watching" = 1 ]; then
 		install -m 0644 "$work/changes.path" "$unit"
 	else
@@ -404,6 +449,11 @@ if [ -d /run/systemd/system ] && have systemctl; then
 		systemctl restart heimdall-collect-changes.path # picks up a changed watch list
 		scheduler="$scheduler, and a minute after packages change or a deploy"
 		say "$deploy_note, and 'heimdall-collect deployed' (upgrade picks up new sites)"
+	fi
+	if [ "${tripwires_watch:-0}" = 1 ]; then
+		systemctl enable heimdall-collect-trips.path >/dev/null 2>&1
+		systemctl restart heimdall-collect-trips.path
+		say "Sending tripwire reports seconds after an app writes them ($spool)"
 	fi
 	run_now() { systemctl start heimdall-collect.service; }
 else

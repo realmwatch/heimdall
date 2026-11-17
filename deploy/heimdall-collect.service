@@ -22,6 +22,9 @@ ProtectSystem=strict
 ProtectHome=read-only
 PrivateTmp=yes
 PrivateDevices=yes
+# Except the tripwire reports' spool, so sent ones can be deleted (with
+# install.sh --tripwires; ignored when it's missing).
+ReadWritePaths=-/var/lib/heimdall-viti
 
 # Privileges: none.
 NoNewPrivileges=yes

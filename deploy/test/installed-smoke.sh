@@ -224,6 +224,39 @@ sudo -u heimdall sh -c 'set -a; . /etc/heimdall-collect/collect.env; exec heimda
 	grep -q '"framework_version": "11.0.1"' || fail "the snapshot doesn't have the new release's packages"
 reported_after "in-place deploy" inplace_deploy
 reported_after "heimdall-collect deployed" announced
+
+step "Tripwires: a trip an app writes, as another user, reaches the hub and is deleted"
+sudo sh "$dist/install.sh" --hub http://127.0.0.1:8443 --token-file /etc/heimdall-collect/token --from-dir "$dist" \
+	--skip-signature-check --no-push --sites "/srv/zdt-site/current /srv/inplace-site" --tripwires
+spool=/var/lib/heimdall-viti
+[ "$(stat -c '%U %a' "$spool")" = "heimdall 1733" ] || fail "the spool is $(stat -c '%U %a' "$spool")"
+systemctl is-active --quiet heimdall-collect-trips.path || fail "the trips watch isn't running"
+! grep -q "PathChanged=$spool" "$unit" || fail "the event reports' watch watches the spool"
+sudo grep -qx 'HEIMDALL_TRIPWIRES=on' /etc/heimdall-collect/collect.env || fail "collect.env doesn't keep --tripwires"
+trip_id=01JD7Q3V9X8K2M4N6P0R2S4T6V
+trip() { # as the app would: a dot name, then renamed into place
+	printf '{"schema":"viti.trip.v1","id":"%s","site":"app.example.com","root":"/srv/app","tripwire":"honey_user","token":"login","severity":"high","occurred_at":"%s","request":{"ip":"203.0.113.9","method":"POST","path":"/login","query_keys":[],"headers":{}},"actor":{"authenticated":false,"user_id":null},"context":{},"package_version":"smoke"}' \
+		"$trip_id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
+		sudo -u nobody sh -c "umask 077; cat >$spool/.$trip_id.tmp && chmod 0644 $spool/.$trip_id.tmp && mv $spool/.$trip_id.tmp $spool/$trip_id.json"
+}
+! sudo -u nobody ls "$spool" >/dev/null 2>&1 || fail "another user can list the spool"
+t0=$(date +%s)
+trip
+while sudo test -e "$spool/$trip_id.json"; do # sent without a report, in seconds
+	[ $(($(date +%s) - t0)) -lt 30 ] || fail "the trip wasn't sent within 30s"
+	sleep 1
+done
+took=$(($(date +%s) - t0))
+[ "$took" -ge 4 ] || fail "the trip was sent after ${took}s, before the 5s wait"
+printf 'trip sent after %ss\n' "$took"
+[ -n "$(systemctl show -P InvocationID heimdall-collect-trips.service)" ] || fail "the trips service never ran"
+[ "$(systemctl show -P Result heimdall-collect-trips.service)" = success ] || fail "the trips service failed"
+expect 'tripwire' sudo heimdall anomaly list
+sudo sh "$dist/install.sh" --hub http://127.0.0.1:8443 --token-file /etc/heimdall-collect/token --from-dir "$dist" \
+	--skip-signature-check --no-push --sites "/srv/zdt-site/current /srv/inplace-site" --no-tripwires
+[ ! -e "$spool" ] || fail "--no-tripwires left the spool"
+[ ! -e /etc/systemd/system/heimdall-collect-trips.path ] || fail "--no-tripwires left the trips watch"
+! systemctl is-active --quiet heimdall-collect-trips.path || fail "--no-tripwires left the trips watch running"
 sudo rm -r /etc/systemd/system/heimdall-collect-soon.timer.d
 sudo systemctl daemon-reload
 

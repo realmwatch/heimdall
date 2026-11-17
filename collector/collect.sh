@@ -7,8 +7,9 @@
 #
 # Read-only and unprivileged: it refuses to run as root (except `upgrade`
 # and `set-hub`, which change only the collector itself), never changes the
-# system, makes one HTTPS request in --push mode, and ignores everything in
-# the hub's response except the status code.
+# system (it only deletes tripwire reports the hub has stored), makes one
+# HTTPS request in --push mode (two when tripwire reports are waiting), and
+# ignores everything in the hub's response except the status code.
 #
 # Environment (push mode):
 #   HEIMDALL_URL         hub base URL, e.g. https://heimdall.example.com:8443
@@ -28,7 +29,7 @@ export LC_ALL=C
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
-VERSION=0.5.33
+VERSION=0.5.34
 FORMAT=heimdall.snapshot/v4
 
 die() { printf 'heimdall-collect: %s\n' "$*" >&2; exit 1; }
@@ -1495,7 +1496,8 @@ load_env() {
 	return 1
 }
 
-push() {
+# hub_setup: check the hub URL and read the token, for a push.
+hub_setup() {
 	[ -n "${HEIMDALL_URL:-}" ] || load_env || true
 	url=${HEIMDALL_URL:-}
 	token_file=${HEIMDALL_TOKEN_FILE:-/etc/heimdall/token}
@@ -1528,6 +1530,15 @@ EOF
 	'' | *[!A-Za-z0-9_-]*) die "token file $token_file does not contain a valid token" ;;
 	esac
 
+	cacert=
+	if [ -n "${HEIMDALL_CA_FILE:-}" ]; then
+		[ -r "$HEIMDALL_CA_FILE" ] || die "cannot read $HEIMDALL_CA_FILE"
+		cacert="cacert = \"$HEIMDALL_CA_FILE\""
+	fi
+}
+
+push() {
+	hub_setup
 	tmp=$(mktemp -d)
 	trap 'rm -rf "$tmp"' EXIT
 	snapshot >"$tmp/snapshot.json"
@@ -1537,11 +1548,6 @@ EOF
 		gzip -c "$body" >"$tmp/snapshot.json.gz"
 		body=$tmp/snapshot.json.gz
 		encoding='header = "Content-Encoding: gzip"'
-	fi
-	cacert=
-	if [ -n "${HEIMDALL_CA_FILE:-}" ]; then
-		[ -r "$HEIMDALL_CA_FILE" ] || die "cannot read $HEIMDALL_CA_FILE"
-		cacert="cacert = \"$HEIMDALL_CA_FILE\""
 	fi
 
 	# The machine's hostname names a host added without one (on the hub).
@@ -1606,6 +1612,7 @@ EOF
 		if [ -n "$hub" ] && newer "${hub#v}" "$VERSION"; then
 			echo "heimdall-collect: the hub runs $hub and this collector is $VERSION; update with: sudo heimdall-collect upgrade" >&2
 		fi
+		push_trips "$tmp" || true # never fails the report
 		;;
 	401 | 403) die "hub rejected the token (HTTP $status); check $token_file" ;;
 	409) die "hub rejected a duplicate snapshot (HTTP 409)" ;;
@@ -1618,6 +1625,93 @@ EOF
 		die "hub returned HTTP $status${reply:+: $reply}"
 		;;
 	esac
+}
+
+# ── Tripwire reports (opt-in, install.sh --tripwires) ───────────────────────
+# Apps on this server (the realmwatch/laravel-viti package) write one trip
+# per file into the spool: <ULID>.json, one line of JSON, written under a dot
+# name and renamed into place. The directory is mode 1733, owned by this
+# user: any user may add a file, and only this user can list, read and
+# delete them. heimdall-collect-trips.path sends them seconds after they're
+# written (--push-trips), and each report sends any still waiting, in a
+# request of their own. They're deleted once the hub has stored them (HTTP
+# 200); otherwise they wait for the next try. See docs/tripwires.md.
+TRIPS_SPOOL=${HEIMDALL_TRIPS_SPOOL:-/var/lib/heimdall-viti}
+TRIPS_MAX=200          # trips per request
+TRIPS_MAX_BYTES=262144 # and bytes
+TRIPS_KEEP=5000        # pending trips kept when the hub can't be reached
+U='[0-9A-HJKMNP-TV-Z]'
+TRIP_NAME="$U$U$U$U$U$U$U$U$U$U$U$U$U$U$U$U$U$U$U$U$U$U$U$U$U$U.json"
+
+# trips_rm FILE...: delete spool files, except when only printing (--trips).
+trips_rm() { [ "${TRIPS_DRY:-}" = 1 ] || rm -f "$@"; }
+
+# trips_batch BODY LIST: write the oldest pending trips to BODY, one per
+# line, and their file names to LIST. Nothing that can't be a trip is read
+# or sent: only regular files (never a symlink) with a trip's name, at most
+# 64 KiB, holding one line that starts as a viti.trip.v1 object does.
+# Anything else in the spool is deleted, as are unfinished writes (dot
+# names) older than an hour and, past TRIPS_KEEP, the oldest trips.
+trips_batch() {
+	: >"$1"
+	: >"$2"
+	[ -d "$TRIPS_SPOOL" ] && [ ! -L "$TRIPS_SPOOL" ] || return 0
+	if [ "${TRIPS_DRY:-}" != 1 ]; then
+		find "$TRIPS_SPOOL" -mindepth 1 -maxdepth 1 \( -name '.*' -mmin +60 -o ! -name '.*' \( ! -type f -o ! -name "$TRIP_NAME" -o -size +64k \) \) \
+			! -type d -exec rm -f {} + 2>/dev/null || true
+	fi
+	# A trip's name is its ULID, so sorting by name is oldest first.
+	names=$(find "$TRIPS_SPOOL" -mindepth 1 -maxdepth 1 -type f -name "$TRIP_NAME" -size -65k 2>/dev/null | sed 's#.*/##' | LC_ALL=C sort)
+	[ -n "$names" ] || return 0
+	extra=$(($(printf '%s\n' "$names" | wc -l) - TRIPS_KEEP))
+	if [ "$extra" -gt 0 ]; then
+		for f in $(printf '%s\n' "$names" | head -n "$extra"); do trips_rm "$TRIPS_SPOOL/$f"; done
+		names=$(printf '%s\n' "$names" | tail -n "+$((extra + 1))")
+	fi
+	nl='
+'
+	n=0 bytes=0
+	for f in $names; do # the names are only [0-9A-Z.json], so splitting is safe
+		[ "$n" -lt "$TRIPS_MAX" ] || break
+		p=$TRIPS_SPOOL/$f
+		if [ ! -f "$p" ] || [ -L "$p" ]; then continue; fi
+		line=$(head -c 65536 "$p" 2>/dev/null) || continue
+		case $line in
+		*"$nl"*) trips_rm "$p"; continue ;;
+		'{"schema":"viti.trip.v1",'*'}') ;;
+		*) trips_rm "$p"; continue ;;
+		esac
+		[ $((bytes + ${#line} + 1)) -le "$TRIPS_MAX_BYTES" ] || break
+		printf '%s\n' "$line" >>"$1"
+		printf '%s\n' "$f" >>"$2"
+		n=$((n + 1)) bytes=$((bytes + ${#line} + 1))
+	done
+}
+
+# push_trips TMPDIR: send pending trips (after hub_setup), and delete them
+# once the hub has stored them.
+push_trips() {
+	trips_batch "$1/trips.ndjson" "$1/trips.list"
+	[ -s "$1/trips.ndjson" ] || return 0
+	rc=0
+	status=$(printf '%s\n' \
+		"header = \"Authorization: Bearer $token\"" \
+		"header = \"Content-Type: application/x-ndjson\"" \
+		'header = "X-Heimdall-Trips: v1"' \
+		"$cacert" |
+		"$curl" --config - --silent --show-error \
+			--proto '=https,http' --tlsv1.2 \
+			--connect-timeout 10 --max-time 60 \
+			--retry 2 --retry-delay 10 \
+			--data-binary "@$1/trips.ndjson" \
+			--output "$1/trips.reply" --write-out '%{http_code}' \
+			"${url%/}/api/v1/ingest") || rc=$?
+	if [ "$rc" -eq 0 ] && [ "$status" = 200 ]; then
+		while IFS= read -r f; do trips_rm "$TRIPS_SPOOL/$f"; done <"$1/trips.list"
+		return 0
+	fi
+	echo "heimdall-collect: tripwire reports not sent (HTTP ${status:-none}, curl exit $rc); they wait for the next push" >&2
+	return 1
 }
 
 # ── Upgrade ─────────────────────────────────────────────────────────────────
@@ -1686,17 +1780,18 @@ newer() {
 
 # upgrade [vX.Y.Z] [--watch-privilege-users | --watch-privilege |
 # --no-watch-privilege] [--watch-logins | --no-watch-logins]
-# [--skip-signature-check]: reinstall
+# [--tripwires | --no-tripwires] [--skip-signature-check]: reinstall
 # this collector from the release the hub runs (or the one given), keeping
-# its hub, token and settings, and changing the privilege or login watch
-# when asked (even when already up to date).
+# its hub, token and settings, and changing the privilege or login watch or
+# tripwire reports when asked (even when already up to date).
 # Root only: it replaces /usr/local/bin/heimdall-collect.
 upgrade() {
-	given='' priv='' logins='' sigcheck=1
+	given='' priv='' logins='' trips='' sigcheck=1
 	for a in "$@"; do
 		case $a in
 		--watch-privilege | --watch-privilege-users | --no-watch-privilege) priv=$a ;;
 		--watch-logins | --no-watch-logins) logins=$a ;;
+		--tripwires | --no-tripwires) trips=$a ;;
 		--skip-signature-check) sigcheck=0 ;;
 		v[0-9]*) given=$a ;;
 		*) usage ;;
@@ -1730,7 +1825,7 @@ upgrade() {
 	v[0-9]*.[0-9]*.[0-9]*) ;;
 	*) die "the hub didn't report a release version; give one: heimdall-collect upgrade vX.Y.Z" ;;
 	esac
-	if [ -z "$given" ] && [ -z "$priv" ] && [ -z "$logins" ] && ! newer "${want#v}" "$VERSION"; then
+	if [ -z "$given" ] && [ -z "$priv" ] && [ -z "$logins" ] && [ -z "$trips" ] && ! newer "${want#v}" "$VERSION"; then
 		echo "heimdall-collect: already up to date ($VERSION; the hub runs $want)" >&2
 		# Still pick up sites added since the install.
 		HEIMDALL_SITES=$sites
@@ -1758,6 +1853,7 @@ upgrade() {
 	[ -z "$lockfiles" ] || set -- "$@" --lockfiles "$lockfiles"
 	[ -z "$priv" ] || set -- "$@" "$priv"
 	[ -z "$logins" ] || set -- "$@" "$logins"
+	[ -z "$trips" ] || set -- "$@" "$trips"
 	[ "$sigcheck" = 1 ] || set -- "$@" --skip-signature-check
 	sh "$work/install.sh" "$@"
 }
@@ -1825,18 +1921,22 @@ set_hub() {
 
 usage() {
 	cat >&2 <<'EOF'
-usage: heimdall-collect --print | --push | --site-repos | --site-branches |
-                        --php | --ssh | --release | --deploy-watches |
-                        --logins | --version
+usage: heimdall-collect --print | --push | --push-trips | --trips |
+                        --site-repos | --site-branches | --php | --ssh |
+                        --release | --deploy-watches | --logins | --version
        heimdall-collect deployed
        sudo heimdall-collect upgrade [vX.Y.Z] [--watch-privilege-users |
                                      --watch-privilege | --no-watch-privilege]
                                      [--watch-logins | --no-watch-logins]
+                                     [--tripwires | --no-tripwires]
                                      [--skip-signature-check]
        sudo heimdall-collect set-hub https://NEW-HUB-ADDRESS
 
   --print       write a snapshot to stdout (for review or 'heimdall import')
   --push        send a snapshot to $HEIMDALL_URL using $HEIMDALL_TOKEN_FILE
+                (then any tripwire reports waiting; see install.sh --tripwires)
+  --push-trips  send only the tripwire reports waiting
+  --trips       print the tripwire reports the next push would send
   --site-repos  print the site repositories --push would send
   --site-branches
                 print the sites' checked-out branches --push would send
@@ -1857,8 +1957,8 @@ usage: heimdall-collect --print | --push | --site-repos | --site-branches |
                 script, as any user (no sudo). Always exits 0
   upgrade      reinstall from the release the hub runs (or the one given),
                 keeping the hub, token and settings; checked against the
-                release's signed SHA256SUMS. A privilege or login watch option
-                changes it (see install.sh --help), even when already up
+                release's signed SHA256SUMS. A privilege or login watch or
+                tripwires option changes it (see install.sh --help), even when already up
                 to date
   set-hub       report to another hub address from now on: sends a report
                 there first, and changes HEIMDALL_URL in collect.env only
@@ -1871,7 +1971,7 @@ if [ "${1:-}" = set-hub ] && [ $# -eq 2 ]; then
 	set_hub "$2"
 	exit 0
 fi
-if [ "${1:-}" = upgrade ] && [ $# -le 5 ]; then
+if [ "${1:-}" = upgrade ] && [ $# -le 6 ]; then
 	shift
 	upgrade "$@"
 	exit 0
@@ -1889,7 +1989,7 @@ case $1 in
 deployed) deployed; exit 0 ;; # any user, root too: it only touches a file
 # For heimdall-collect-soon.service (root), not for people:
 event-allowed) if event_allowed; then exit 0; else exit 1; fi ;;
---print | --push | --site-repos | --site-branches | --php | --ssh | --release | --deploy-watches | --logins) ;;
+--print | --push | --push-trips | --trips | --site-repos | --site-branches | --php | --ssh | --release | --deploy-watches | --logins) ;;
 *) usage ;;
 esac
 
@@ -1900,6 +2000,25 @@ fi
 case $1 in
 --print) snapshot ;;
 --push) push ;;
+--push-trips)
+	# heimdall-collect-trips.service: the watch can't start it again while it
+	# runs, so send what arrived meanwhile too, up to 10 requests.
+	hub_setup
+	tmp=$(mktemp -d)
+	trap 'rm -rf "$tmp"' EXIT
+	i=0
+	while [ "$i" -lt 10 ]; do
+		push_trips "$tmp" || exit 1
+		[ -s "$tmp/trips.ndjson" ] || break # none were waiting
+		i=$((i + 1))
+	done
+	;;
+--trips)
+	tmp=$(mktemp -d)
+	trap 'rm -rf "$tmp"' EXIT
+	TRIPS_DRY=1 trips_batch "$tmp/trips" "$tmp/list"
+	cat "$tmp/trips"
+	;;
 --site-repos) sites_json | site_repos; echo ;;
 --site-branches) sites_json | site_branches; echo ;;
 --php) php_state; echo ;;

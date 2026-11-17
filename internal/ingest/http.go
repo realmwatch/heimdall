@@ -62,6 +62,7 @@ type Handler struct {
 	perHost     *limiter
 	authFail    *limiter
 	enrolls     *limiter
+	tripsLimit  *limiter
 
 	// hostByToken is store.HostByToken (replaced in tests), bounded by
 	// lookupTimeout so a busy store answers 503 while the collector can
@@ -97,6 +98,7 @@ func NewHandler(st *store.Store, cfg config.Ingest, log *slog.Logger, now func()
 		perHost:     newLimiter(cfg.RatePerHost.N, cfg.RatePerHost.Per, maxLimiterKeys, now),
 		authFail:    newLimiter(authFailuresPerMinute, time.Minute, maxLimiterKeys, now),
 		enrolls:     newLimiter(enrollsPerMinute, time.Minute, maxLimiterKeys, now),
+		tripsLimit:  newLimiter(tripsPerHour, time.Hour, maxLimiterKeys, now),
 
 		hostByToken:   st.HostByToken,
 		lookupTimeout: tokenLookupTimeout,
@@ -206,6 +208,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "{\"version\":%q}\n", h.Version)
+		return
+	}
+
+	if r.Header.Get(TripsHeader) != "" {
+		h.trips(w, r, host, raw, bodyCode, bodyErr, log) // tripwire reports (trips.go)
 		return
 	}
 
@@ -319,8 +326,12 @@ func (h *Handler) authenticate(ctx context.Context, token string) (host store.In
 // readBody enforces the content type and the size cap on both the wire
 // bytes and the decompressed bytes (so a gzip bomb can't get past it).
 func (h *Handler) readBody(w http.ResponseWriter, r *http.Request) ([]byte, int, error) {
-	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/json" {
-		return nil, http.StatusUnsupportedMediaType, errors.New("content type must be application/json")
+	want := "application/json"
+	if r.Header.Get(TripsHeader) != "" {
+		want = TripsContentType
+	}
+	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != want {
+		return nil, http.StatusUnsupportedMediaType, errors.New("content type must be " + want)
 	}
 	body := io.Reader(http.MaxBytesReader(w, r.Body, h.maxBody))
 	switch enc := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Encoding"))); enc {
