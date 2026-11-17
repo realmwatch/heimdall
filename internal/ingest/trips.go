@@ -33,13 +33,14 @@ const (
 	tripSchema       = "viti.trip.v1"
 
 	maxTripsPerPush = 500
-	maxTripLine     = 16 << 10
-	maxTripDetail   = 8 << 10
+	maxTripLine     = 64 << 10
+	maxTripDetail   = 32 << 10
 	// Trips older than this, or further in the future than MaxSkew, are dropped.
 	maxTripAge = 30 * 24 * time.Hour
-	// Trip requests per host per hour, apart from rate_per_host: they come
-	// after a report, and from the change watch.
-	tripsPerHour = 60
+	// Trip requests per host per hour, apart from rate_per_host: the
+	// collector's trips watch sends them seconds after an app writes them
+	// (at most about one every 5 seconds), and each report sends any left.
+	tripsPerHour = 720
 )
 
 var (

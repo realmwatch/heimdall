@@ -1,0 +1,55 @@
+# Heimdall collector: send apps' tripwire reports, started by
+# heimdall-collect-trips.path. Sandboxed like heimdall-collect.service.
+
+[Unit]
+Description=Heimdall collector (send tripwire reports to the hub)
+Documentation=https://github.com/realmwatch/heimdall/blob/main/docs/tripwires.md
+After=network-online.target
+Wants=network-online.target
+# A change that empties the spool (sent trips deleted) starts nothing.
+ConditionDirectoryNotEmpty=/var/lib/heimdall-viti
+
+[Service]
+Type=oneshot
+User=heimdall
+Group=heimdall
+EnvironmentFile=/etc/heimdall/collect.env
+# Wait for the rest of a burst, then send. While this runs the watch can't
+# start it again, so --push-trips also sends what arrives meanwhile.
+ExecStartPre=/bin/sleep 5
+ExecStart=/usr/local/bin/heimdall-collect --push-trips
+TimeoutStartSec=5min
+
+# Files: read-only everywhere except private temp dirs.
+UMask=0077
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+# Except the spool, so sent trips can be deleted.
+ReadWritePaths=/var/lib/heimdall-viti
+
+# Privileges: none.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+RemoveIPC=yes
+
+# Kernel and process isolation.
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+
+# System calls and sockets.
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+SystemCallErrorNumber=EPERM
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

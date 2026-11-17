@@ -259,7 +259,7 @@ token_works() {
 }
 
 say "Fetching Heimdall collector $version"
-units='heimdall-collect.service heimdall-collect.timer heimdall-collect-boot.timer heimdall-collect-soon.timer heimdall-collect-changes.service heimdall-collect-changes.path'
+units='heimdall-collect.service heimdall-collect.timer heimdall-collect-boot.timer heimdall-collect-soon.timer heimdall-collect-changes.service heimdall-collect-changes.path heimdall-collect-trips.path heimdall-collect-trips.service'
 for f in SHA256SUMS collect.sh $units privilege-watch.sh privilege-hook login-watch.sh; do fetch "$f"; done
 # The event report cap's unit. A release from before it has none, and its
 # soon timer starts the report directly. (Checked against SHA256SUMS below.)
@@ -337,8 +337,8 @@ chmod 0644 "$conf/collect.env"
 
 # Tripwire reports (--tripwires): the spool apps write trips to. Mode 1733:
 # any user (each site's PHP user) may add a file but not list or read the
-# others; heimdall owns it, so the collector can read and delete them. Made
-# before the change watch below, which watches it once it exists.
+# others; heimdall owns it, so the collector can read and delete them.
+# heimdall-collect-trips.path (below) sends them seconds after they arrive.
 spool=/var/lib/heimdall-viti
 case $tripwires in
 on)
@@ -411,6 +411,14 @@ if [ -d /run/systemd/system ] && have systemctl; then
 	if [ "${found:-0}" -gt 50 ]; then
 		say "WARNING: watching deploys of the first 50 of $found sites; use 'heimdall-collect deployed' for the rest"
 	fi
+	# Tripwire reports: their own watch, seconds after an app writes one.
+	if [ "$tripwires" = on ]; then
+		install -m 0644 "$work/heimdall-collect-trips.path" /etc/systemd/system/
+		sed "s#/etc/heimdall/collect.env#$conf/collect.env#" "$work/heimdall-collect-trips.service" >/etc/systemd/system/heimdall-collect-trips.service
+	else
+		systemctl disable --now heimdall-collect-trips.path >/dev/null 2>&1 || true
+		rm -f /etc/systemd/system/heimdall-collect-trips.path /etc/systemd/system/heimdall-collect-trips.service
+	fi
 	if [ "$watching" = 1 ]; then
 		install -m 0644 "$work/changes.path" "$unit"
 	else
@@ -430,6 +438,11 @@ if [ -d /run/systemd/system ] && have systemctl; then
 		systemctl restart heimdall-collect-changes.path # picks up a changed watch list
 		scheduler="$scheduler, and a minute after packages change or a deploy"
 		say "$deploy_note, and 'heimdall-collect deployed' (upgrade picks up new sites)"
+	fi
+	if [ "$tripwires" = on ]; then
+		systemctl enable heimdall-collect-trips.path >/dev/null 2>&1
+		systemctl restart heimdall-collect-trips.path
+		say "Sending tripwire reports seconds after an app writes them ($spool)"
 	fi
 	run_now() { systemctl start heimdall-collect.service; }
 else

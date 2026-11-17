@@ -1632,9 +1632,10 @@ push() {
 # per file into the spool: <ULID>.json, one line of JSON, written under a dot
 # name and renamed into place. The directory is mode 1733, owned by this
 # user: any user may add a file, and only this user can list, read and
-# delete them. After each report the oldest are sent in a request of their
-# own and deleted once the hub has stored them (HTTP 200); otherwise they
-# wait for the next push. See docs/tripwires.md.
+# delete them. heimdall-collect-trips.path sends them seconds after they're
+# written (--push-trips), and each report sends any still waiting, in a
+# request of their own. They're deleted once the hub has stored them (HTTP
+# 200); otherwise they wait for the next try. See docs/tripwires.md.
 TRIPS_SPOOL=${HEIMDALL_TRIPS_SPOOL:-/var/lib/heimdall-viti}
 TRIPS_MAX=200          # trips per request
 TRIPS_MAX_BYTES=262144 # and bytes
@@ -1648,7 +1649,7 @@ trips_rm() { [ "${TRIPS_DRY:-}" = 1 ] || rm -f "$@"; }
 # trips_batch BODY LIST: write the oldest pending trips to BODY, one per
 # line, and their file names to LIST. Nothing that can't be a trip is read
 # or sent: only regular files (never a symlink) with a trip's name, at most
-# 16 KiB, holding one line that starts as a viti.trip.v1 object does.
+# 64 KiB, holding one line that starts as a viti.trip.v1 object does.
 # Anything else in the spool is deleted, as are unfinished writes (dot
 # names) older than an hour and, past TRIPS_KEEP, the oldest trips.
 trips_batch() {
@@ -1656,11 +1657,11 @@ trips_batch() {
 	: >"$2"
 	[ -d "$TRIPS_SPOOL" ] && [ ! -L "$TRIPS_SPOOL" ] || return 0
 	if [ "${TRIPS_DRY:-}" != 1 ]; then
-		find "$TRIPS_SPOOL" -mindepth 1 -maxdepth 1 \( -name '.*' -mmin +60 -o ! -name '.*' \( ! -type f -o ! -name "$TRIP_NAME" -o -size +16k \) \) \
+		find "$TRIPS_SPOOL" -mindepth 1 -maxdepth 1 \( -name '.*' -mmin +60 -o ! -name '.*' \( ! -type f -o ! -name "$TRIP_NAME" -o -size +64k \) \) \
 			! -type d -exec rm -f {} + 2>/dev/null || true
 	fi
 	# A trip's name is its ULID, so sorting by name is oldest first.
-	names=$(find "$TRIPS_SPOOL" -mindepth 1 -maxdepth 1 -type f -name "$TRIP_NAME" -size -17k 2>/dev/null | sed 's#.*/##' | LC_ALL=C sort)
+	names=$(find "$TRIPS_SPOOL" -mindepth 1 -maxdepth 1 -type f -name "$TRIP_NAME" -size -65k 2>/dev/null | sed 's#.*/##' | LC_ALL=C sort)
 	[ -n "$names" ] || return 0
 	extra=$(($(printf '%s\n' "$names" | wc -l) - TRIPS_KEEP))
 	if [ "$extra" -gt 0 ]; then
@@ -1674,7 +1675,7 @@ trips_batch() {
 		[ "$n" -lt "$TRIPS_MAX" ] || break
 		p=$TRIPS_SPOOL/$f
 		if [ ! -f "$p" ] || [ -L "$p" ]; then continue; fi
-		line=$(head -c 16384 "$p" 2>/dev/null) || continue
+		line=$(head -c 65536 "$p" 2>/dev/null) || continue
 		case $line in
 		*"$nl"*) trips_rm "$p"; continue ;;
 		'{"schema":"viti.trip.v1",'*'}') ;;
@@ -2000,10 +2001,17 @@ case $1 in
 --print) snapshot ;;
 --push) push ;;
 --push-trips)
+	# heimdall-collect-trips.service: the watch can't start it again while it
+	# runs, so send what arrived meanwhile too, up to 10 requests.
 	hub_setup
 	tmp=$(mktemp -d)
 	trap 'rm -rf "$tmp"' EXIT
-	push_trips "$tmp"
+	i=0
+	while [ "$i" -lt 10 ]; do
+		push_trips "$tmp" || exit 1
+		[ -s "$tmp/trips.ndjson" ] || break # none were waiting
+		i=$((i + 1))
+	done
 	;;
 --trips)
 	tmp=$(mktemp -d)

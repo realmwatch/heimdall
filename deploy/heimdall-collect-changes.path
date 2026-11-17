@@ -26,8 +26,6 @@ PathChanged=/lib/apk/db/installed
 PathChanged=/var/lib/pacman/local
 # `heimdall-collect deployed`, from a deploy script (any user may touch it)
 PathChanged=/var/lib/heimdall-collect/deployed
-# Tripwire reports from apps (install.sh --tripwires)
-PathChanged=/var/lib/heimdall-viti
 # install.sh adds each site's deploy markers here (heimdall-collect
 # --deploy-watches); re-run it, or `heimdall-collect upgrade`, for new sites.
 

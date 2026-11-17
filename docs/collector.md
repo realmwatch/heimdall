@@ -229,7 +229,7 @@ Both run `/usr/local/lib/heimdall-collect/soon.sh` as root. It returns at once a
 
 Event reports count toward the hub's rate limit of 30 reports per hour per host (`[ingest] rate_per_host`; hubs set up before v0.4.13 have `"10/h"` in their config, which still fits hourly reports plus a few events). The 60-second wait keeps a busy upgrade to one of them.
 
-New [tripwire reports](tripwires.md) (`--tripwires`) start an event report the same way.
+[Tripwire reports](tripwires.md) (`--tripwires`) have a watch of their own: they're sent within seconds, without a report, and don't count toward this cap.
 
 #### The cap on event reports
 
