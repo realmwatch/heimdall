@@ -280,3 +280,16 @@ func (c ChangeLink) nginxSourceSwitchLink(org, host string, h report.Host) strin
 	}
 	return c.actionLink("nginx.source.nginx_org", org, host, nil)
 }
+
+// nginxUpdateLink drafts upgrading nginx through the package template, for
+// the nginx findings an update can fix now (see fixableIDs), or is "" with
+// none (no fix released, as for a distro build the distro hasn't patched).
+func (c ChangeLink) nginxUpdateLink(org, host string, h report.Host) string {
+	var fs []report.Finding
+	for _, f := range h.Findings {
+		if f.Package == "nginx" && f.Site == "" {
+			fs = append(fs, f)
+		}
+	}
+	return c.link(org, host, "nginx", fixableIDs(fs))
+}

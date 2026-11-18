@@ -83,6 +83,7 @@ These risks are knowingly accepted to keep things simple:
 - Pending updates, with security updates flagged separately where the package manager exposes it
 - Whether a reboot is required
 - Language runtimes: PHP, Node.js, Python, Ruby, Go, Java
+- Web servers: nginx and Apache, listed with the runtimes when installed. Each version is yellow when it's out of date (an update is pending, or a fix is released for one of its findings) and red when one of its findings is known-exploited or in a live incident in the news. Distro builds of nginx are labeled as the distro's, since nginx.org's end-of-life dates don't apply to them. The host list filters hosts whose nginx speaks HTTP/2 or needs a restart
 - Common services: nginx, Apache, MySQL/MariaDB, PostgreSQL, Redis, OpenSSH, Docker
 - Docker containers and images (name, image, tag, digest), if the collector user is allowed to query Docker
 - **Laravel / PHP sites:** each site the web server serves (domains, document root, PHP-FPM version), its Laravel version, every Composer package from `composer.lock` and every npm package from `package-lock.json`. See [Sites & Laravel](#sites--laravel).
@@ -492,7 +493,7 @@ The security baseline isn't saved for later. Each milestone ships with the harde
 - [x] OSV matching via the batch query API, with query results and advisories cached locally. Findings are computed right after each push and on every scheduled sync. Advisories are matched by **source** package, and rpm queries carry the epoch.
 - [x] CISA KEV flag, joined through each advisory's CVE IDs (distro records keep them in `upstream`/`related`)
 - [x] EOL flags for OS and runtimes from endoflife.date (v1 API), fetched only for products the fleet runs
-- [x] Runtimes (PHP, Node.js, Python) derived on the hub from installed packages, with no collector change or execution. Several PHP versions side by side are all reported.
+- [x] Runtimes (PHP, Node.js, Python, and the nginx and Apache web servers) derived on the hub from installed packages, with no collector change or execution. Several PHP versions side by side are all reported.
 - [x] Outbound allowlist enforced **in-process** (`internal/netx`: HTTPS only, fixed host list, redirects checked, size caps). systemd can't allowlist by hostname, so for a hard guarantee add an egress firewall or proxy.
 - [x] `heimdall feeds sync|status` and `heimdall report` (text or JSON), sorted for patching: known-exploited first, then fixable, then by severity
 

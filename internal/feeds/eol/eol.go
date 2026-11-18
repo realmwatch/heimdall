@@ -125,6 +125,8 @@ const (
 	ProductNodeJS  = "nodejs"
 	ProductPython  = "python"
 	ProductLaravel = "laravel"
+	ProductNginx   = "nginx"
+	ProductApache  = "apache-http-server"
 )
 
 // osProducts maps os-release IDs to products and how many version
@@ -191,6 +193,8 @@ var runtimeParts = map[string]int{
 	ProductNodeJS:  1, // 20
 	ProductPython:  2, // 3.12
 	ProductLaravel: 1, // 11
+	ProductNginx:   2, // 1.30
+	ProductApache:  2, // 2.4
 }
 
 // RuntimeCycle maps a runtime product and full version to its cycle.

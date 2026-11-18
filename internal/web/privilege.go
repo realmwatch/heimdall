@@ -81,6 +81,10 @@ type privilegeEvent struct {
 	Source string   // where from: an address or host name, "" if unknown or local
 	Href   string   // the source's IP page, when it's an address
 	Badge  *ipBadge // what's known about the source (ips.go)
+	// Count is how many identical events in a row this stands for (the
+	// same kind, user and source); At is the newest, Oldest the oldest.
+	Count  int
+	Oldest time.Time
 }
 
 // recentPrivilege is how many events the host page lists.
@@ -121,6 +125,15 @@ func (s *server) privilegeFor(ctx context.Context, host store.IngestHost, pm, co
 			b := badgeFor(resolve(ev.Source, ev.User, ev.At))
 			pe.Href, pe.Badge = b.Href, &b
 		}
+		// Identical events in a row (a deploy's run of sudo) fold into one.
+		if n := len(v.Recent); n > 0 {
+			if last := &v.Recent[n-1]; last.Kind == pe.Kind && last.User == pe.User && last.Source == pe.Source {
+				last.Count++
+				last.Oldest = pe.At
+				continue
+			}
+		}
+		pe.Count, pe.Oldest = 1, pe.At
 		v.Recent = append(v.Recent, pe)
 	}
 	// Sessions in the last day from addresses nothing is known about.

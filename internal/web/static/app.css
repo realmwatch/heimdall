@@ -698,6 +698,9 @@ ul.pkg-findings .summary { color: var(--muted); font-size: 12px; margin-top: 2px
 .rt-name { grid-column: 1 / -1; }
 .rt-ver { display: contents; }
 .rt-v { font-variant-numeric: tabular-nums; }
+.rt-v-outdated, .rt-v-exploited { padding: 0 6px; border-radius: 6px; font-weight: 600; cursor: help; }
+.rt-v-outdated { background: var(--med-bg); color: var(--med-fg); }
+.rt-v-exploited { background: var(--crit-bg); color: var(--crit-fg); }
 .rt-life { white-space: nowrap; }
 @media (max-width: 560px) { .rt-groups { flex-basis: 100%; } }
 /* No usage data (only PHP has it): two columns, so no trailing gap. */
@@ -1087,12 +1090,17 @@ details.repo-pick form { flex-wrap: wrap; align-items: flex-end; max-width: 560p
 .site-findings > summary { margin: 0 0 10px; }
 .fix-cmd pre { font-size: 12.5px; padding: 8px 64px 8px 10px; }
 .fix-cmd .copy { top: 5px; padding: 2px 10px; }
-.priv-recent { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 2px; }
+.priv-recent { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
+.priv-recent li { display: grid; grid-template-columns: 6.5ch minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.priv-recent .priv-when { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.priv-recent .priv-what strong { font-weight: 600; }
 .priv-recent .priv-who { overflow-wrap: anywhere; }
+.priv-recent .pill { white-space: nowrap; font-size: 11px; padding: 0 6px; vertical-align: 1px; }
 /* Host page: the one-fact cards (tailnet, privilege, logins) side by side. */
 .host-panels { display: grid; gap: 16px; margin-top: 16px; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); align-items: start; }
 .host-panels:not(:has(section)) { display: none; }
-.host-panels > .facts.card { margin-top: 0; grid-template-columns: minmax(0, 1fr); height: 100%; }
+.host-panels > .facts.card { margin-top: 0; grid-template-columns: minmax(0, 1fr); height: 100%; padding: 14px 14px; }
+.host-panels > .facts.card .fact { gap: 10px; }
 
 /* IP awareness (ips.go): verdict pills, the unknown-address lines, the IP pages */
 .pill.info { background: var(--low-bg); color: var(--low-fg); }

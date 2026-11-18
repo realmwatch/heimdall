@@ -53,17 +53,26 @@ var runtimeRules = map[string][]runtimeRule{
 		// python3.10 / python3.10-minimal; "python3" itself is a metapackage
 		// whose version (3.10.6) lags the interpreter's (3.10.12).
 		{"python", regexp.MustCompile(`^python3\.[0-9]+(-minimal)?$`), byOrder("", "-minimal")},
+		// Web servers, under endoflife.date's slugs. Older Ubuntu and
+		// Debian put nginx's binary in nginx-core (or -full, -light,
+		// -extras) beside an nginx metapackage of the same version.
+		{"nginx", regexp.MustCompile(`^nginx(-core|-full|-light|-extras)?$`), byOrder("", "-core", "-full", "-light", "-extras")},
+		{"apache-http-server", regexp.MustCompile(`^apache2$`), byOrder()},
 	},
 	"rpm": {
 		{"php", regexp.MustCompile(`^php(-cli|-fpm|-common)?$`), byOrder("-cli", "-fpm", "-common")},
 		{"nodejs", regexp.MustCompile(`^nodejs$`), byOrder()},
 		{"python", regexp.MustCompile(`^python3(\.[0-9]+)?$`), byOrder()},
+		{"nginx", regexp.MustCompile(`^nginx$`), byOrder()},
+		{"apache-http-server", regexp.MustCompile(`^httpd$`), byOrder()},
 	},
 	"apk": {
 		// php83 is the CLI; php83-fpm/-common share its version.
 		{"php", regexp.MustCompile(`^php[0-9]+(-fpm|-common|-cgi)?$`), byOrder("", "-fpm", "-common", "-cgi")},
 		{"nodejs", regexp.MustCompile(`^nodejs(-current)?$`), byOrder()},
 		{"python", regexp.MustCompile(`^python3$`), byOrder()},
+		{"nginx", regexp.MustCompile(`^nginx$`), byOrder()},
+		{"apache-http-server", regexp.MustCompile(`^apache2$`), byOrder()},
 	},
 }
 

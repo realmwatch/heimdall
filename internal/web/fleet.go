@@ -47,6 +47,12 @@ type fleetHost struct {
 	Privilege    privilegeCoverage
 	HasPrivilege bool
 
+	// HTTP2 is how many of nginx's server blocks speak HTTP/2, and
+	// NginxRestart whether nginx still runs the code from before an update
+	// (from collectors 0.5.36 on).
+	HTTP2        int
+	NginxRestart bool
+
 	OffTailnet bool // reported, and no tailnet device matches it (tailscale.go)
 	// Tailnet and Agent are the host list's icon columns.
 	Tailnet, Agent hostFlag
@@ -192,6 +198,10 @@ func (s *server) fleet(r *http.Request, v *auth.Viewer, org string) ([]fleetHost
 	if err != nil {
 		return nil, err
 	}
+	nginxes, err := s.st.HostNginxAll(ctx)
+	if err != nil {
+		return nil, err
+	}
 	watching, err := s.st.LoginWatchHosts(ctx)
 	if err != nil {
 		return nil, err
@@ -237,6 +247,9 @@ func (s *server) fleet(r *http.Request, v *auth.Viewer, org string) ([]fleetHost
 			_, w := watching[h.ID]
 			row.SSH = newSSHView(ssh, ok, w, failsBy[h.ID])
 			row.addLife(rh)
+			if n, ok := nginxes[h.ID]; ok {
+				row.HTTP2, row.NginxRestart = n.HTTP2, n.Restart == "yes"
+			}
 		}
 		byID[h.ID] = len(out)
 		out = append(out, row)
@@ -678,6 +691,8 @@ var hostFilters = []struct {
 	{"collector", "Collector", func(h fleetHost) bool { return h.CollectorBehind || h.ChangeWatch == "off" }},
 	{"privilege", "Privilege watch", func(h fleetHost) bool { return h.HasPrivilege && !h.Privilege.Full }},
 	{"ssh", "SSH", func(h fleetHost) bool { return h.SSH.Flag() }},
+	{"http2", "HTTP/2 on", func(h fleetHost) bool { return h.HTTP2 > 0 }},
+	{"nginx-restart", "nginx restart", func(h fleetHost) bool { return h.NginxRestart }},
 	{"tailnet", "Not on tailnet", func(h fleetHost) bool { return h.OffTailnet }},
 	{"waiting", "Waiting", func(h fleetHost) bool { return !h.Reported }},
 }
