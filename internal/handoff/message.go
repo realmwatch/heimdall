@@ -29,6 +29,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/realmwatch/heimdall/internal/feeds/nginx"
 	"github.com/realmwatch/heimdall/internal/version"
 )
 
@@ -685,6 +686,9 @@ func severity(s string) string {
 func advisoryURL(id string) string {
 	if strings.HasPrefix(id, "GHSA-") {
 		return "https://github.com/advisories/" + id
+	}
+	if strings.HasPrefix(id, nginx.IDPrefix) {
+		return nginx.PageURL // nginx.org's own advisory, not in OSV
 	}
 	return "https://osv.dev/vulnerability/" + id
 }

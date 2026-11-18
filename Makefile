@@ -36,7 +36,7 @@ SHELLCHECK_IMAGE := koalaman/shellcheck:v0.10.0
 COLLECTOR_OUT ?= $(CURDIR)/bin/collector-out
 
 shellcheck:
-	docker run --rm -v "$(CURDIR)/collector:/mnt:ro" $(SHELLCHECK_IMAGE) -s sh /mnt/collect.sh /mnt/install.sh /mnt/privilege-watch.sh /mnt/privilege-hook /mnt/login-watch.sh /mnt/test/run-containers.sh /mnt/test/sites-fixture.sh /mnt/test/events-deploys.sh /mnt/test/site-branches.sh /mnt/test/set-hub.sh /mnt/test/privilege-hook.sh /mnt/test/ssh-state.sh
+	docker run --rm -v "$(CURDIR)/collector:/mnt:ro" $(SHELLCHECK_IMAGE) -s sh /mnt/collect.sh /mnt/install.sh /mnt/privilege-watch.sh /mnt/privilege-hook /mnt/login-watch.sh /mnt/test/run-containers.sh /mnt/test/sites-fixture.sh /mnt/test/events-deploys.sh /mnt/test/site-branches.sh /mnt/test/set-hub.sh /mnt/test/privilege-hook.sh /mnt/test/ssh-state.sh /mnt/test/apt-origins.sh
 	docker run --rm -v "$(CURDIR)/deploy:/mnt:ro" $(SHELLCHECK_IMAGE) -s sh /mnt/install-hub.sh /mnt/test/installed-smoke.sh
 
 # Runs collect.sh as an unprivileged user on Debian, Ubuntu, Rocky and
@@ -46,8 +46,10 @@ test-collector: shellcheck
 	collector/test/site-branches.sh
 	collector/test/ssh-state.sh
 	collector/test/release-state.sh
+	collector/test/apt-origins.sh
 	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/release-state.sh 'busybox sh'
 	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/ssh-state.sh 'busybox sh'
+	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/apt-origins.sh 'busybox sh'
 	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/site-branches.sh 'busybox sh'
 	docker run --rm -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/set-hub.sh
 	docker run --rm -v "$(CURDIR)/collector:/opt/heimdall:ro" debian:12 sh /opt/heimdall/test/set-hub.sh

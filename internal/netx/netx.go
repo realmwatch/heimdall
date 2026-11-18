@@ -26,6 +26,8 @@ var FeedHosts = []string{
 	"www.cisa.gov",
 	"endoflife.date",
 	"api.first.org", // EPSS (M6)
+	// nginx.org's advisory list, from the repository nginx.org is built from.
+	"raw.githubusercontent.com",
 }
 
 // ReleaseHosts are where the hub checks for newer releases (version only).

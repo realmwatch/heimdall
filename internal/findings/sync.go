@@ -29,9 +29,11 @@ type Syncer struct {
 	EOL    *eol.Client
 	EPSS   *epss.Client
 	KEVURL string // kev.DefaultURL if empty
-	Feeds  config.Feeds
-	Now    func() time.Time
-	Log    *slog.Logger
+	// NginxURL is nginx.org's advisory list (nginx.DefaultURL if empty).
+	NginxURL string
+	Feeds    config.Feeds
+	Now      func() time.Time
+	Log      *slog.Logger
 	// Retention is applied by serve after each scheduled sync.
 	Retention struct {
 		For time.Duration
@@ -39,7 +41,7 @@ type Syncer struct {
 	}
 }
 
-// Run syncs KEV, endoflife.date and OSV in turn. A failing feed doesn't
+// Run syncs KEV, endoflife.date, nginx.org and OSV in turn. A failing feed doesn't
 // stop the others; all errors are returned together.
 func (s *Syncer) Run(ctx context.Context) error {
 	var errs []error
@@ -61,6 +63,8 @@ func (s *Syncer) Run(ctx context.Context) error {
 	}
 	run("kev", s.Feeds.KEV, s.syncKEV)
 	run("endoflife", s.Feeds.EndOfLife, s.syncEOL)
+	// nginx.org's advisories are stored before findings are recomputed.
+	run("nginx", s.Feeds.Nginx && s.Feeds.OSV, s.syncUpstream)
 	run("osv", s.Feeds.OSV, s.syncOSV)
 	// EPSS scores the CVEs behind open findings, so it runs after OSV.
 	run("epss", s.Feeds.EPSS && s.EPSS != nil, s.syncEPSS)

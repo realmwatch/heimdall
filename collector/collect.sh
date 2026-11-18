@@ -1095,6 +1095,59 @@ release_state() {
 	rm -rf "$rtmp"
 }
 
+# ── Third-party package sources (sent as X-Heimdall-Origins) ──────────────
+
+# apt_origins: the X-Heimdall-Origins value,
+#
+#   v1 <origin>=<package>,<package>;<origin>=<package>...
+#
+# the installed packages whose installed version an apt source other than
+# the distro's offers, grouped by that source's Origin (its Release file's
+# Origin field: "nginx" for nginx.org, "LP-PPA-ondrej-php" for a PPA).
+# Their versions aren't the distro's, so the hub doesn't judge them by the
+# distro's advisories. The distro's own sources (Origin Ubuntu…, Debian…,
+# which covers ESM) are skipped. Read from apt's downloaded lists:
+# unprivileged and offline. Prints nothing without apt, and "v1" alone when
+# every package is the distro's. At most 6000 characters, cut between
+# names. HEIMDALL_APT_LISTS and HEIMDALL_DPKG_INSTALLED (dpkg-query's
+# "${db:Status-Abbrev} ${Package} ${Version}" lines) are for tests.
+apt_origins() {
+	lists=${HEIMDALL_APT_LISTS:-/var/lib/apt/lists}
+	[ -d "$lists" ] || return 0
+	if [ -n "${HEIMDALL_DPKG_INSTALLED:-}" ]; then
+		installed=$(cat "$HEIMDALL_DPKG_INSTALLED")
+	elif have dpkg-query; then
+		installed=$(dpkg-query -W -f '${db:Status-Abbrev} ${Package} ${Version}\n' 2>/dev/null) || return 0
+	else
+		return 0
+	fi
+	otmp=$(mktemp -d)
+	for rel in "$lists"/*_InRelease "$lists"/*_Release; do
+		[ -r "$rel" ] || continue
+		origin=$(awk '/^Origin:/ { sub(/^Origin:[ \t]*/, ""); print; exit } NR > 80 { exit }' "$rel")
+		case $origin in '' | Ubuntu* | Debian*) continue ;; esac
+		origin=$(printf '%s' "$origin" | tr -c 'A-Za-z0-9._-' '-' | cut -c1-40)
+		prefix=${rel%_InRelease}
+		prefix=${prefix%_Release}
+		for p in "$prefix"_*Packages; do
+			[ -r "$p" ] || continue
+			awk -v o="$origin" '/^Package:/ { n = $2 } /^Version:/ { print n " " $2 " " o }' "$p"
+		done
+	done >"$otmp/offered"
+	# Installed packages only ("ii", not "rc": removed, config left).
+	printf '%s\n' "$installed" | awk '$1 ~ /^.i/ && NF >= 3 { print $2 " " $3 }' >"$otmp/inst"
+	awk 'NR == FNR { inst[$1 " " $2] = 1; next } ($1 " " $2) in inst { print $3 " " $1 }' "$otmp/inst" "$otmp/offered" |
+		LC_ALL=C sort -u | awk '
+			{
+				if ($2 !~ /^[a-z0-9][a-z0-9.+-]*$/) next
+				add = ($1 != o) ? (o == "" ? "" : ";") $1 "=" $2 : "," $2
+				if (length(s) + length(add) > 5990) exit
+				s = s add; o = $1
+			}
+			END { print "v1" (s == "" ? "" : " " s) }'
+	rm -rf "$otmp"
+}
+
 # ── SSH server settings (sent as X-Heimdall-SSH) ───────────────────────────
 
 # ssh_state: the X-Heimdall-SSH value,
@@ -1581,6 +1634,10 @@ push() {
 	release_header=
 	rel_state=$(release_state | tr '\n' ';' | tr -cd 'A-Za-z0-9._~:/+@=|,;% -' | cut -c1-8000)
 	[ -z "$rel_state" ] || release_header="header = \"X-Heimdall-Release: $rel_state\""
+	# Packages from apt sources other than the distro's (apt_origins).
+	origins_header=
+	origins=$(apt_origins | tr -cd 'A-Za-z0-9._+=,; -' | cut -c1-6000)
+	[ -z "$origins" ] || origins_header="header = \"X-Heimdall-Origins: $origins\""
 
 	# The token goes to curl on stdin via --config (printf is a shell
 	# builtin), so it never appears in any process's arguments. The reply
@@ -1590,7 +1647,7 @@ push() {
 	status=$(printf '%s\n' \
 		"header = \"Authorization: Bearer $token\"" \
 		'header = "Content-Type: application/json"' \
-		"$encoding" "$cacert" "$hostname_header" "$machine_header" "$triggers_header" "$agents_header" "$repos_header" "$branches_header" "$php_header" "$ssh_header" "$release_header" "$(privilege_config)" "$(logins_config)" |
+		"$encoding" "$cacert" "$hostname_header" "$machine_header" "$triggers_header" "$agents_header" "$repos_header" "$branches_header" "$php_header" "$ssh_header" "$release_header" "$origins_header" "$(privilege_config)" "$(logins_config)" |
 		"$curl" --config - --silent --show-error \
 			--proto '=https,http' --tlsv1.2 \
 			--connect-timeout 10 --max-time 120 \
@@ -1923,7 +1980,8 @@ usage() {
 	cat >&2 <<'EOF'
 usage: heimdall-collect --print | --push | --push-trips | --trips |
                         --site-repos | --site-branches | --php | --ssh |
-                        --release | --deploy-watches | --logins | --version
+                        --release | --origins | --deploy-watches | --logins |
+                        --version
        heimdall-collect deployed
        sudo heimdall-collect upgrade [vX.Y.Z] [--watch-privilege-users |
                                      --watch-privilege | --no-watch-privilege]
@@ -1947,6 +2005,9 @@ usage: heimdall-collect --print | --push | --push-trips | --trips |
   --release     print the apt sources and packages left over from an older
                 release, and the processes loading them, that --push would
                 send (one record per line)
+  --origins     print the installed packages from apt sources other than the
+                distro's (nginx.org, PPAs, vendor repositories) --push would
+                send
   --deploy-watches
                 print the paths watched for site deploys (install.sh puts
                 them in heimdall-collect-changes.path)
@@ -1989,7 +2050,7 @@ case $1 in
 deployed) deployed; exit 0 ;; # any user, root too: it only touches a file
 # For heimdall-collect-soon.service (root), not for people:
 event-allowed) if event_allowed; then exit 0; else exit 1; fi ;;
---print | --push | --push-trips | --trips | --site-repos | --site-branches | --php | --ssh | --release | --deploy-watches | --logins) ;;
+--print | --push | --push-trips | --trips | --site-repos | --site-branches | --php | --ssh | --release | --origins | --deploy-watches | --logins) ;;
 *) usage ;;
 esac
 
@@ -2024,6 +2085,7 @@ case $1 in
 --php) php_state; echo ;;
 --ssh) ssh_state; echo ;;
 --release) release_state ;;
+--origins) apt_origins ;;
 --deploy-watches) deploy_watches ;;
 --logins) logins_header "${HEIMDALL_LOGIN_COUNTS:-/var/lib/heimdall-logins/counts}" | sed -n 's/^header = "X-Heimdall-Logins: \(.*\)"$/\1/p' ;;
 esac
