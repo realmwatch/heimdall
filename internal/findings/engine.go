@@ -50,7 +50,8 @@ type HostResult struct {
 }
 
 // EvaluateHost recomputes a host's findings from its latest snapshot: OS
-// packages against the distro's OSV ecosystem, each site's Composer
+// packages against the distro's OSV ecosystem (nginx also against
+// nginx.org's own advisories, see upstream.go), each site's Composer
 // packages against Packagist and its npm packages against npm, and
 // allowlisted lockfiles against theirs.
 func (e *Engine) EvaluateHost(ctx context.Context, host store.IngestHost) (HostResult, error) {
@@ -64,19 +65,39 @@ func (e *Engine) EvaluateHost(ctx context.Context, host store.IngestHost) (HostR
 	}
 
 	targets := map[target]*targetInfo{}
-	if info, ok := HostEcosystem(inv); ok {
+	var upstream []upstreamPackage
+	info, osOK := HostEcosystem(inv)
+	if osOK {
 		res.Ecosystem = info.OSV
 		state, _, err := e.Store.HostRelease(ctx, host.ID)
 		if err != nil {
 			return res, err
 		}
-		addOSTargets(targets, info, inv.Packages, ReleaseAnalysis(inv, info, state))
+		origins, _, err := e.Store.HostOrigins(ctx, host.ID)
+		if err != nil {
+			return res, err
+		}
+		// Third-party builds are left out of distro matching: their
+		// versions aren't the distro's (see upstream.go).
+		third := thirdPartyPackages(inv.Packages, origins)
+		distro := make([]store.InventoryPackage, 0, len(inv.Packages))
+		for _, p := range inv.Packages {
+			if !third[p.Name] {
+				distro = append(distro, p)
+			}
+		}
+		addOSTargets(targets, info, distro, ReleaseAnalysis(inv, info, state))
+		upstream = nginxPackages(inv.Packages, third)
 	} else {
 		e.Log.Info("findings: OS packages not supported, skipping them", "host", host.Name, "os", inv.OSID, "version", inv.OSVersion)
 	}
 	addSiteTargets(targets, inv.Sites)
 	addLockfileTargets(targets, inv.Lockfiles)
-	if len(targets) == 0 {
+	up, err := e.upstreamFindings(ctx, info, upstream)
+	if err != nil {
+		return res, err
+	}
+	if len(targets) == 0 && len(up) == 0 {
 		return res, nil
 	}
 
@@ -148,6 +169,7 @@ func (e *Engine) EvaluateHost(ctx context.Context, host store.IngestHost) (HostR
 			fs[i].Dev = f.Dev
 		}
 	}
+	fs = append(fs, up...)
 	res.Findings = len(fs)
 	res.Added, res.Resolved, err = e.Store.SetFindings(ctx, host.ID, fs, e.Now())
 	return res, err

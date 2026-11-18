@@ -29,6 +29,7 @@ import (
 	"github.com/realmwatch/heimdall/internal/auth"
 	"github.com/realmwatch/heimdall/internal/auth/entra"
 	"github.com/realmwatch/heimdall/internal/bans"
+	"github.com/realmwatch/heimdall/internal/feeds/nginx"
 	"github.com/realmwatch/heimdall/internal/handoff"
 	"github.com/realmwatch/heimdall/internal/ipinfo"
 	"github.com/realmwatch/heimdall/internal/privilege"
@@ -820,7 +821,9 @@ var funcs = template.FuncMap{
 	},
 	"sevChips": func() []string { return []string{"critical", "high", "medium", "low", "unknown"} },
 	// hotEPSS: an EPSS score worth watching even with no fix (store.WatchEPSS).
-	"hotEPSS":   func(e float64) bool { return e >= store.WatchEPSS },
+	"hotEPSS": func(e float64) bool { return e >= store.WatchEPSS },
+	// fromNginx: an advisory from nginx.org's own list (internal/feeds/nginx).
+	"fromNginx": func(id string) bool { return strings.HasPrefix(id, nginx.IDPrefix) },
 	"watchEPSS": func() string { return pct(store.WatchEPSS) },
 	"pct":       pct,
 	// siteURL is a site's page: sites are a host plus a web root.

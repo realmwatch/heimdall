@@ -1,0 +1,105 @@
+<!-- A cut-down copy of nginx.org's xml/en/security_advisories.xml, in its format. -->
+<!DOCTYPE article SYSTEM "../../dtd/article.dtd">
+
+<article name="nginx security advisories"
+         link="/en/security_advisories.html"
+         lang="en"
+         rev="1">
+
+<section>
+
+<para>
+All nginx security issues should be reported &mdash; see
+<link url="https://example.com/">here</link>.
+</para>
+
+<security>
+
+<item name="Memory corruption in HTTP/2 flow control"
+      severity="major"
+      advisory="https://example.com/advisory/1"
+      cve="2026-123007"
+      good="1.31.9+, 1.30.7+"
+      vulnerable="1.9.5-1.31.8">
+</item>
+
+<item name="Use-after-free in HTTP/3"
+      severity="medium"
+      advisory="https://example.com/advisory/2"
+      cve="CVE-2026-121810"
+      good="1.31.9+, 1.30.7+"
+      vulnerable="1.25.0-1.31.8">
+</item>
+
+<item name="NULL pointer dereference when using PROXY protocol version 2"
+      severity="minor"
+      advisory="javascript:alert(1)"
+      cve="2026-120993"
+      good="1.31.9+"
+      vulnerable="1.31.4-1.31.8">
+</item>
+
+<item name="Buffer overwrite in HTTP/3"
+      severity="medium"
+      cve="2024-32760"
+      good="1.27.0+, 1.26.1+"
+      vulnerable="1.25.0-1.25.5, 1.26.0">
+<patch name="patch.2024.txt" />
+</item>
+
+<item name="Use-after-free in mail proxy module"
+      severity="major"
+      cve="2026-113425"
+      good="1.31.9+, 1.30.7+"
+      vulnerable="0.5.33-1.31.8">
+</item>
+
+<item name="Buffer underflow vulnerability"
+      severity="major"
+      cert="180065"
+      cve="2009-2629"
+      good="0.8.15+, 0.7.62+, 0.6.39+, 0.5.38+"
+      vulnerable="0.1.0-0.8.14">
+</item>
+
+<item name="An error log data are not sanitized"
+      severity="none"
+      cve="2009-4487"
+      good="none"
+      vulnerable="all" />
+
+<item name="Directory traversal vulnerability"
+      severity="major"
+      core="CORE-2010-0121"
+      good="0.8.33+, 0.7.65+"
+      vulnerable="nginx/Windows 0.7.52-0.8.32" />
+
+<item name="Windows only, with a CVE"
+      severity="major"
+      cve="2010-4266"
+      good="0.8.40+"
+      vulnerable="nginx/Windows 0.7.52-0.8.39" />
+
+<item name="Garbled bounds"
+      severity="medium"
+      cve="2026-1"
+      good="1.2.3+"
+      vulnerable="1.2.0-1.2.2" />
+
+<item name="Bad range"
+      severity="medium"
+      cve="2026-99999"
+      good="1.2.3+"
+      vulnerable="1.2.x-1.2.2" />
+
+<item name="Not fixed anywhere"
+      severity="low"
+      cve="2026-55555"
+      good="none"
+      vulnerable="1.20.0-1.31.8" />
+
+</security>
+
+</section>
+
+</article>

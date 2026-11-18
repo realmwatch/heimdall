@@ -58,6 +58,14 @@ type Host struct {
 	// (stale apt sources, obsolete packages, old-release builds) and what
 	// still loads it; nil when there's nothing (see internal/leftovers).
 	ReleaseLeftovers *leftovers.Finding `json:"release_leftovers,omitempty"`
+	// ThirdParty are the installed packages from apt sources other than
+	// the distro's, by source (thirdparty.go): distro advisories don't
+	// judge them. Nil when there are none or the collector doesn't say.
+	ThirdParty []ThirdPartySource `json:"third_party,omitempty"`
+	// NginxSuryBuild is the installed version of nginx when it's Ondřej
+	// Surý's build, from the ondrej/nginx PPA Launchpad removed: no fix
+	// will come from it, so the server needs nginx.org's packages instead.
+	NginxSuryBuild string `json:"nginx_sury_build,omitempty"`
 }
 
 type Container struct {
@@ -290,6 +298,12 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 			if !f.CountsOnly { // fleet pages don't show it
 				rel = findings.ReleaseAnalysis(inv, info, releases[h.ID])
 				host.ReleaseLeftovers = rel.Finding
+				origins, _, err := st.HostOrigins(ctx, h.ID)
+				if err != nil {
+					return nil, err
+				}
+				host.ThirdParty = thirdPartySources(origins, inv.Packages)
+				host.NginxSuryBuild = nginxSuryBuild(inv.Packages)
 			}
 		}
 		if product, cycle, ok := eol.OSCycle(inv.OSID, inv.OSVersion, inv.OSIDLike); ok {

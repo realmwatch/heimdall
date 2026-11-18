@@ -39,7 +39,9 @@ type fakeOSV struct {
 	oldVulnerable        bool // Debian:11 openssl too (a bookworm host's leftover)
 	mu                   sync.Mutex
 	queried              []string
-	modified             atomic.Value // querybatch's modified time for advisoryID, if set
+	modified             atomic.Value    // querybatch's modified time for advisoryID, if set
+	records              map[string]bool // other IDs GET /v1/vulns answers (a distro's record exists)
+	recordsDown          bool            // GET /v1/vulns fails for those other IDs
 }
 
 func (f *fakeOSV) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -92,6 +94,15 @@ func (f *fakeOSV) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		b, _ := os.ReadFile("../feeds/osv/testdata/" + strings.TrimPrefix(r.URL.Path, "/v1/vulns/") + ".json")
 		w.Write(b)
 	default:
+		if f.recordsDown && strings.HasPrefix(r.URL.Path, "/v1/vulns/") {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if id, ok := strings.CutPrefix(r.URL.Path, "/v1/vulns/"); ok && f.records[id] {
+			f.vulnFetches.Add(1)
+			json.NewEncoder(w).Encode(map[string]string{"id": id, "modified": "2026-11-18T00:00:00Z"})
+			return
+		}
 		http.NotFound(w, r)
 	}
 }

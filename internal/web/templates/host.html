@@ -86,6 +86,17 @@
   {{if eq .UsageScan "partial"}}<p class="muted small">The collector isn't root, so it could read only some processes' memory maps: services running as other users may load these libraries too.</p>{{else if eq .UsageScan "not_reported"}}<p class="muted small">Found from package versions alone. Upgrade the collector (<code>sudo heimdall-collect upgrade</code>) to see stale apt sources, obsolete packages and what still loads them.</p>{{end}}
   {{with .Remediation}}<h3>To clean up, in order</h3><ol class="small">{{range .}}<li>{{.}}</li>{{end}}</ol>{{end}}
 </section>{{end}}
+{{with .Report.NginxSuryBuild}}<section class="card nginx-ppa" aria-labelledby="nginx-ppa-h">
+  <h2 id="nginx-ppa-h">nginx can't be updated from its source <span class="sev sev-high">high</span></h2>
+  <p class="small">nginx {{.}} is Ondřej Surý's build, from the <code>ondrej/nginx</code> PPA (where Laravel Forge used to install it from). Launchpad has removed that PPA, so no fixed version will come from it, and nginx's findings here won't clear with an update. Switch the server to <a href="https://nginx.org/en/linux_packages.html#Ubuntu" rel="noopener noreferrer">nginx.org's packages</a>: remove the PPA's file from <code>/etc/apt/sources.list.d</code>, add nginx.org's repository and pin it, then upgrade nginx and restart it. Modules the PPA shipped separately (brotli, geoip, image-filter, xslt) aren't in nginx.org's packages: remove their <code>load_module</code> lines first.</p>
+</section>{{end}}
+{{with .Report.ThirdParty}}<section class="card third-party" id="third-party" aria-labelledby="third-party-h">
+  <h2 id="third-party-h">Packages from other sources</h2>
+  <p class="small">These came from apt sources other than the distro's, so their versions aren't the distro's and its advisories can't judge them. Heimdall checks nginx against nginx.org's own advisories; it doesn't check the rest against any.</p>
+  <details{{if le (len .) 3}} open{{end}}><summary class="small">{{len .}} source{{if ne (len .) 1}}s{{end}}</summary>
+  <div class="scroll"><table class="small"><thead><tr><th>Source</th><th>Checked</th><th>Not checked</th></tr></thead><tbody>{{range .}}<tr><td><code>{{.Origin}}</code></td><td>{{with .Checked}}{{join . ", "}}{{else}}<span class="muted">—</span>{{end}}</td><td>{{with .Unchecked}}{{join . ", "}}{{else}}<span class="muted">—</span>{{end}}</td></tr>{{end}}</tbody></table></div>
+  </details>
+</section>{{end}}
 {{template "aitriage" .AI}}
 
 {{if .News}}

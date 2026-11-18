@@ -111,6 +111,7 @@ Most PHP apps are a site on a shared box, so Heimdall inventories **sites**, not
 
 ### Vulnerability & lifecycle checks
 - Matches package versions against **[OSV.dev](https://osv.dev)**, which aggregates the Debian, Ubuntu, Alpine, Red Hat, Rocky, Alma, npm, Packagist, PyPI and other advisory feeds
+- Matches nginx against **[nginx.org's own advisories](https://nginx.org/en/security_advisories.html)** too: nginx.org's builds by them alone (a distro's advisories can't judge another source's versions), and the distro's builds until the distro publishes its own record, so a new nginx flaw shows the day nginx.org fixes it. Packages from any other third-party apt source are listed on the host page as not checked ([collector.md](docs/collector.md#third-party-packages))
 - Flags CVEs listed in **[CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)** (Known Exploited Vulnerabilities)
 - Optional **[EPSS](https://www.first.org/epss/)** scores to help rank what to fix first
 - End-of-life warnings for operating systems and runtimes via **[endoflife.date](https://endoflife.date)**
@@ -170,7 +171,8 @@ See [docs/anomaly-signals.md](docs/anomaly-signals.md) for what each signal mean
                   └──────────────┬──────────────────────────┘
                                  │
                      SQLite (heimdall.db)  ◄── feed sync (outbound, allowlisted:
-                                                OSV, KEV, EPSS, endoflife.date)
+                                                OSV, KEV, EPSS, endoflife.date,
+                                                nginx.org advisories)
                                  ▲
         ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
           one-way HTTPS push     │      (hub never initiates connections)
@@ -386,6 +388,7 @@ osv = true
 kev = true
 epss = true
 endoflife = true
+nginx = true         # nginx.org's own advisories (needs osv)
 
 [hosts]
 stale_after = "72h"
@@ -622,7 +625,7 @@ internal/store/      SQLite schema, migrations, org-scoped queries
 internal/ingest/     strict decoding, validation, normalization
 internal/auth/       passwords, TOTP, sessions, CSRF, rate limiting
 internal/auth/entra/ OIDC code+PKCE flow, JWKS cache, ID token validation
-internal/feeds/      OSV, KEV, EPSS, endoflife.date clients
+internal/feeds/      OSV, KEV, EPSS, endoflife.date, nginx.org clients
 internal/match/      version comparison (dpkg, rpm, apk, semver)
 internal/web/        handlers, templates, static assets
 collector/collect.sh

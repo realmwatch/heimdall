@@ -609,6 +609,19 @@ On the hub, a package's release is the one a suite offering it names; failing th
 
 The host page's **Release leftovers** card lists the stale sources (with the suite to use instead), the old-release builds, the obsolete packages and the processes loading them, and the cleanup in order: retarget or disable each stale source, reinstall the old-release builds from the current release, restart the services that load them, then remove the obsolete packages once nothing loads them. It's medium severity when a running process loads a leftover library, low otherwise. Obsolete packages alone, with no sign of a release upgrade, don't make a card: they're more likely `.deb` files installed on purpose. MCP's `host` tool returns the same as `release_leftovers`.
 
+## Third-party packages
+
+Each push from a Debian or Ubuntu server (collector 0.5.36 and later) also says which installed packages came from an apt source other than the distro's: nginx.org's repository, a PPA such as ondrej/php, a vendor's repository. For every source in apt's downloaded lists (`/var/lib/apt/lists`) whose Release file names an Origin other than Ubuntu's or Debian's (ESM counts as Ubuntu's), it lists the installed packages at a version that source offers, grouped by Origin.
+
+`heimdall-collect --origins` prints it, for example `v1 LP-PPA-ondrej-php=php8.3-cli,php8.3-fpm;nginx=nginx`, or `v1` alone when every package is the distro's. It's sent as `X-Heimdall-Origins` (at most 6000 characters, cut between names). It reads files; it changes nothing, and it runs nothing but `dpkg-query`.
+
+A third-party package's version isn't the distro's, so the distro's advisories can't judge it: nginx.org's `1.30.6-1~jammy` looks newer than any fix Ubuntu ships for its own `1.18.0` and would never be flagged, and an Ubuntu advisory with no fix yet would flag a build that has one. So the hub leaves third-party packages out of distro matching:
+
+- **nginx** is matched against [nginx.org's own advisories](https://nginx.org/en/security_advisories.html) (the `nginx` feed), with nginx.org's fixed version: "Fixed in 1.30.7", and "update pending" once apt offers it. nginx.org's builds are recognized by their version (`1.30.6-1~jammy`, `1.30.6-1.el9.ngx`) even from older collectors, and so are Ondřej Surý's (`+deb.sury.org`). Surý's come from the `ondrej/nginx` PPA that Laravel Forge used to install nginx from, which Launchpad has removed: no fix will come from it, so the host page says to switch the server to nginx.org's packages.
+- **Everything else** isn't checked against any advisories. The host page's **Packages from other sources** card lists each source with the packages Heimdall checks and those it doesn't, so nothing goes unseen.
+
+nginx.org's advisories also cover the distro's own nginx in the days before the distro publishes: for each CVE, the hub asks OSV whether Ubuntu's, Debian's or Alpine's record of it exists yet (`UBUNTU-CVE-…`). Until it does, nginx.org's advisory stands in on the distro's builds, by upstream version and with no fix offered (the distro has none yet); once the record exists, the distro's own finding takes over. A lookup that fails counts as published, so an outage can't flag every CVE nginx ever had. rpm distros publish per update rather than per CVE, so on Red Hat, Rocky and Alma only nginx.org's builds are matched. These findings carry an **nginx.org** badge.
+
 ## Exit codes & messages
 
 | Exit | Meaning |

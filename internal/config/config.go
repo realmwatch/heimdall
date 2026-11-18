@@ -417,6 +417,9 @@ type Feeds struct {
 	KEV          bool     `toml:"kev"`
 	EPSS         bool     `toml:"epss"`
 	EndOfLife    bool     `toml:"endoflife"`
+	// Nginx: nginx.org's own advisories, matched against nginx.org's
+	// builds and, until the distro publishes its own, the distro's.
+	Nginx bool `toml:"nginx"`
 }
 
 type Hosts struct {
@@ -455,6 +458,7 @@ func Default() Config {
 			KEV:          true,
 			EPSS:         true,
 			EndOfLife:    true,
+			Nginx:        true,
 		},
 		Hosts:   Hosts{StaleAfter: Duration{72 * time.Hour}, AlertAfter: Duration{3 * time.Hour}, KeepFor: Duration{180 * 24 * time.Hour}, KeepMin: 30},
 		Notify:  Notify{SMTPPort: 587, WebhookFormat: "slack", AlertAnomalies: true},
