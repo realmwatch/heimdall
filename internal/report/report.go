@@ -122,6 +122,16 @@ type Runtime struct {
 	// Use is what uses a PHP version, when the host's collector reports
 	// it (see php.go).
 	Use *PHPUse `json:"use,omitempty"`
+	// Status: "exploited" when an open finding on its package is
+	// known-exploited (CISA KEV) or named by a live incident in the news,
+	// "outdated" when a newer package is pending or a fix is released for
+	// one of its findings, "" otherwise. StatusNote says why.
+	Status     string `json:"status,omitempty"`
+	StatusNote string `json:"status_note,omitempty"`
+	// DistroBuild names the distro that builds and patches this runtime
+	// on its own schedule ("Ubuntu"), when upstream's end-of-life dates
+	// don't apply to it (nginx).
+	DistroBuild string `json:"distro_build,omitempty"`
 }
 
 type Counts struct {
@@ -308,13 +318,13 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 		host.OldKernels, host.KernelState, host.NewerKernel = ks.Old, ks.Name(), ks.Newer
 
 		var rel leftovers.Analysis
+		var origins map[string]string
 		if info, ok := findings.HostEcosystem(inv); ok {
 			host.Ecosystem = info.OSV
 			if !f.CountsOnly { // fleet pages don't show it
 				rel = findings.ReleaseAnalysis(inv, info, releases[h.ID])
 				host.ReleaseLeftovers = rel.Finding
-				origins, _, err := st.HostOrigins(ctx, h.ID)
-				if err != nil {
+				if origins, _, err = st.HostOrigins(ctx, h.ID); err != nil {
 					return nil, err
 				}
 				host.ThirdParty = thirdPartySources(origins, inv.Packages)
@@ -328,7 +338,14 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 		}
 		for _, rt := range findings.HostRuntimes(inv) {
 			out := Runtime{Name: rt.Name, Version: rt.Version, Package: rt.Package}
-			if cycle, ok := eol.RuntimeCycle(rt.Name, rt.Version); ok {
+			// The distro patches its own nginx whatever nginx.org's
+			// branch dates say: only a third-party build ends with its
+			// branch.
+			distroNginx := rt.Name == eol.ProductNginx && !thirdPartyNginx(inv.Packages, rt.Package, origins)
+			if distroNginx {
+				out.DistroBuild, _, _ = strings.Cut(host.Ecosystem, ":")
+			}
+			if cycle, ok := eol.RuntimeCycle(rt.Name, rt.Version); ok && !distroNginx {
 				if out.Life, err = lifecycle(rt.Name, cycle); err != nil {
 					return nil, err
 				}
@@ -385,6 +402,7 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 			phpUse(&host, p, inv.Packages)
 		}
 		if !f.CountsOnly {
+			runtimeStatus(&host, inv.Packages)
 			if err := nginxExposure(ctx, st, h.ID, &host, &features); err != nil {
 				return nil, err
 			}

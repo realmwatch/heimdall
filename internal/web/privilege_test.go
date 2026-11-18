@@ -63,10 +63,23 @@ func TestHostPagePrivilege(t *testing.T) {
 	}
 	body = page()
 	for _, want := range []string{`by chris from <a href="/ips/203.0.113.7">203.0.113.7</a>`,
-		`root SSH <span class="priv-who">by root from <a href="/ips/2001:db8::1">2001:db8::1</a></span>`} {
+		`<strong>root SSH</strong> <span class="priv-who">by root from <a href="/ips/2001:db8::1">2001:db8::1</a></span>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("host page missing %q", want)
 		}
+	}
+	// Identical events in a row fold into one row with a count.
+	more := []store.PrivilegeEvent{{At: at.Add(5 * time.Second), Kind: "sudo", User: "deploy"},
+		{At: at.Add(6 * time.Second), Kind: "sudo", User: "deploy"}, {At: at.Add(7 * time.Second), Kind: "sudo", User: "deploy"}}
+	if _, _, err := e.st.RecordPrivilege(ctx, host.ID, more, "on", "", testNow); err != nil {
+		t.Fatal(err)
+	}
+	body = page()
+	if want := `<strong>sudo</strong> <span class="priv-count muted" title="3 in a row">×3</span> <span class="priv-who">by deploy</span>`; !strings.Contains(body, want) {
+		t.Errorf("host page missing %q", want)
+	}
+	if strings.Count(body, "by deploy") != 1 {
+		t.Errorf("the run of sudo by deploy wasn't folded")
 	}
 	// What the hook records, as the collector reports it.
 	for detail, want := range map[string]string{"": "privilege detail unknown", store.PrivilegeKinds: "who not recorded",

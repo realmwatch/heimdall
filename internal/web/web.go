@@ -822,6 +822,14 @@ var funcs = template.FuncMap{
 	"sevChips": func() []string { return []string{"critical", "high", "medium", "low", "unknown"} },
 	// hotEPSS: an EPSS score worth watching even with no fix (store.WatchEPSS).
 	"hotEPSS": func(e float64) bool { return e >= store.WatchEPSS },
+	// rtName is how the host page names a runtime (endoflife.date's slug
+	// otherwise).
+	"rtName": func(name string) string {
+		if name == "apache-http-server" {
+			return "apache"
+		}
+		return name
+	},
 	// fromNginx: an advisory from nginx.org's own list (internal/feeds/nginx).
 	"fromNginx": func(id string) bool { return strings.HasPrefix(id, nginx.IDPrefix) },
 	"watchEPSS": func() string { return pct(store.WatchEPSS) },

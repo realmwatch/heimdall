@@ -136,3 +136,18 @@ func (s Site) HTTP2Label() string {
 	}
 	return "off"
 }
+
+// thirdPartyNginx reports whether the host's package pkg is a build of
+// nginx that isn't the distro's: from another apt source, or nginx.org's
+// or Surý's by its version.
+func thirdPartyNginx(pkgs []store.InventoryPackage, pkg string, origins map[string]string) bool {
+	if origins[pkg] != "" {
+		return true
+	}
+	for _, p := range pkgs {
+		if p.Name == pkg && nginx.IsThirdPartyBuild(p.Version) {
+			return true
+		}
+	}
+	return false
+}

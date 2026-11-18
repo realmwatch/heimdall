@@ -82,3 +82,25 @@ func (s *Store) ClearHostNginx(ctx context.Context, hostID int64) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM host_nginx WHERE host_id = ?`, hostID)
 	return err
 }
+
+// HostNginxAll is every host's nginx settings, by host ID.
+func (s *Store) HostNginxAll(ctx context.Context) (map[int64]NginxState, error) {
+	rows, err := s.rd.QueryContext(ctx, `SELECT host_id, state FROM host_nginx`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]NginxState{}
+	for rows.Next() {
+		var id int64
+		var v string
+		if err := rows.Scan(&id, &v); err != nil {
+			return nil, err
+		}
+		var st NginxState
+		if json.Unmarshal([]byte(v), &st) == nil {
+			out[id] = st
+		}
+	}
+	return out, rows.Err()
+}

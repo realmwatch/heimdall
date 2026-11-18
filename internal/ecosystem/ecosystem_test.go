@@ -158,6 +158,32 @@ func TestRuntimesSideBySidePHP(t *testing.T) {
 	}
 }
 
+func TestRuntimesWebServers(t *testing.T) {
+	for _, tt := range []struct {
+		pm   string
+		pkgs []snapshot.Package
+		want string
+	}{
+		// nginx.org's build, and Apache.
+		{"dpkg", []snapshot.Package{{Name: "nginx", Version: "1.30.6-1~jammy"}, {Name: "apache2", Version: "2.4.52-1ubuntu4.12"}},
+			"apache-http-server 2.4.52 (apache2); nginx 1.30.6 (nginx)"},
+		// Older Ubuntu: nginx-core carries the binary beside the metapackage.
+		{"dpkg", []snapshot.Package{{Name: "nginx-core", Version: "1.18.0-6ubuntu14.4"}, {Name: "nginx", Version: "1.18.0-6ubuntu14.4"},
+			{Name: "nginx-common", Version: "1.18.0-6ubuntu14.4"}, {Name: "libnginx-mod-http-geoip2", Version: "1.18.0-6ubuntu14.4"}},
+			"nginx 1.18.0 (nginx)"},
+		// Neither installed: neither listed (nginx-common alone is config).
+		{"dpkg", []snapshot.Package{{Name: "nginx-common", Version: "1.18.0-6ubuntu14.4"}, {Name: "apache2-utils", Version: "2.4.52-1"}}, ""},
+		{"rpm", []snapshot.Package{{Name: "nginx", Version: "1:1.20.1-14.el9_2.1"}, {Name: "httpd", Version: "2.4.57-5.el9"}},
+			"apache-http-server 2.4.57 (httpd); nginx 1.20.1 (nginx)"},
+		{"apk", []snapshot.Package{{Name: "nginx", Version: "1.26.3-r0"}, {Name: "apache2", Version: "2.4.62-r0"}},
+			"apache-http-server 2.4.62 (apache2); nginx 1.26.3 (nginx)"},
+	} {
+		if got := format(Runtimes(tt.pm, tt.pkgs)); got != tt.want {
+			t.Errorf("%s %v:\n got  %s\n want %s", tt.pm, tt.pkgs, got, tt.want)
+		}
+	}
+}
+
 func TestRuntimesFromCollectorOutput(t *testing.T) {
 	// Base images ship Python on some distros; whatever is found must be
 	// well-formed and never come from a metapackage or library.
