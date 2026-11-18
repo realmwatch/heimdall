@@ -36,10 +36,12 @@ func TestHostPageUnusedPHP(t *testing.T) {
 	json.Unmarshal(raw, &snap)
 	snap["collected_at"] = testNow.Format(time.RFC3339)
 	pkgs := snap["packages"].([]any)
-	for _, n := range []string{"php8.1-cli", "php8.1-common", "php8.4-cli", "php8.4-common", "php8.4-fpm"} {
+	for _, n := range []string{"php8.1-cli", "php8.1-common", "php8.4-cli", "php8.4-common", "php8.4-fpm", "php8.5-cli", "php8.5-common"} {
 		v := "8.1.31-1+deb12u1"
 		if strings.HasPrefix(n, "php8.4") {
 			v = "8.4.5-1+deb12u1"
+		} else if strings.HasPrefix(n, "php8.5") {
+			v = "8.5.1-1+deb12u1"
 		}
 		pkgs = append(pkgs, map[string]any{"name": n, "version": v, "arch": "amd64", "source_name": n[:6], "source_version": v})
 	}
@@ -73,6 +75,10 @@ func TestHostPageUnusedPHP(t *testing.T) {
 	}
 	if strings.Contains(page, "PHP 8.4 <span") {
 		t.Error("offers to remove 8.4, which the site uses")
+	}
+	// 8.5 is newer than the site's: kept as its upgrade target.
+	if strings.Contains(page, "PHP 8.5 <span") || !strings.Contains(page, ">upgrade target</span>") {
+		t.Error("8.5, newer than every site's PHP, should be an upgrade target, not removed")
 	}
 }
 

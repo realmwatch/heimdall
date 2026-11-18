@@ -38,8 +38,12 @@ func useOf(h Host, minor string) *PHPUse {
 func TestPHPUse(t *testing.T) {
 	// 8.4 runs the site, 8.3's PHP-FPM is running for something unknown,
 	// 8.1 is installed and the command line's; 8.5 is just installed.
-	h, pkgs := phpHost(map[string]string{"app.example.com": "8.4"}, "8.1", "8.3", "8.4", "8.5")
+	// 8.0 is installed and older than every site's, so it goes too.
+	h, pkgs := phpHost(map[string]string{"app.example.com": "8.4"}, "8.0", "8.1", "8.3", "8.4", "8.5")
 	phpUse(&h, store.HostPHP{CLI: "8.1", FPM: []string{"8.3", "8.4"}}, pkgs)
+	if u := useOf(h, "8.0"); !u.Unused || u.Spare || len(u.Commands) != 1 {
+		t.Errorf("8.0 (older than every site's): %+v", u)
+	}
 	if !h.PHPKnown {
 		t.Error("PHPKnown not set")
 	}
@@ -60,8 +64,9 @@ func TestPHPUse(t *testing.T) {
 	if !strings.Contains(u.Check, `'php8\.1([^0-9]|$)'`) {
 		t.Errorf("8.1 check: %q", u.Check)
 	}
-	if u := useOf(h, "8.5"); !u.Unused || u.CLITo != "" || len(u.Commands) != 1 {
-		t.Errorf("8.5: %+v", u)
+	// 8.5 is newer than the site's 8.4: kept as its upgrade target.
+	if u := useOf(h, "8.5"); u.Unused || !u.Spare || len(u.Commands) != 0 {
+		t.Errorf("8.5 (newer than every site's): %+v", u)
 	}
 	// libapache2-mod-php8.1 isn't php8.1-*: it isn't removed.
 	if slices.Contains(useOf(h, "8.1").Packages, "libapache2-mod-php8.1") {

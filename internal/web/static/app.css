@@ -455,6 +455,7 @@ form.row.card input:not([type=checkbox]), form.row.card select { font-size: 14px
 .chip-ok strong { color: var(--ok-fg); }
 details.nofix { margin-top: 12px; }
 details.nofix > summary { font-weight: 600; color: var(--muted); margin: 12px 0; }
+details.php-hand > summary { font-weight: 400; color: var(--muted); margin: 4px 0; }
 
 /* Site cards on a host: the same fact grid as the host itself. */
 .site h3 { margin-top: 0; }

@@ -21,11 +21,15 @@ type PHPUse struct {
 	Sites      []string `json:"sites,omitempty"` // sites whose PHP-FPM runs it
 	CLI        bool     `json:"cli,omitempty"`   // the command line's `php`
 	FPMRunning bool     `json:"fpm_running,omitempty"`
-	// Unused: no site and no running PHP-FPM uses it, so it can be
-	// removed. When it's the command line's, CLITo is the version `php`
-	// should point to first (one the sites use, else the newest other).
-	Unused bool   `json:"unused,omitempty"`
-	CLITo  string `json:"cli_to,omitempty"`
+	// Unused: no site and no running PHP-FPM uses it, and it's older than
+	// every site's, so it can be removed. When it's the command line's,
+	// CLITo is the version `php` should point to first (one the sites use,
+	// else the newest other).
+	Unused bool `json:"unused,omitempty"`
+	// Spare: nothing uses it either, but it's newer than the oldest site's
+	// PHP, so it's kept as a target for that site's upgrade.
+	Spare bool   `json:"spare,omitempty"`
+	CLITo string `json:"cli_to,omitempty"`
 	// Packages are its installed packages (php8.1-*), when unused; DryRun
 	// and Commands remove them (Commands in order: the CLI switch first).
 	Packages []string `json:"packages,omitempty"`
@@ -105,9 +109,22 @@ func phpUse(host *Host, p store.HostPHP, pkgs []store.InventoryPackage) {
 			keep[cliTo] = true
 		}
 	}
+	// The oldest version a site runs: only versions older than it are
+	// offered for removal. A newer one may be the target of a site's PHP
+	// upgrade. With no sites, any unused version is.
+	floor := ""
+	for _, m := range minors {
+		if len(uses[m].Sites) > 0 {
+			floor = m // newest first, so the last one is the oldest
+		}
+	}
 	for _, m := range minors {
 		u := uses[m]
 		if used(m) || keep[m] || len(byMinor[m]) > maxPHPPackages {
+			continue
+		}
+		if floor != "" && version.CompareDpkg(m, floor) > 0 {
+			u.Spare = true
 			continue
 		}
 		if u.CLI {
