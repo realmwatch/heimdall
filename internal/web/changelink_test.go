@@ -383,3 +383,15 @@ func TestNginxLinks(t *testing.T) {
 		t.Errorf("no tool configured: %q", got)
 	}
 }
+
+func TestNginxSourceSwitchLink(t *testing.T) {
+	t.Parallel()
+	c := ChangeLink{ActionURL: "https://changes.example.com/propose?action={action}&org={org}&host={host}&{params}"}
+	h := report.Host{NginxSuryBuild: "1.26.3-1+ubuntu24.04.1+deb.sury.org+1"}
+	if got, want := c.nginxSourceSwitchLink("acme", "web-01", h), "https://changes.example.com/propose?action=nginx.source.nginx_org&org=acme&host=web-01&"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if c.nginxSourceSwitchLink("acme", "web-01", report.Host{}) != "" || (ChangeLink{}).nginxSourceSwitchLink("acme", "web-01", h) != "" {
+		t.Error("a link without Surý's build or without a template")
+	}
+}

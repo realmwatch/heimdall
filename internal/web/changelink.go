@@ -267,3 +267,16 @@ func (c ChangeLink) nginxRestartLink(org, host string, h report.Host) string {
 	}
 	return c.actionLink("service.restart", org, host, url.Values{"unit": {"nginx.service"}})
 }
+
+// nginxSourceSwitchLink drafts moving nginx from Ondřej Surý's removed
+// ondrej/nginx PPA to nginx.org's packages (action nginx.source.nginx_org,
+// no params), or is "" unless nginx is Surý's build. The tool's agent
+// removes the PPA's sources file, adds nginx.org's key, repository and pin,
+// drops load_module lines for modules nginx.org doesn't ship, upgrades,
+// checks the configuration and restarts.
+func (c ChangeLink) nginxSourceSwitchLink(org, host string, h report.Host) string {
+	if h.NginxSuryBuild == "" {
+		return ""
+	}
+	return c.actionLink("nginx.source.nginx_org", org, host, nil)
+}
