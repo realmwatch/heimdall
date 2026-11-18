@@ -29,7 +29,7 @@ export LC_ALL=C
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
-VERSION=0.5.35
+VERSION=0.5.36
 FORMAT=heimdall.snapshot/v4
 
 die() { printf 'heimdall-collect: %s\n' "$*" >&2; exit 1; }
@@ -1148,6 +1148,149 @@ apt_origins() {
 	rm -rf "$otmp"
 }
 
+# ── nginx configuration (sent as X-Heimdall-Nginx) ─────────────────────────
+
+# nginx_state: the X-Heimdall-Nginx value,
+#
+#   v1 servers=<n> h2=<n> h3=<n> pp=<0|1> mail=<0|1> resolver=<0|1>
+#      mp4=<0|1> restart=<0|1|-|?>;r=<root>|<h2|->;r=...
+#
+# from nginx's configuration as nginx reads it: nginx.conf, then each file
+# its include directives name, in place. servers counts the http server
+# blocks, h2 those that speak HTTP/2 (http2 on, inherited from http{}, or
+# an http2 listen flag on their address and port, which in nginx turns it
+# on for every server there) and h3 those listening for QUIC (HTTP/3). pp,
+# mail, resolver and mp4 say whether any listen takes the PROXY protocol,
+# a mail{} block exists, a resolver is set, and mp4 is on: the parts of
+# nginx some advisories are about. Each r= is a server block with a root,
+# and whether it speaks HTTP/2. restart says whether the running nginx
+# started before its binary was installed: an upgrade that wasn't followed
+# by a restart, so the old code still runs ("-" when nginx isn't running,
+# "?" when it can't tell). Reads files only; never runs nginx. Prints
+# "none" without /etc/nginx/nginx.conf, so the hub forgets what it had.
+# HEIMDALL_NGINX_CONF, HEIMDALL_NGINX_BIN and HEIMDALL_PROC are for tests.
+nginx_state() {
+	conf=${HEIMDALL_NGINX_CONF:-/etc/nginx/nginx.conf}
+	if [ ! -r "$conf" ]; then
+		echo none
+		return 0
+	fi
+	proc=${HEIMDALL_PROC:-/proc}
+	out=$(awk -v dir="$(dirname "$conf")" -v main="$conf" "$AWK_SITE_LIB"'
+		function expand(file, depth,   line, t, n, i) {
+			if (depth > 8 || nfiles >= 300 || (file in opened)) return
+			opened[file] = 1; nfiles++
+			while ((getline line < file) > 0) {
+				sub(/#.*/, "", line)
+				gsub(/[{};]/, " & ", line)
+				n = split(line, t, /[ \t\r]+/)
+				for (i = 1; i <= n; i++) if (t[i] != "") tok(t[i], depth)
+			}
+			close(file); delete opened[file]
+		}
+		# include PATTERN: each file it matches, relative to nginx.conf.
+		# Only plain path characters reach the shell.
+		function include(pat, depth,   cmd, f, files, n, i) {
+			gsub(/["\047]/, "", pat)
+			if (pat !~ /^[A-Za-z0-9._\/*?@+-]+$/) return
+			if (pat !~ /^\//) pat = dir "/" pat
+			cmd = "for f in " pat "; do [ -f \"$f\" ] && [ -r \"$f\" ] && printf \"%s\\n\" \"$f\"; done"
+			n = 0
+			while ((cmd | getline f) > 0) files[++n] = f
+			close(cmd)
+			for (i = 1; i <= n; i++) expand(files[i], depth + 1)
+		}
+		function tok(x, depth,   pat) {
+			if (x == ";") {
+				if (ns >= 2 && st[1] == "include") { pat = st[2]; ns = 0; include(pat, depth); return }
+				if (ns > 0) stmt()
+				ns = 0
+			} else if (x == "{") {
+				blk[++bd] = st[1]
+				if (st[1] == "server" && inhttp() && !insrv) {
+					insrv = bd; sh2 = ""; sh3 = ""; slh2 = 0; squic = 0; sports = ""; root = ""
+				}
+				if (st[1] == "http" && bd == 1) httpd = 1
+				if (st[1] == "mail") mail = 1
+				ns = 0
+			} else if (x == "}") {
+				if (insrv && bd == insrv) endserver()
+				if (bd > 0) bd--
+				ns = 0
+			} else st[++ns] = x
+		}
+		function inhttp(   i) { for (i = 1; i <= bd; i++) if (blk[i] == "http") return 1; return 0 }
+		function port(a) { sub(/^.*:/, "", a); return (a ~ /^[0-9]+$/) ? a : (a ~ /^unix/ ? "" : "80") }
+		function stmt(   d, k, p, v) {
+			d = st[1]
+			if (d == "resolver") resolver = 1
+			if (d == "mp4") mp4 = 1
+			if (d == "pid" && bd == 0) pidfile = st[2]
+			if (d == "http2" && ns >= 2) {
+				if (insrv) sh2 = st[2]
+				else if (bd == 1 && blk[1] == "http") hh2 = st[2]
+			}
+			if (d == "http3" && ns >= 2 && insrv) sh3 = st[2]
+			if (d == "listen") {
+				p = port(st[2])
+				for (k = 3; k <= ns; k++) {
+					if (st[k] == "proxy_protocol") pp = 1
+					if (insrv && st[k] == "http2") { slh2 = 1; if (p != "") h2port[p] = 1 }
+					if (insrv && st[k] == "quic") squic = 1
+				}
+				if (insrv && p != "") sports = sports " " p
+			}
+			if (d == "root" && insrv && ns >= 2 && (root == "" || bd == insrv)) {
+				v = st[2]; gsub(/["\047]/, "", v); sub(/\/+$/, "", v)
+				if (validpath(v)) root = v
+			}
+		}
+		function endserver() {
+			nsrv++
+			S_h2[nsrv] = sh2; S_h3[nsrv] = sh3; S_lh2[nsrv] = slh2; S_quic[nsrv] = squic
+			S_ports[nsrv] = sports; S_root[nsrv] = root
+			insrv = 0
+		}
+		BEGIN {
+			expand(main, 0)
+			h2 = 0; h3 = 0; recs = ""
+			for (i = 1; i <= nsrv; i++) {
+				on = (S_h2[i] == "on") || (S_h2[i] == "" && hh2 == "on") || S_lh2[i]
+				np = split(S_ports[i], ps, " ")
+				for (j = 1; j <= np; j++) if (ps[j] in h2port) on = 1
+				if (on) h2++
+				if (S_quic[i] && S_h3[i] != "off") h3++
+				if (S_root[i] != "" && length(recs) < 3000) recs = recs ";r=" S_root[i] "|" (on ? "h2" : "-")
+			}
+			printf "v1 servers=%d h2=%d h3=%d pp=%d mail=%d resolver=%d mp4=%d%s\n", nsrv, h2, h3, pp, mail, resolver, mp4, recs
+			gsub(/["\047;]/, "", pidfile)
+			print (pidfile == "" ? "/run/nginx.pid" : pidfile)
+		}') || return 0
+	line=$(printf '%s\n' "$out" | sed -n 1p)
+	pidfile=$(printf '%s\n' "$out" | sed -n 2p)
+	[ -n "$line" ] || return 0
+	# Did the running master start before its binary was installed? A
+	# file's ctime is when dpkg/rpm put it in place; a process's start is in
+	# /proc/PID/stat (clock ticks since boot, field 22), world-readable.
+	restart='-'
+	[ -r "$pidfile" ] || pidfile=/var/run/nginx.pid
+	pid=$(head -c 16 "$pidfile" 2>/dev/null | tr -cd '0-9')
+	if [ -n "$pid" ] && [ -r "$proc/$pid/stat" ]; then
+		restart='?'
+		bin=${HEIMDALL_NGINX_BIN:-$(command -v nginx 2>/dev/null || echo /usr/sbin/nginx)}
+		ticks=$(sed 's/^.*) //' "$proc/$pid/stat" | awk '{ print $20 }')
+		btime=$(awk '/^btime / { print $2 }' "$proc/stat" 2>/dev/null)
+		hz=$(getconf CLK_TCK 2>/dev/null || echo 100)
+		installed=$(stat -c %Z "$bin" 2>/dev/null)
+		case "$ticks$btime$hz$installed" in
+		*[!0-9]* | '') ;;
+		*) if [ $((btime + ticks / hz + 2)) -lt "$installed" ]; then restart=1; else restart=0; fi ;;
+		esac
+	fi
+	line=$(printf '%s\n' "$line" | sed "s/;/ restart=$restart;/; t; s/\$/ restart=$restart/")
+	printf '%s\n' "$line"
+}
+
 # ── SSH server settings (sent as X-Heimdall-SSH) ───────────────────────────
 
 # ssh_state: the X-Heimdall-SSH value,
@@ -1634,6 +1777,11 @@ push() {
 	release_header=
 	rel_state=$(release_state | tr '\n' ';' | tr -cd 'A-Za-z0-9._~:/+@=|,;% -' | cut -c1-8000)
 	[ -z "$rel_state" ] || release_header="header = \"X-Heimdall-Release: $rel_state\""
+	# nginx's HTTP/2, HTTP/3 and other exposure, and whether it needs a
+	# restart (nginx_state).
+	nginx_header=
+	ngx=$(nginx_state | tr -cd 'A-Za-z0-9._/@+=|;?- ' | cut -c1-4000)
+	[ -z "$ngx" ] || nginx_header="header = \"X-Heimdall-Nginx: $ngx\""
 	# Packages from apt sources other than the distro's (apt_origins).
 	origins_header=
 	origins=$(apt_origins | tr -cd 'A-Za-z0-9._+=,; -' | cut -c1-6000)
@@ -1647,7 +1795,7 @@ push() {
 	status=$(printf '%s\n' \
 		"header = \"Authorization: Bearer $token\"" \
 		'header = "Content-Type: application/json"' \
-		"$encoding" "$cacert" "$hostname_header" "$machine_header" "$triggers_header" "$agents_header" "$repos_header" "$branches_header" "$php_header" "$ssh_header" "$release_header" "$origins_header" "$(privilege_config)" "$(logins_config)" |
+		"$encoding" "$cacert" "$hostname_header" "$machine_header" "$triggers_header" "$agents_header" "$repos_header" "$branches_header" "$php_header" "$ssh_header" "$release_header" "$origins_header" "$nginx_header" "$(privilege_config)" "$(logins_config)" |
 		"$curl" --config - --silent --show-error \
 			--proto '=https,http' --tlsv1.2 \
 			--connect-timeout 10 --max-time 120 \
@@ -1980,8 +2128,8 @@ usage() {
 	cat >&2 <<'EOF'
 usage: heimdall-collect --print | --push | --push-trips | --trips |
                         --site-repos | --site-branches | --php | --ssh |
-                        --release | --origins | --deploy-watches | --logins |
-                        --version
+                        --release | --origins | --nginx | --deploy-watches |
+                        --logins | --version
        heimdall-collect deployed
        sudo heimdall-collect upgrade [vX.Y.Z] [--watch-privilege-users |
                                      --watch-privilege | --no-watch-privilege]
@@ -2007,6 +2155,9 @@ usage: heimdall-collect --print | --push | --push-trips | --trips |
                 send (one record per line)
   --origins     print the installed packages from apt sources other than the
                 distro's (nginx.org, PPAs, vendor repositories) --push would
+                send
+  --nginx       print nginx's HTTP/2, HTTP/3 and other settings advisories
+                depend on, and whether it needs a restart, that --push would
                 send
   --deploy-watches
                 print the paths watched for site deploys (install.sh puts
@@ -2050,7 +2201,7 @@ case $1 in
 deployed) deployed; exit 0 ;; # any user, root too: it only touches a file
 # For heimdall-collect-soon.service (root), not for people:
 event-allowed) if event_allowed; then exit 0; else exit 1; fi ;;
---print | --push | --push-trips | --trips | --site-repos | --site-branches | --php | --ssh | --release | --origins | --deploy-watches | --logins) ;;
+--print | --push | --push-trips | --trips | --site-repos | --site-branches | --php | --ssh | --release | --origins | --nginx | --deploy-watches | --logins) ;;
 *) usage ;;
 esac
 
@@ -2086,6 +2237,7 @@ case $1 in
 --ssh) ssh_state; echo ;;
 --release) release_state ;;
 --origins) apt_origins ;;
+--nginx) nginx_state ;;
 --deploy-watches) deploy_watches ;;
 --logins) logins_header "${HEIMDALL_LOGIN_COUNTS:-/var/lib/heimdall-logins/counts}" | sed -n 's/^header = "X-Heimdall-Logins: \(.*\)"$/\1/p' ;;
 esac

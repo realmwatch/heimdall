@@ -295,6 +295,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.recordSSH(r.Context(), log, host, r)                       // ssh.go
 		h.recordRelease(r.Context(), log, host, r)                   // release.go
 		h.recordOrigins(r.Context(), log, host, r)                   // origins.go
+		h.recordNginx(r.Context(), log, host, r)                     // nginx.go
 		h.recordLogins(r.Context(), log, host, r)                    // opt-in login watch (logins.go)
 	}
 	if res.Status == http.StatusCreated && h.OnStored != nil {

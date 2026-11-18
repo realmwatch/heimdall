@@ -149,6 +149,9 @@ type hostBody struct {
 	PHPRemoveAllN   int
 	RebootURL       string // drafts a reboot when one is required or a newer kernel waits (changelink.go)
 	CleanupURL      string // drafts cleaning up release-upgrade leftovers (changelink.go)
+	NginxHTTP2Off   string // drafts turning off nginx's HTTP/2 (changelink.go)
+	NginxRestart    string // drafts restarting nginx onto its updated binary
+	NginxSwitch     string // drafts moving nginx from the removed ondrej/nginx PPA to nginx.org
 	CollectorKnown  bool   // this hub is a release build, so the comparison means something
 	ShowAll         bool   // show every finding instead of the first findingsCap
 	Packages        []store.InventoryPackage
@@ -315,6 +318,9 @@ func (s *server) hostPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 	body.RebootURL = s.cfg.ChangeLink.rebootLink(host.OrgSlug, host.Name, body.Reboot == "required" || body.Report.NewerKernel != "")
 	body.OSView.RebootURL = body.RebootURL
 	body.CleanupURL = s.cfg.ChangeLink.releaseCleanupLink(host.OrgSlug, host.Name, body.Report.ReleaseLeftovers != nil)
+	body.NginxHTTP2Off = s.cfg.ChangeLink.nginxHTTP2OffLink(host.OrgSlug, host.Name, body.Report)
+	body.NginxRestart = s.cfg.ChangeLink.nginxRestartLink(host.OrgSlug, host.Name, body.Report)
+	body.NginxSwitch = s.cfg.ChangeLink.nginxSourceSwitchLink(host.OrgSlug, host.Name, body.Report)
 	body.PHPRemove = s.cfg.ChangeLink.phpRemoveLinks(host.OrgSlug, host.Name, body.Report.Runtimes)
 	body.PHPRemoveAll, body.PHPRemoveAllN = s.cfg.ChangeLink.phpRemoveAllLink(host.OrgSlug, host.Name, body.PHPRemove)
 	if raw, err := s.st.HostTriggers(ctx, host.ID); err == nil {

@@ -66,6 +66,11 @@ type Host struct {
 	// Surý's build, from the ondrej/nginx PPA Launchpad removed: no fix
 	// will come from it, so the server needs nginx.org's packages instead.
 	NginxSuryBuild string `json:"nginx_sury_build,omitempty"`
+	// Nginx is what the collector read from nginx's configuration: what
+	// speaks HTTP/2 and HTTP/3, the parts some advisories are about, and
+	// whether nginx needs a restart. Nil without nginx or from an older
+	// collector.
+	Nginx *store.NginxState `json:"nginx,omitempty"`
 }
 
 type Container struct {
@@ -95,6 +100,9 @@ type Site struct {
 	NpmPackages      int        `json:"npm_packages"` // from package-lock.json (collector snapshot v4)
 	NpmDev           int        `json:"npm_dev_packages"`
 	Counts           Counts     `json:"counts"` // Composer and npm findings
+	// HTTP2: nginx serves the site's document root over HTTP/2 (nil when
+	// unknown: an older collector, or not nginx).
+	HTTP2 *bool `json:"http2,omitempty"`
 }
 
 type Lifecycle struct {
@@ -200,6 +208,12 @@ type Finding struct {
 	// configured source has it, so no update fixes it; the host's
 	// release_leftovers says how to clear it.
 	Leftover bool `json:"leftover,omitempty"`
+	// Feature is the part of nginx an nginx.org advisory is about (http2,
+	// http3, mail, resolver, proxy_protocol, mp4), and FeatureOn whether
+	// the host's nginx uses it: nil when unknown (an older collector, or a
+	// part the collector doesn't look for).
+	Feature   string `json:"feature,omitempty"`
+	FeatureOn *bool  `json:"feature_on,omitempty"`
 }
 
 // Filter narrows a report. Scope is required: hosts outside it are never
@@ -221,6 +235,7 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 		return nil, err
 	}
 	r := &Report{GeneratedAt: now.UTC(), Hosts: []Host{}}
+	var features map[string]string // nginx.org advisory → feature, loaded once
 	var tallies map[int64]map[string]store.FindingCounts
 	if f.CountsOnly {
 		if tallies, err = st.OpenFindingCounts(ctx); err != nil {
@@ -368,6 +383,11 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 		}
 		if p, ok := phps[h.ID]; ok && findings.PackageManager(inv) == "dpkg" {
 			phpUse(&host, p, inv.Packages)
+		}
+		if !f.CountsOnly {
+			if err := nginxExposure(ctx, st, h.ID, &host, &features); err != nil {
+				return nil, err
+			}
 		}
 		r.Hosts = append(r.Hosts, host)
 	}

@@ -112,6 +112,7 @@ Most PHP apps are a site on a shared box, so Heimdall inventories **sites**, not
 ### Vulnerability & lifecycle checks
 - Matches package versions against **[OSV.dev](https://osv.dev)**, which aggregates the Debian, Ubuntu, Alpine, Red Hat, Rocky, Alma, npm, Packagist, PyPI and other advisory feeds
 - Matches nginx against **[nginx.org's own advisories](https://nginx.org/en/security_advisories.html)** too: nginx.org's builds by them alone (a distro's advisories can't judge another source's versions), and the distro's builds until the distro publishes its own record, so a new nginx flaw shows the day nginx.org fixes it. Packages from any other third-party apt source are listed on the host page as not checked ([collector.md](docs/collector.md#third-party-packages))
+- Says whether each nginx flaw is reachable as configured (HTTP/2, HTTP/3, mail, resolver, PROXY protocol, mp4), which sites speak HTTP/2, and when nginx is still running the code from before an update ([nginx settings](docs/collector.md#nginx-settings))
 - Flags CVEs listed in **[CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)** (Known Exploited Vulnerabilities)
 - Optional **[EPSS](https://www.first.org/epss/)** scores to help rank what to fix first
 - End-of-life warnings for operating systems and runtimes via **[endoflife.date](https://endoflife.date)**

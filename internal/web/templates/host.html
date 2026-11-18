@@ -86,8 +86,19 @@
   {{if eq .UsageScan "partial"}}<p class="muted small">The collector isn't root, so it could read only some processes' memory maps: services running as other users may load these libraries too.</p>{{else if eq .UsageScan "not_reported"}}<p class="muted small">Found from package versions alone. Upgrade the collector (<code>sudo heimdall-collect upgrade</code>) to see stale apt sources, obsolete packages and what still loads them.</p>{{end}}
   {{with .Remediation}}<h3>To clean up, in order</h3><ol class="small">{{range .}}<li>{{.}}</li>{{end}}</ol>{{end}}
 </section>{{end}}
-{{with .Report.NginxSuryBuild}}<section class="card nginx-ppa" aria-labelledby="nginx-ppa-h">
-  <h2 id="nginx-ppa-h">nginx can't be updated from its source <span class="sev sev-high">high</span></h2>
+{{if and .Report.Nginx (or (eq .Report.Nginx.Restart "yes") .Report.HasNginxFindings)}}{{$n := .Report.Nginx}}<section class="card nginx-exposure" id="nginx" aria-labelledby="nginx-h">
+  <div class="section-head"><h2 id="nginx-h">nginx</h2>{{if or .NginxRestart .NginxHTTP2Off}}<span class="head-actions">{{end}}{{with .NginxRestart}}<a class="button change-btn" href="{{.}}" target="_blank" rel="noopener noreferrer" title="Opens your change-management tool, which drafts restarting nginx">Propose restart</a>{{end}}{{with .NginxHTTP2Off}}<a class="button change-btn" href="{{.}}" target="_blank" rel="noopener noreferrer" title="Opens your change-management tool, which drafts turning HTTP/2 off in every server block, checks the configuration and reloads">Propose turning off HTTP/2</a>{{end}}{{if or .NginxRestart .NginxHTTP2Off}}</span>{{end}}</div>
+  {{if eq $n.Restart "yes"}}<p class="small"><span class="badge bad">restart needed</span> nginx started before its binary was installed, so it's still running the old code: a reload doesn't load a new binary. Restart it.</p>{{end}}
+  <ul class="small">
+    <li>HTTP/2: {{if $n.HTTP2}}<strong>on</strong> in {{$n.HTTP2}} of {{$n.Servers}} server block{{if ne $n.Servers 1}}s{{end}}{{else}}off{{end}}</li>
+    <li>HTTP/3: {{if $n.HTTP3}}<strong>on</strong> in {{$n.HTTP3}} of {{$n.Servers}}{{else}}off{{end}}</li>
+    <li>Also in use: {{with .Report.NginxAlsoInUse}}{{join . ", "}}{{else}}<span class="muted">none of the PROXY protocol, mail proxy, resolver or mp4</span>{{end}}</li>
+  </ul>
+  {{if $n.HTTP2}}{{with .Report.NginxHTTP2Findings}}<p class="small">Turning HTTP/2 off blocks {{range $i, $f := .}}{{if $i}}, {{end}}{{with first $f.CVEs}}{{.}}{{else}}{{$f.Advisory}}{{end}}{{end}} until nginx is updated. Clients fall back to HTTP/1.1. It doesn't fix nginx's other flaws: update nginx too.</p>{{end}}{{end}}
+  <p class="muted small">Read from nginx's configuration files as nginx loads them (nginx.conf and its includes). An HTTP/2 listen flag turns HTTP/2 on for every server on that address and port.</p>
+</section>{{end}}
+{{$switch := .NginxSwitch}}{{with .Report.NginxSuryBuild}}<section class="card nginx-ppa" aria-labelledby="nginx-ppa-h">
+  <div class="section-head"><h2 id="nginx-ppa-h">nginx can't be updated from its source <span class="sev sev-high">high</span></h2>{{with $switch}}<a class="button change-btn" href="{{.}}" target="_blank" rel="noopener noreferrer" title="Opens your change-management tool, which drafts moving nginx to nginx.org's packages: the PPA removed, nginx.org's repository added and pinned, modules it doesn't ship unloaded, then the upgrade, a configuration check and a restart">Propose switching to nginx.org</a>{{end}}</div>
   <p class="small">nginx {{.}} is Ondřej Surý's build, from the <code>ondrej/nginx</code> PPA (where Laravel Forge used to install it from). Launchpad has removed that PPA, so no fixed version will come from it, and nginx's findings here won't clear with an update. Switch the server to <a href="https://nginx.org/en/linux_packages.html#Ubuntu" rel="noopener noreferrer">nginx.org's packages</a>: remove the PPA's file from <code>/etc/apt/sources.list.d</code>, add nginx.org's repository and pin it, then upgrade nginx and restart it. Modules the PPA shipped separately (brotli, geoip, image-filter, xslt) aren't in nginx.org's packages: remove their <code>load_module</code> lines first.</p>
 </section>{{end}}
 {{with .Report.ThirdParty}}<section class="card third-party" id="third-party" aria-labelledby="third-party-h">
@@ -156,7 +167,7 @@
     <h3><a href="{{siteURL $.Body.Org $.Body.Name .Root}}">{{with first .ServerNames}}{{if eq . "_"}}Default server{{else}}{{.}}{{end}}{{else}}{{.Root}}{{end}}</a> {{with .Label}}<span class="site-label label-{{.}}">{{.}}</span>{{end}} {{template "sitebadges" .Site}}</h3>
     <p class="site-root"><code class="path">{{pathBreak .Root}}</code>{{if and .DocumentRoot (ne .DocumentRoot .Root)}} <span class="muted">serving</span> <code class="path">{{pathBreak (relPath .Root .DocumentRoot)}}</code>{{end}}{{if gt (len .ServerNames) 1}} <span class="muted">· also</span> {{join (slice .ServerNames 1) ", "}}{{end}}</p>
     <ul class="site-facts">
-      <li><span class="k">Web server</span><span class="v">{{with .WebServer}}{{.}}{{else}}<span class="muted">listed in HEIMDALL_SITES</span>{{end}}</span></li>
+      <li><span class="k">Web server</span><span class="v">{{with .WebServer}}{{.}}{{else}}<span class="muted">listed in HEIMDALL_SITES</span>{{end}}{{with .HTTP2Label}} · HTTP/2 {{.}}{{end}}</span></li>
       <li><span class="k">PHP-FPM</span><span class="v">{{with .PHPFPM}}{{.}}{{else}}<span class="muted">unknown</span>{{end}}{{with .PHPLife}} {{template "lifepill" .}}{{end}}</span></li>
       {{if .PHPRequirement}}<li><span class="k">Requires PHP</span><span class="v">{{.PHPRequirement}}</span></li>{{end}}
       {{if .Framework}}<li><span class="k cap">{{.Framework}}</span><span class="v">{{.FrameworkVersion}}{{with .FrameworkLife}} {{template "lifepill" .}}{{end}}</span></li>{{end}}
