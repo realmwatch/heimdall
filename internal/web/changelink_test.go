@@ -352,3 +352,34 @@ func TestPHPUpgradeLink(t *testing.T) {
 		}
 	}
 }
+
+func TestNginxLinks(t *testing.T) {
+	t.Parallel()
+	c := ChangeLink{ActionURL: "https://changes.example.com/propose?action={action}&org={org}&host={host}&{params}"}
+	h2 := report.Finding{Advisory: "NGINX-CVE-2026-123007", Feature: "http2"}
+	other := report.Finding{Advisory: "NGINX-CVE-2026-118899"}
+	host := report.Host{Findings: []report.Finding{h2, other}, Nginx: &store.NginxState{Servers: 3, HTTP2: 2, Restart: "yes"}}
+	if got, want := c.nginxHTTP2OffLink("acme", "web-01", host), "https://changes.example.com/propose?action=nginx.http2_off&org=acme&host=web-01&"; got != want {
+		t.Errorf("http2 off = %q, want %q", got, want)
+	}
+	if got, want := c.nginxRestartLink("acme", "web-01", host), "https://changes.example.com/propose?action=service.restart&org=acme&host=web-01&unit=nginx.service"; got != want {
+		t.Errorf("restart = %q, want %q", got, want)
+	}
+	// HTTP/2 already off, no HTTP/2 advisory, nothing known, or no restart
+	// needed: no links.
+	off := host
+	off.Nginx = &store.NginxState{Servers: 3, Restart: "no"}
+	noH2 := host
+	noH2.Findings = []report.Finding{other}
+	for _, h := range []report.Host{off, noH2, {Findings: host.Findings}} {
+		if got := c.nginxHTTP2OffLink("acme", "web-01", h); got != "" {
+			t.Errorf("HTTP/2 off offered for %+v with %d HTTP/2 findings: %q", h.Nginx, len(h.NginxHTTP2Findings()), got)
+		}
+	}
+	if got := c.nginxRestartLink("acme", "web-01", off); got != "" {
+		t.Errorf("restart offered when not needed: %q", got)
+	}
+	if got := (ChangeLink{}).nginxHTTP2OffLink("acme", "web-01", host); got != "" {
+		t.Errorf("no tool configured: %q", got)
+	}
+}

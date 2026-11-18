@@ -245,3 +245,25 @@ func (c ChangeLink) addChangeLinks(fv *findingsView, org, host string, pending i
 		g.ChangeLabel = c.Label
 	}
 }
+
+// nginxHTTP2OffLink drafts turning HTTP/2 off in nginx (action
+// nginx.http2_off, no params), or is "" unless nginx speaks HTTP/2 and an
+// open nginx.org advisory about HTTP/2 applies. The tool's agent turns it
+// off in every server block and http{}, checks the configuration and
+// reloads, keeping a backup to turn it back on once nginx is updated.
+func (c ChangeLink) nginxHTTP2OffLink(org, host string, h report.Host) string {
+	if h.Nginx == nil || h.Nginx.HTTP2 == 0 || len(h.NginxHTTP2Findings()) == 0 {
+		return ""
+	}
+	return c.actionLink("nginx.http2_off", org, host, nil)
+}
+
+// nginxRestartLink drafts restarting nginx (action service.restart with
+// unit=nginx.service), or is "" unless the running nginx predates its
+// binary: a reload keeps the old code running.
+func (c ChangeLink) nginxRestartLink(org, host string, h report.Host) string {
+	if h.Nginx == nil || h.Nginx.Restart != "yes" {
+		return ""
+	}
+	return c.actionLink("service.restart", org, host, url.Values{"unit": {"nginx.service"}})
+}

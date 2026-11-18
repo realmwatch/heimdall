@@ -46,3 +46,24 @@ func TestNginxSuryBuild(t *testing.T) {
 		t.Errorf("nginx.org's build: %q", got)
 	}
 }
+
+func TestExposureLabel(t *testing.T) {
+	on, off := true, false
+	for f, want := range map[*Finding]string{
+		{Feature: "http2", FeatureOn: &on}:  "HTTP/2 on",
+		{Feature: "http3", FeatureOn: &off}: "HTTP/3 off",
+		{Feature: "http2"}:                  "",
+		{Feature: "", FeatureOn: &on}:       "",
+	} {
+		if got := f.ExposureLabel(); got != want {
+			t.Errorf("%+v: %q, want %q", *f, got, want)
+		}
+	}
+	if (Site{}).HTTP2Label() != "" || (Site{HTTP2: &on}).HTTP2Label() != "on" || (Site{HTTP2: &off}).HTTP2Label() != "off" {
+		t.Error("site labels")
+	}
+	h := Host{Nginx: &store.NginxState{Resolver: true, Mail: true}}
+	if got := h.NginxAlsoInUse(); len(got) != 2 || got[0] != "mail proxy" || got[1] != "resolver" {
+		t.Errorf("also in use = %v", got)
+	}
+}

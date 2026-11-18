@@ -622,6 +622,20 @@ A third-party package's version isn't the distro's, so the distro's advisories c
 
 nginx.org's advisories also cover the distro's own nginx in the days before the distro publishes: for each CVE, the hub asks OSV whether Ubuntu's, Debian's or Alpine's record of it exists yet (`UBUNTU-CVE-…`). Until it does, nginx.org's advisory stands in on the distro's builds, by upstream version and with no fix offered (the distro has none yet); once the record exists, the distro's own finding takes over. A lookup that fails counts as published, so an outage can't flag every CVE nginx ever had. rpm distros publish per update rather than per CVE, so on Red Hat, Rocky and Alma only nginx.org's builds are matched. These findings carry an **nginx.org** badge.
 
+## nginx settings
+
+Each push (collector 0.5.36 and later) also says what nginx's configuration turns on, read the way nginx reads it: `/etc/nginx/nginx.conf`, then each file its `include` directives name, in place. It never runs nginx, and an include naming anything but plain path characters is skipped rather than handed to the shell.
+
+- **HTTP/2:** how many http server blocks speak it: `http2 on` in the server or inherited from `http{}`, or an `http2` flag on a `listen`, which nginx applies to every server on that address and port.
+- **HTTP/3:** how many listen for QUIC.
+- **Other parts some advisories are about:** whether a listen takes the PROXY protocol, a `mail{}` block exists, a `resolver` is set, or `mp4` is on.
+- **Each site's HTTP/2:** by server root, so a site page says "HTTP/2 on" or "off".
+- **Restart needed:** whether the running nginx (the process in its pid file) started before its binary was installed, from `/proc/PID/stat` and the binary's change time. An upgrade that wasn't followed by a restart leaves the old code running: a reload doesn't load a new binary.
+
+`heimdall-collect --nginx` prints it, for example `v1 servers=5 h2=3 h3=1 pp=0 mail=0 resolver=1 mp4=0 restart=0;r=/srv/shop/public|h2` (`none` without nginx). It's sent as `X-Heimdall-Nginx`, a header like the others, at most 4000 characters.
+
+On the hub, each nginx.org finding says whether the part it's about is on here ("HTTP/2 on", "HTTP/2 off"), and the host page's **nginx** card shows the settings, says when nginx needs a restart, and, with a [change-management tool](integrations.md) linked, offers **Propose restart** and **Propose turning off HTTP/2** (a stopgap for the HTTP/2 flaws until nginx is updated; it doesn't fix the others). "Off" means off as configured: update anyway, since a config change can turn it on.
+
 ## Exit codes & messages
 
 | Exit | Meaning |
