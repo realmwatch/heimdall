@@ -33,6 +33,10 @@ type ChangeLink struct {
 	// servers. Set, the host list gets a column showing where it's
 	// installed. "" is off.
 	AgentService string `toml:"agent_service"`
+	// CollectorUpgradeAction says the tool supports the collector.upgrade
+	// action (ActionURL, {params} hosts=<names>): the host list then offers
+	// one link per org for every host whose collector is behind.
+	CollectorUpgradeAction bool `toml:"collector_upgrade_action"`
 }
 
 var agentServiceRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,121}-agent$`)

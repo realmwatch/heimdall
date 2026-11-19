@@ -238,7 +238,7 @@ func newUIServer(cfg config.Config, s *store.Store, log *slog.Logger, aiSvc *ai.
 		IPs:          ips,
 		Cloudflare:   cfg.Cloudflare.Enabled,
 		Tailnet:      cfg.Tailscale.Enabled,
-		ChangeLink:   web.ChangeLink{URL: cfg.ChangeLink.URL, UpdatesURL: cfg.ChangeLink.UpdatesURL, CollectorURL: cfg.ChangeLink.CollectorURL, ActionURL: cfg.ChangeLink.ActionURL, Label: cfg.ChangeLink.LinkLabel(), AgentService: cfg.ChangeLink.AgentService},
+		ChangeLink:   web.ChangeLink{URL: cfg.ChangeLink.URL, UpdatesURL: cfg.ChangeLink.UpdatesURL, CollectorURL: cfg.ChangeLink.CollectorURL, ActionURL: cfg.ChangeLink.ActionURL, Label: cfg.ChangeLink.LinkLabel(), AgentService: cfg.ChangeLink.AgentService, CollectorUpgradeAction: cfg.ChangeLink.CollectorUpgradeAction},
 	}
 	// Users' own Amp keys (web/ampkeys.go): with an Amp agent, and sealed
 	// with the secrets key when there is one.

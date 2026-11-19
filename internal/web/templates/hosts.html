@@ -2,7 +2,7 @@
 <div class="head">
   <h1>Hosts</h1>
   <span class="muted head-sub">{{if or .Env .Tag .Only}}{{len .Hosts}} of {{.Total}}{{else}}{{.Total}}{{end}}</span>
-  <span class="head-action head-actions"><a class="button secondary" href="/hosts/enroll">Add servers</a> <a class="button" href="/hosts/new">Add a host</a></span>
+  <span class="head-action head-actions">{{$multi := gt (len .CollectorUpgrades) 1}}{{range .CollectorUpgrades}}<a class="button secondary change-btn" href="{{.URL}}" target="_blank" rel="noopener noreferrer" title="Opens your change-management tool, which drafts upgrading the collector on {{if eq .Hosts 1}}this host{{else}}these {{.Hosts}} hosts{{end}}{{if $multi}} in {{.Org}}{{end}}">Propose collector upgrade{{if $multi}} · {{.Org}}{{end}} ({{.Hosts}})</a> {{end}}<a class="button secondary" href="/hosts/enroll">Add servers</a> <a class="button" href="/hosts/new">Add a host</a></span>
   {{if .ShowOrgs}}
   <form method="get" action="/hosts" class="filter">
     {{with .Only}}<input type="hidden" name="only" value="{{.}}">{{end}}{{with .Sort}}<input type="hidden" name="sort" value="{{.}}">{{end}}

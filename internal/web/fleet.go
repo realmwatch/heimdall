@@ -638,6 +638,9 @@ type hostsBody struct {
 	// The icon columns, each shown only when its feature is configured.
 	ShowTailnet  bool
 	AgentService string
+	// CollectorUpgrades draft upgrading every collector that's behind among
+	// the hosts shown, one per org (changelink.go).
+	CollectorUpgrades []orgLink
 }
 
 // RowSpan is the columns a host without a report spans, after the host's.
@@ -790,6 +793,7 @@ func (s *server) hostsPage(w http.ResponseWriter, r *http.Request, v *auth.Viewe
 			body.Hosts = append(body.Hosts, h)
 		}
 	}
+	body.CollectorUpgrades = s.cfg.ChangeLink.fleetCollectorLinks(body.Hosts)
 	switch q.sort {
 	case "priority":
 		slices.SortStableFunc(body.Hosts, comparePriority)

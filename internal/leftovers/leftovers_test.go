@@ -302,6 +302,30 @@ func TestObsoletePlan(t *testing.T) {
 	}
 }
 
+// A package an operator marked as kept isn't obsolete, and what needs it
+// is left for review.
+func TestKeptPackage(t *testing.T) {
+	pkgs := []Package{
+		{"libssl3", "3.0.2-0ubuntu1.18", "openssl", "3.0.2-0ubuntu1.18"},
+		{"acme-tool", "2.4-1", "acme-tool", "2.4-1"}, // a vendor's .deb with a revision
+		{"libwebp6", "0.6.1-2ubuntu0.20.04.3", "libwebp", "0.6.1-2ubuntu0.20.04.3"},
+	}
+	st, err := Parse("v1 cn=jammy maps=1/1;u=sources.list.distUpgrade;o=acme-tool|2.4-1|0|;o=libwebp6|0.6.1-2ubuntu0.20.04.3|0|acme-tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := Analyze(jammy, pkgs, &st).Finding; f == nil || len(f.Obsolete) != 2 || f.Obsolete[0].Plan != PlanRemove {
+		t.Fatalf("unmarked: %+v", f)
+	}
+	st.Kept = []string{"acme-tool"}
+	a := Analyze(jammy, pkgs, &st)
+	f := a.Finding
+	if a.Obsolete["acme-tool"] || f == nil || len(f.Vendor) != 1 || !f.Vendor[0].Kept || len(f.Obsolete) != 1 ||
+		f.Obsolete[0].Plan != PlanReview || f.Obsolete[0].Reason != "needed by acme-tool" {
+		t.Errorf("kept: %+v", f)
+	}
+}
+
 func TestOnPurpose(t *testing.T) {
 	for v, want := range map[string]bool{
 		"7.2.0.1234": true, "4.1.0": true, "3.0.0.1000": true, "1:2.0.4": true,

@@ -5,6 +5,8 @@ package web
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -72,7 +74,8 @@ func TestHostPageReleaseLeftovers(t *testing.T) {
 		"<code>php8.3-fpm.service</code>", "maps <code>libpq.so.5</code> from libpq5",
 		"<td>libtinfo5</td>", "<td>libpq5</td>", "only some processes",
 		`href="https://changes.example.com/propose?action=release.cleanup&amp;org=acme&amp;host=web-01&amp;keep=acme-agent&amp;remove=libtinfo5"`,
-		"<h3>Installed from a vendor's .deb</h3>", `<code>acme-agent</code> <span class="muted">3.0.0.1000</span>`,
+		"<h3>Installed on purpose</h3>", `<code>acme-agent</code> <span class="muted">3.0.0.1000 · a vendor's .deb</span>`,
+		`<input type="hidden" name="package" value="libtinfo5"><button type="submit" class="link"`,
 		`<span class="badge warn">remove</span> <span class="muted">nothing installed needs it</span>`,
 
 		"built for Ubuntu 22.04 (jammy)", "no update: a leftover",
@@ -80,6 +83,39 @@ func TestHostPageReleaseLeftovers(t *testing.T) {
 		if !strings.Contains(page, want) {
 			t.Errorf("host page lacks %q", want)
 		}
+	}
+
+	// Keeping libtinfo5: it moves to the kept list with an Undo, is no
+	// longer a leftover, and the cleanup link keeps it too. Undo puts it
+	// back.
+	if w := e.formPost("/hosts/acme/web-01/keep", url.Values{"package": {"libtinfo5"}}); w.Code != http.StatusSeeOther ||
+		w.Header().Get("Location") != "/hosts/acme/web-01?renamed=kept#release-leftovers" {
+		t.Fatalf("keep: %d %s", w.Code, w.Header().Get("Location"))
+	}
+	page = e.get("/hosts/acme/web-01?show=all&renamed=kept", signedIn(e)).Body.String()
+	for _, want := range []string{
+		`<code>libtinfo5</code> <span class="muted">6.3-2 · marked to keep</span>`, `<input type="hidden" name="keep" value="0"><button type="submit" class="link">Undo</button>`,
+		`&amp;keep=libtinfo5%2Cacme-agent"`, "Marked as installed on purpose",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("after keep, host page lacks %q", want)
+		}
+	}
+	const keepBtn = `value="libtinfo5"><button type="submit" class="link" title="It was installed on purpose`
+	if strings.Contains(page, keepBtn) {
+		t.Error("a kept package is still listed as obsolete")
+	}
+	if w := e.formPost("/hosts/acme/web-01/keep", url.Values{"package": {"libtinfo5"}, "keep": {"0"}}); w.Code != http.StatusSeeOther {
+		t.Fatalf("undo: %d", w.Code)
+	}
+	if page := e.get("/hosts/acme/web-01?show=all", signedIn(e)).Body.String(); !strings.Contains(page, keepBtn) {
+		t.Error("undo didn't put it back")
+	}
+	if w := e.formPost("/hosts/acme/web-01/keep", url.Values{"package": {"Bad Name"}}); w.Code != http.StatusSeeOther {
+		t.Errorf("a bad name: %d", w.Code)
+	}
+	if kept, _ := e.st.KeptPackages(ctx, h.ID); len(kept) != 0 {
+		t.Errorf("kept %v", kept)
 	}
 
 	// No leftovers, no card and no button.

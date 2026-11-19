@@ -86,7 +86,11 @@ func (e *Engine) EvaluateHost(ctx context.Context, host store.IngestHost) (HostR
 				distro = append(distro, p)
 			}
 		}
-		addOSTargets(targets, info, distro, ReleaseAnalysis(inv, info, state))
+		kept, err := e.Store.KeptPackages(ctx, host.ID)
+		if err != nil {
+			return res, err
+		}
+		addOSTargets(targets, info, distro, ReleaseAnalysis(inv, info, state, kept))
 		upstream = nginxPackages(inv.Packages, third)
 	} else {
 		e.Log.Info("findings: OS packages not supported, skipping them", "host", host.Name, "os", inv.OSID, "version", inv.OSVersion)
@@ -531,7 +535,8 @@ func stripEpoch(v string) string {
 // host (see internal/leftovers). state is the collector's apt state as
 // stored (nil if never reported); state from another release (the host
 // reported before its upgrade) is ignored. Other hosts get an empty one.
-func ReleaseAnalysis(inv store.HostInventory, info ecosystem.Info, state []byte) leftovers.Analysis {
+// kept are the packages an operator marked as installed on purpose.
+func ReleaseAnalysis(inv store.HostInventory, info ecosystem.Info, state []byte, kept []string) leftovers.Analysis {
 	cur, ok := leftovers.FromOSV(info.OSV)
 	if !ok || info.Scheme != version.Dpkg {
 		return leftovers.Analysis{}
@@ -540,6 +545,7 @@ func ReleaseAnalysis(inv store.HostInventory, info ecosystem.Info, state []byte)
 	if state != nil {
 		var s leftovers.State
 		if json.Unmarshal(state, &s) == nil && s.Codename == cur.Codename {
+			s.Kept = kept
 			st = &s
 		}
 	}

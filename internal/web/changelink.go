@@ -28,6 +28,9 @@ type ChangeLink struct {
 	Label        string // a package link's text, e.g. "Fix"
 	// AgentService is the *-agent service the host list looks for; "" = no column.
 	AgentService string
+	// CollectorUpgradeAction: the tool supports collector.upgrade through
+	// ActionURL, so the host list links every host that's behind.
+	CollectorUpgradeAction bool
 }
 
 // link fills the template, escaping each value. ids are the findings to
@@ -82,6 +85,44 @@ func (c ChangeLink) hostsActionLink(action, org string, hosts []string) string {
 		return ""
 	}
 	return c.actionLink(action, org, "", url.Values{"hosts": {strings.Join(hosts, ",")}})
+}
+
+// orgLink is a link for several hosts of one org (fleetCollectorLinks).
+type orgLink struct {
+	Org   string
+	Hosts int
+	URL   string
+}
+
+// fleetCollectorLinks drafts upgrading every collector that's behind
+// among hosts (the host list as filtered): one collector.upgrade link per
+// org, in chunks of actionHostsMax. None unless the tool supports the
+// action (CollectorUpgradeAction).
+func (c ChangeLink) fleetCollectorLinks(hosts []fleetHost) []orgLink {
+	if !c.CollectorUpgradeAction || c.ActionURL == "" {
+		return nil
+	}
+	byOrg := map[string][]string{}
+	var orgs []string
+	for _, h := range hosts {
+		if !h.CollectorBehind {
+			continue
+		}
+		if byOrg[h.OrgSlug] == nil {
+			orgs = append(orgs, h.OrgSlug)
+		}
+		byOrg[h.OrgSlug] = append(byOrg[h.OrgSlug], h.Name)
+	}
+	slices.Sort(orgs)
+	var out []orgLink
+	for _, org := range orgs {
+		names := byOrg[org]
+		slices.Sort(names)
+		for chunk := range slices.Chunk(names, actionHostsMax) {
+			out = append(out, orgLink{Org: org, Hosts: len(chunk), URL: c.hostsActionLink("collector.upgrade", org, chunk)})
+		}
+	}
+	return out
 }
 
 // collectorLink fills the "Update collector" template, or is "" when the

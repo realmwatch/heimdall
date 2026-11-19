@@ -4,6 +4,7 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"net/http"
 	"os"
@@ -393,5 +394,52 @@ func TestNginxSourceSwitchLink(t *testing.T) {
 	}
 	if c.nginxSourceSwitchLink("acme", "web-01", report.Host{}) != "" || (ChangeLink{}).nginxSourceSwitchLink("acme", "web-01", h) != "" {
 		t.Error("a link without Surý's build or without a template")
+	}
+}
+
+// With the tool's collector.upgrade action, the host list offers one link
+// for every host whose collector is behind; not without the flag.
+func TestFleetCollectorLinks(t *testing.T) {
+	t.Parallel()
+	const action = "https://changes.example.com/propose?action={action}&org={org}&host={host}&{params}"
+	off := newEnvCfg(t, "http://127.0.0.1:8080", nil, func(c *Config) { c.Version = "v9.0.0"; c.ChangeLink.ActionURL = action })
+	off.seed()
+	if body := off.get("/hosts", signedIn(off)).Body.String(); strings.Contains(body, "Propose collector upgrade") {
+		t.Error("collector upgrade offered without collector_upgrade_action")
+	}
+	on := newEnvCfg(t, "http://127.0.0.1:8080", nil, func(c *Config) {
+		c.Version = "v9.0.0"
+		c.ChangeLink.ActionURL = action
+		c.ChangeLink.CollectorUpgradeAction = true
+	})
+	on.seed()
+	body := on.get("/hosts", signedIn(on)).Body.String()
+	for _, want := range []string{
+		`href="https://changes.example.com/propose?action=collector.upgrade&amp;org=acme&amp;host=&amp;hosts=web-01"`,
+		"drafts upgrading the collector on this host\">Propose collector upgrade (1)</a>",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("host list lacks %q", want)
+		}
+	}
+
+	// Several orgs, and more hosts than one link names.
+	c := ChangeLink{ActionURL: action, CollectorUpgradeAction: true}
+	var hosts []fleetHost
+	for i := range actionHostsMax + 2 {
+		var h fleetHost
+		h.OrgSlug, h.Name, h.CollectorBehind = "acme", fmt.Sprintf("web-%03d", i), true
+		hosts = append(hosts, h)
+	}
+	var other, current fleetHost
+	other.OrgSlug, other.Name, other.CollectorBehind = "beta", "db-01", true
+	current.OrgSlug, current.Name = "beta", "db-02"
+	links := c.fleetCollectorLinks(append(hosts, other, current))
+	if len(links) != 3 || links[0].Hosts != actionHostsMax || links[1].Hosts != 2 || links[2].Org != "beta" || links[2].Hosts != 1 ||
+		!strings.HasSuffix(links[2].URL, "&hosts=db-01") {
+		t.Errorf("links %+v", links)
+	}
+	if got := (ChangeLink{CollectorUpgradeAction: true}).fleetCollectorLinks(hosts); got != nil {
+		t.Errorf("no action_url: %+v", got)
 	}
 }

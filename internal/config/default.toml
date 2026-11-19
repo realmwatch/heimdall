@@ -178,6 +178,12 @@ action_url = ""
 # The systemd service the tool runs on your servers, ending in -agent. Set,
 # the host list shows which hosts have it. Needs collector 0.5.5 or later.
 agent_service = ""
+# Set to true once the tool supports the collector.upgrade action (through
+# action_url, {params} hosts=web-01,web-02): the host list then offers
+# "Propose collector upgrade" for every host whose collector is behind, one
+# link per org. Leave it false until the tool does, or the link leads
+# nowhere.
+collector_upgrade_action = false
 
 [report_webhook]
 # POST a signed report.received event (org, host, snapshot, time; no

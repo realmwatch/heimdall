@@ -256,6 +256,10 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 	if err != nil {
 		return nil, err
 	}
+	kept, err := st.KeptPackagesAll(ctx)
+	if err != nil {
+		return nil, err
+	}
 	releases, err := st.HostReleases(ctx)
 	if err != nil {
 		return nil, err
@@ -322,7 +326,7 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 		if info, ok := findings.HostEcosystem(inv); ok {
 			host.Ecosystem = info.OSV
 			if !f.CountsOnly { // fleet pages don't show it
-				rel = findings.ReleaseAnalysis(inv, info, releases[h.ID])
+				rel = findings.ReleaseAnalysis(inv, info, releases[h.ID], kept[h.ID])
 				host.ReleaseLeftovers = rel.Finding
 				if origins, _, err = st.HostOrigins(ctx, h.ID); err != nil {
 					return nil, err
