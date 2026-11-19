@@ -29,7 +29,7 @@ export LC_ALL=C
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
-VERSION=0.5.37
+VERSION=0.5.38
 FORMAT=heimdall.snapshot/v4
 
 die() { printf 'heimdall-collect: %s\n' "$*" >&2; exit 1; }
@@ -1780,7 +1780,7 @@ push() {
 	# nginx's HTTP/2, HTTP/3 and other exposure, and whether it needs a
 	# restart (nginx_state).
 	nginx_header=
-	ngx=$(nginx_state | tr -cd 'A-Za-z0-9._/@+=|;?- ' | cut -c1-4000)
+	ngx=$(nginx_state | tr -cd 'A-Za-z0-9._/@+=|;? -' | cut -c1-4000)
 	[ -z "$ngx" ] || nginx_header="header = \"X-Heimdall-Nginx: $ngx\""
 	# Packages from apt sources other than the distro's (apt_origins).
 	origins_header=
