@@ -93,7 +93,7 @@ EOF
 	mkdir -p "$t/bin"
 	cat >"$t/bin/curl" <<'EOF'
 #!/bin/sh
-cat >/dev/null
+cat >"${FAKE_CURL_CONFIG:-/dev/null}"
 while [ $# -gt 0 ]; do
 	case $1 in
 	--output) out=$2 ;;
@@ -103,6 +103,7 @@ while [ $# -gt 0 ]; do
 done
 case $FAKE_CURL in
 down) echo 'curl: (7) Failed to connect' >&2; printf 000; exit 7 ;;
+ok) printf 'HTTP/1.1 201 Created\r\n\r\n' >"$hdr"; printf '{}' >"$out"; printf 201; exit 0 ;;
 esac
 printf 'HTTP/1.1 503 Service Unavailable\r\n\r\nHTTP/1.1 400 Bad Request\r\n\r\n' >"$hdr"
 if [ ! -f "$out" ] && [ -e "$out" ]; then
@@ -126,6 +127,18 @@ EOF
 	grep -q 'hub returned HTTP 400: {"error":"could not read body"}$' "$t/err" || fail "retried 400: $(cat "$t/err")"
 	if fpush down; then fail "--push succeeded with no hub"; fi
 	grep -q 'could not reach http://127.0.0.1:9 (curl exit 7)' "$t/err" || fail "no hub: $(cat "$t/err")"
+
+	# Each settings header reaches the hub: a filter that fails (a bad tr
+	# set) would drop its header silently, with only a line on stderr.
+	mkdir -p "$t/nginx"
+	printf 'events {}\nhttp {\n\tserver {\n\t\tlisten 443 ssl http2;\n\t\troot /srv/a/public;\n\t}\n}\n' >"$t/nginx/nginx.conf"
+	FAKE_CURL_CONFIG=$t/curl.conf HEIMDALL_NGINX_CONF=$t/nginx/nginx.conf fpush ok || fail "--push to a 201: $(cat "$t/err")"
+	[ ! -s "$t/err" ] || fail "--push wrote errors: $(cat "$t/err")"
+	grep -q '^header = "X-Heimdall-Nginx: v1 servers=1 h2=1 h3=0 pp=0 mail=0 resolver=0 mp4=0 restart=[-?01];r=/srv/a/public|h2"$' "$t/curl.conf" ||
+		fail "nginx header: $(grep -i nginx "$t/curl.conf")"
+	for h in Triggers Agents Site-Repos Site-Branches PHP SSH; do
+		grep -q "^header = \"X-Heimdall-$h: " "$t/curl.conf" || fail "no X-Heimdall-$h header"
+	done
 	printf 'ok   %s\n' "$sh"
 }
 
