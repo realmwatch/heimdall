@@ -31,9 +31,10 @@ type Finding struct {
 	Sources   []StaleSource `json:"sources"`
 	Obsolete  []Leftover    `json:"obsolete"`   // no configured source has them
 	OldBuilds []Leftover    `json:"old_builds"` // still built for an older release
-	// Vendor are packages no apt source has that look installed on purpose
-	// from a vendor's .deb (OnPurpose): not leftovers, so the cleanup
-	// leaves them alone.
+	// Vendor are packages no apt source has that were installed on purpose:
+	// their version is a vendor's own (OnPurpose), or an operator said so
+	// (Leftover.Kept). They aren't leftovers, so the cleanup leaves them
+	// alone.
 	Vendor []Leftover `json:"vendor_debs,omitempty"`
 	UsedBy []Use      `json:"used_by"`
 	// UsageScan is how much of the host the collector could look at for
@@ -66,6 +67,8 @@ type Leftover struct {
 	Plan     string   `json:"plan,omitempty"`
 	Reason   string   `json:"reason,omitempty"`
 	NeededBy []string `json:"needed_by,omitempty"`
+	// Kept: an operator marked it as installed on purpose (Finding.Vendor).
+	Kept bool `json:"kept,omitempty"`
 }
 
 // What to do with an obsolete package.
@@ -127,7 +130,7 @@ func Analyze(current Release, pkgs []Package, st *State) Analysis {
 			origins[o.Name] = o
 		}
 		for _, o := range st.Obsolete {
-			if vendorDeb(o) {
+			if vendorDeb(o) || slices.Contains(st.Kept, o.Name) {
 				continue // not a leftover: apt was never meant to upgrade it
 			}
 			a.Obsolete[o.Name] = true
@@ -203,7 +206,8 @@ func Analyze(current Release, pkgs []Package, st *State) Analysis {
 				continue // a kernel, or not in the snapshot
 			}
 			l := Leftover{Name: o.Name, Version: o.Version}
-			if vendorDeb(o) {
+			if kept := slices.Contains(st.Kept, o.Name); kept || vendorDeb(o) {
+				l.Kept = kept
 				f.Vendor = append(f.Vendor, l)
 				continue
 			}

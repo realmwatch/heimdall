@@ -618,7 +618,9 @@ Each obsolete package gets a plan:
 
 With an older collector, the plan is left to the change-management tool.
 
-A package no apt source has whose version is a vendor's own, with no Debian revision and no distro or packager marker (`acme-edr 7.2.0.1234`, `acme-scanner 4.1.0`), isn't obsolete. It was installed on purpose from a vendor's `.deb`, often security software. The card lists these apart under **Installed from a vendor's .deb**, and the cleanup leaves them alone. A package that needs one of them is left for review. It's medium severity when a running process loads a leftover library, low otherwise. Obsolete packages alone, with no sign of a release upgrade, don't make a card: they're more likely `.deb` files installed on purpose. MCP's `host` tool returns the same as `release_leftovers`.
+A package no apt source has whose version is a vendor's own, with no Debian revision and no distro or packager marker (`acme-edr 7.2.0.1234`, `acme-scanner 4.1.0`), isn't obsolete. It was installed on purpose from a vendor's `.deb`, often security software. The card lists these apart under **Installed on purpose**, and the cleanup leaves them alone. A package that needs one of them is left for review.
+
+A vendor's `.deb` whose version doesn't show it (`2.4-1`, with a revision) can be marked by hand: operators get **Keep** beside each obsolete package. It then moves to **Installed on purpose** ("marked to keep", with **Undo**), the cleanup link sends it as `keep`, and the hub remembers it for that host. The card changes at once. The host's findings stop calling it obsolete from its next report. It's medium severity when a running process loads a leftover library, low otherwise. Obsolete packages alone, with no sign of a release upgrade, don't make a card: they're more likely `.deb` files installed on purpose. MCP's `host` tool returns the same as `release_leftovers`.
 
 ## Third-party packages
 

@@ -227,6 +227,7 @@ func New(cfg Config, st *store.Store, a Authenticator, search SearchFunc, log *s
 	mux.HandleFunc("POST /hosts/enroll/reject", s.requireAuth(s.enrollDecide(false)))
 	mux.HandleFunc("POST /hosts/{org}/{host}/rename", s.requireAuth(s.hostRename))
 	mux.HandleFunc("POST /hosts/{org}/{host}/tags", s.requireAuth(s.hostTags))
+	mux.HandleFunc("POST /hosts/{org}/{host}/keep", s.requireAuth(s.hostKeep))
 	mux.HandleFunc("POST /drift/tag", s.requireAuth(s.driftTag))
 	mux.HandleFunc("POST /hosts/{org}/{host}/env", s.requireAuth(s.hostEnv))
 	mux.HandleFunc("POST /sites/label", s.requireAuth(s.siteLabel))

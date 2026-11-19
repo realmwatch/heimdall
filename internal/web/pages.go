@@ -128,6 +128,7 @@ type hostBody struct {
 	Env             string
 	Envs            []store.Env // the org's environments, for moving the host
 	CanAdmin        bool        // may rename the host
+	CanOperate      bool        // may mark packages as installed on purpose
 	Notice          string      // fixed messages only (see renameNotices)
 	RenameError     string
 	Reported        bool
@@ -194,7 +195,8 @@ func (s *server) hostPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 		s.notFound(w, r, v) // same response as a missing host: no existence leak
 		return
 	}
-	body := hostBody{Org: host.OrgSlug, Name: host.Name, AutoName: host.AutoName, CanAdmin: v.Scope.CanAdmin(host.OrgID)}
+	body := hostBody{Org: host.OrgSlug, Name: host.Name, AutoName: host.AutoName, CanAdmin: v.Scope.CanAdmin(host.OrgID),
+		CanOperate: v.Scope.CanOperate(host.OrgID)}
 	if body.Tags, err = s.st.HostTags(ctx, host.ID); err != nil {
 		s.fail(w, r, v, err)
 		return
@@ -817,8 +819,9 @@ func otpField(r *http.Request) string {
 // Fixed messages a rename redirect can ask the host page to show, so the
 // query string can't inject text.
 var (
-	renameNotices = map[string]string{"1": "Host renamed.", "tags": "Tags saved.", "env": "Environment changed."}
-	renameErrors  = map[string]string{
+	renameNotices = map[string]string{"1": "Host renamed.", "tags": "Tags saved.", "env": "Environment changed.",
+		"kept": "Marked as installed on purpose: the cleanup leaves it alone.", "unkept": "No longer kept: it's judged like the other obsolete packages again."}
+	renameErrors = map[string]string{
 		"invalid": "Names are letters, digits, '.', '-' or '_', starting and ending with a letter or digit.",
 		"exists":  "Another host in this organization already has that name.",
 		"tags":    "Tags are up to 64 lowercase letters, digits or ':._-'.",
@@ -874,6 +877,27 @@ func (s *server) hostTags(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 		s.fail(w, r, v, err)
 	default:
 		http.Redirect(w, r, back+"?renamed=tags", http.StatusSeeOther)
+	}
+}
+
+// hostKeep marks one of a host's packages as installed on purpose, or
+// unmarks it (keep=0), for the release cleanup (operators).
+func (s *server) hostKeep(w http.ResponseWriter, r *http.Request, v *auth.Viewer) {
+	host, err := s.st.HostByName(r.Context(), r.PathValue("org"), r.PathValue("host"))
+	if err != nil || !v.Scope.CanOperate(host.OrgID) {
+		s.notFound(w, r, v)
+		return
+	}
+	keep := r.PostForm.Get("keep") != "0"
+	back := "/hosts/" + url.PathEscape(host.OrgSlug) + "/" + url.PathEscape(host.Name)
+	var verr *store.ValidationError
+	switch err := s.st.SetPackageKept(r.Context(), actorOf(v), host.ID, r.PostForm.Get("package"), keep, s.now()); {
+	case errors.As(err, &verr):
+		http.Redirect(w, r, back+"#release-leftovers", http.StatusSeeOther)
+	case err != nil:
+		s.fail(w, r, v, err)
+	default:
+		http.Redirect(w, r, back+"?renamed="+ifElse(keep, "kept", "unkept")+"#release-leftovers", http.StatusSeeOther)
 	}
 }
 

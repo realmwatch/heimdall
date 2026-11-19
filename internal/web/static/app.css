@@ -125,6 +125,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   outline: 2px solid var(--link); outline-offset: 2px;
 }
 button.link { background: none; color: var(--link); padding: 0; }
+.inline-form { display: inline; margin: 0 0 0 8px; }
+.kept-list { margin: 4px 0 0; padding-left: 18px; }
+.kept-list li { margin: 2px 0; }
 input, select {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 6px; padding: 6px 8px; max-width: 100%;

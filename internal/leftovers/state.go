@@ -41,6 +41,9 @@ type State struct {
 	Obsolete     []Pkg    `json:"obsolete"`
 	Origins      []Origin `json:"origins"`
 	Uses         []Use    `json:"uses"`
+	// Kept are the packages an operator marked as installed on purpose:
+	// set by the hub (store.KeptPackages), never by the collector.
+	Kept []string `json:"-"`
 }
 
 // Source is an enabled apt source entry for one suite.
