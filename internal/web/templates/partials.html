@@ -167,6 +167,8 @@
 
 {{/* clientbadge: the finding's source is installed only for its clients;
      the argument names the server package that isn't. */}}
+{{/* leftoverplan: what the release cleanup does with an obsolete package (leftovers.Leftover). */}}
+{{define "leftoverplan"}}{{if eq .Plan "replace"}}<span class="badge">replace</span>{{else if eq .Plan "remove"}}<span class="badge warn">remove</span>{{else if eq .Plan "review"}}<span class="badge bad">review</span>{{else}}<span class="muted" title="The collector is too old to say what needs it: upgrade it (sudo heimdall-collect upgrade)">unknown</span>{{end}}{{with .Reason}} <span class="muted">{{.}}</span>{{end}}{{end}}
 {{/* leftoverbadge: a report.Finding or pkgGroup left from an older release (BuiltFor, Leftover). */}}
 {{define "leftoverbadge"}}{{if or .BuiltFor .Leftover}} <a class="badge warn" href="#release-leftovers" title="Left from an older release{{with .BuiltFor}}: built for {{.}}, and matched against its advisories{{end}}. No update fixes it; see Release leftovers">{{with .BuiltFor}}built for {{.}}{{else}}obsolete{{end}}</a>{{end}}{{end}}
 

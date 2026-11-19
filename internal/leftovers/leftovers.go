@@ -3,7 +3,9 @@
 package leftovers
 
 import (
+	"cmp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/realmwatch/heimdall/internal/version"
@@ -29,7 +31,11 @@ type Finding struct {
 	Sources   []StaleSource `json:"sources"`
 	Obsolete  []Leftover    `json:"obsolete"`   // no configured source has them
 	OldBuilds []Leftover    `json:"old_builds"` // still built for an older release
-	UsedBy    []Use         `json:"used_by"`
+	// Vendor are packages no apt source has that look installed on purpose
+	// from a vendor's .deb (OnPurpose): not leftovers, so the cleanup
+	// leaves them alone.
+	Vendor []Leftover `json:"vendor_debs,omitempty"`
+	UsedBy []Use      `json:"used_by"`
 	// UsageScan is how much of the host the collector could look at for
 	// UsedBy: "full", "partial" (it isn't root, so it can't read every
 	// process), "none" or "not_reported" (an older collector).
@@ -55,7 +61,19 @@ type Leftover struct {
 	BuiltFor string `json:"built_for,omitempty"` // "" when it can't be told
 	// Offered are the (old-release) suites that still offer it.
 	Offered []string `json:"offered_by,omitempty"`
+	// For an obsolete package: what to do with it (Plan*), why, and the
+	// installed packages that need it (when the collector said).
+	Plan     string   `json:"plan,omitempty"`
+	Reason   string   `json:"reason,omitempty"`
+	NeededBy []string `json:"needed_by,omitempty"`
 }
+
+// What to do with an obsolete package.
+const (
+	PlanReplace = "replace" // the host's sources have a build of its name: install it in its place
+	PlanRemove  = "remove"  // nothing installed needs it and nothing running loads it
+	PlanReview  = "review"  // something needs or loads it, or the collector didn't say
+)
 
 // Analysis is what Analyze found.
 type Analysis struct {
@@ -109,6 +127,9 @@ func Analyze(current Release, pkgs []Package, st *State) Analysis {
 			origins[o.Name] = o
 		}
 		for _, o := range st.Obsolete {
+			if vendorDeb(o) {
+				continue // not a leftover: apt was never meant to upgrade it
+			}
 			a.Obsolete[o.Name] = true
 		}
 	}
@@ -182,6 +203,10 @@ func Analyze(current Release, pkgs []Package, st *State) Analysis {
 				continue // a kernel, or not in the snapshot
 			}
 			l := Leftover{Name: o.Name, Version: o.Version}
+			if vendorDeb(o) {
+				f.Vendor = append(f.Vendor, l)
+				continue
+			}
 			if r, ok := a.BuiltFor[o.Name]; ok {
 				l.BuiltFor = r.String()
 			} else if r, _, ok := versionRelease(current.Distro, p); ok && r.Before(current) {
@@ -224,6 +249,9 @@ func Analyze(current Release, pkgs []Package, st *State) Analysis {
 				f.UsedBy = append(f.UsedBy, u)
 			}
 		}
+	}
+	if st != nil {
+		planObsolete(f, st)
 	}
 	f.Severity = "low"
 	if len(f.UsedBy) > 0 {
@@ -326,11 +354,112 @@ func remediation(f *Finding) []string {
 	if len(f.UsedBy) > 0 || f.UsageScan != "full" {
 		out = append(out, "Restart the services that load a leftover library, so they map the current release's copy.")
 	}
-	if len(f.Obsolete) > 0 {
+	byPlan := map[string][]string{}
+	for _, l := range f.Obsolete {
+		byPlan[l.Plan] = append(byPlan[l.Plan], l.Name)
+	}
+	if names := byPlan[PlanReplace]; len(names) > 0 {
+		out = append(out, "Install "+f.Codename+"'s build of "+strings.Join(names, ", ")+" in place of the old one "+
+			"(apt install --allow-downgrades <package>=<the version apt-cache policy offers>): what needs them keeps working.")
+	}
+	if names := byPlan[PlanRemove]; len(names) > 0 {
+		out = append(out, "Remove "+strings.Join(names, ", ")+": nothing installed needs them (apt purge; check that apt removes nothing else).")
+	}
+	if names := byPlan[PlanReview]; len(names) > 0 {
+		out = append(out, "Leave "+strings.Join(names, ", ")+" until what needs or loads them is replaced or removed, then remove them.")
+	}
+	if names := byPlan[""]; len(names) > 0 {
 		out = append(out, "Remove the obsolete packages once nothing loads or depends on them (apt purge; check apt's list "+
 			"first, and keep anything installed on purpose from a .deb).")
 	}
 	return out
+}
+
+// planObsolete decides what to do with each obsolete package, from what
+// the collector said (Pkg.Deps): replace one the
+// host's sources have a build of, remove one nothing needs, and leave
+// for review one something else needs or loads (a vendor's .deb among
+// them). A package needed only by others being removed goes with them.
+func planObsolete(f *Finding, st *State) {
+	info := map[string]Pkg{}
+	for _, p := range st.Obsolete {
+		info[p.Name] = p
+	}
+	loaded := map[string]string{}
+	for _, u := range f.UsedBy {
+		if _, ok := loaded[u.Package]; !ok {
+			loaded[u.Package] = cmp.Or(u.Unit, u.Command)
+		}
+	}
+	removable := map[string]bool{}
+	for i := range f.Obsolete {
+		l := &f.Obsolete[i]
+		p := info[l.Name]
+		l.NeededBy = p.NeededBy
+		switch {
+		case !p.Deps:
+			l.Plan, l.Reason = "", "" // an older collector: what needs it isn't known
+		case p.Offered:
+			l.Plan, l.Reason = PlanReplace, f.Codename+"'s sources have a build of it: install that in its place"
+		case loaded[l.Name] != "":
+			l.Plan, l.Reason = PlanReview, "loaded by "+loaded[l.Name]
+		default:
+			removable[l.Name] = true
+		}
+	}
+	// Removable once everything needing it is removed too.
+	for changed := true; changed; {
+		changed = false
+		for name := range removable {
+			p := info[name]
+			if p.More > 0 || slices.ContainsFunc(p.NeededBy, func(n string) bool { return !removable[n] }) {
+				delete(removable, name)
+				changed = true
+			}
+		}
+	}
+	for i := range f.Obsolete {
+		l := &f.Obsolete[i]
+		p := info[l.Name]
+		if l.Plan != "" || !p.Deps || p.Offered || loaded[l.Name] != "" {
+			continue
+		}
+		if removable[l.Name] {
+			l.Plan, l.Reason = PlanRemove, "nothing installed needs it"
+			if len(p.NeededBy) > 0 {
+				l.Reason = "needed only by " + strings.Join(p.NeededBy, ", ") + ", removed too"
+			}
+			continue
+		}
+		names := p.NeededBy
+		if p.More > 0 {
+			names = append(slices.Clone(names), strconv.Itoa(p.More)+" more")
+		}
+		l.Plan, l.Reason = PlanReview, "needed by "+strings.Join(names, ", ")
+	}
+}
+
+// vendorDeb reports whether an obsolete package is a vendor's own .deb.
+func vendorDeb(o Pkg) bool { return !o.Offered && OnPurpose(o.Version) }
+
+// OnPurpose reports whether a version looks like a vendor's own .deb
+// (acme-edr 7.2.0.1234, acme-scanner 4.1.0) rather than a distro's or a
+// packager's build: no Debian revision and no distro or builder marker.
+// A .deb nothing offers with such a version wasn't left by an upgrade.
+func OnPurpose(v string) bool {
+	if _, after, ok := strings.Cut(v, ":"); ok {
+		v = after // an epoch
+	}
+	if v == "" || strings.Contains(v, "-") {
+		return false
+	}
+	lv := strings.ToLower(v)
+	for _, m := range []string{"ubuntu", "deb", "dfsg", "esm", "pgdg", "sury", "build", "focal", "jammy", "noble", "bionic", "xenial", "bookworm", "bullseye", "buster", "trixie"} {
+		if strings.Contains(lv, m) {
+			return false
+		}
+	}
+	return lv[0] >= '0' && lv[0] <= '9'
 }
 
 func nonNil[T any](s []T) []T {

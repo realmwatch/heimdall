@@ -600,6 +600,7 @@ Each push from a Debian or Ubuntu server (collector 0.5.26 and later) also says 
 - **Apt sources:** every enabled `deb` entry in `/etc/apt/sources.list` and `sources.list.d` (`.list` and deb822 `.sources` files): its file, URI, suite and components. Commented-out lines, `deb-src` and `Enabled: no` entries are skipped. The upgrader re-enables nothing, so a third-party source turned back on by hand often still names the old release (`focal-pgdg` on a 22.04 server).
 - **Upgrader files:** `*.distUpgrade` and `*.save` files it left in `/etc/apt`.
 - **Obsolete packages:** installed versions no configured source has any more (`apt list --installed` marks them `local`), such as `libssl1.1` after 20.04 to 22.04. Kernels are left out: old kernels have their own removal.
+- **What needs them** (collector 0.5.39 and later): for each obsolete package, whether the configured sources offer a package by its name (jammy has its own `libpq5`), and the installed packages that need it: those whose `Depends` or `Pre-Depends` name it or a name it `Provides`, from `/var/lib/dpkg/status`.
 - **Old-release builds:** installed versions offered only by suites naming another release (`libpq5` from `focal-pgdg`).
 - **What loads them:** the running processes that map a shared library one of those packages ships (from `/proc/*/maps`), with each process's systemd unit. The collector isn't root, so it can only read its own user's processes; it reports how many it could read, and the hub says when the list may be incomplete.
 
@@ -607,7 +608,17 @@ Each push from a Debian or Ubuntu server (collector 0.5.26 and later) also says 
 
 On the hub, a package's release is the one a suite offering it names; failing that, the one its version names (`1ubuntu0.20.04.3`, `~20.04.1`, `pgdg20.04`, `+ubuntu20.04.1+deb.sury.org`, `~focal1`, `+deb11u3`); failing that, a package built from the same source as a newer installed one with another upstream version (`libssl1.1` from openssl 1.1.1f beside `libssl3` from 3.0.2) is taken to be from the release the server was upgraded from. Packages built for an older release are matched against **that** release's advisories, so they're never offered another package's fixed version, and neither they nor obsolete packages get a fix at all: no update can reach them. Older collectors still get this matching, from package versions alone.
 
-The host page's **Release leftovers** card lists the stale sources (with the suite to use instead), the old-release builds, the obsolete packages and the processes loading them, and the cleanup in order: retarget or disable each stale source, reinstall the old-release builds from the current release, restart the services that load them, then remove the obsolete packages once nothing loads them. It's medium severity when a running process loads a leftover library, low otherwise. Obsolete packages alone, with no sign of a release upgrade, don't make a card: they're more likely `.deb` files installed on purpose. MCP's `host` tool returns the same as `release_leftovers`.
+The host page's **Release leftovers** card lists the stale sources (with the suite to use instead), the old-release builds, the obsolete packages and the processes loading them, and the cleanup in order: retarget or disable each stale source, reinstall the old-release builds from the current release, restart the services that load them, then deal with the obsolete packages.
+
+Each obsolete package gets a plan:
+
+- **Replace:** the configured sources offer a package by its name, so install their build in its place. Whatever needs it keeps working (`libpq5`, `libzip4`, `libargon2-1` under PHP).
+- **Remove:** nothing installed needs it, or only other packages being removed do, and no running process loads it.
+- **Review:** something installed needs it, or a running process loads it. Leave it until that's replaced or removed.
+
+With an older collector, the plan is left to the change-management tool.
+
+A package no apt source has whose version is a vendor's own, with no Debian revision and no distro or packager marker (`acme-edr 7.2.0.1234`, `acme-scanner 4.1.0`), isn't obsolete. It was installed on purpose from a vendor's `.deb`, often security software. The card lists these apart under **Installed from a vendor's .deb**, and the cleanup leaves them alone. A package that needs one of them is left for review. It's medium severity when a running process loads a leftover library, low otherwise. Obsolete packages alone, with no sign of a release upgrade, don't make a card: they're more likely `.deb` files installed on purpose. MCP's `host` tool returns the same as `release_leftovers`.
 
 ## Third-party packages
 
