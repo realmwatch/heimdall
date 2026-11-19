@@ -14,11 +14,13 @@ import (
 //
 //	X-Heimdall-Release: v1 cn=jammy maps=40/120;u=sources.list.distUpgrade;
 //	  s=sources.list.d/pgdg.list|http://apt.postgresql.org/pub/repos/apt|focal-pgdg|main;
-//	  o=libssl1.1|1.1.1f-1ubuntu2.24+esm6;b=libpq5|17.5-1.pgdg20.04+1|focal-pgdg;
+//	  o=libssl1.1|1.1.1f-1ubuntu2.24+esm6|0|nodejs;b=libpq5|17.5-1.pgdg20.04+1|focal-pgdg;
 //	  p=812|php8.3-fpm.service|php-fpm8.3|libssl.so.1.1|libssl1.1
 //
 // u is a file the release upgrader left, s an enabled apt source (one per
-// suite), o an installed package no configured source has, b one only
+// suite), o an installed package no configured source has (with, from
+// collectors 0.5.39 on, 1 when a source offers a package by its name, and
+// the installed packages that need it, at most 6 then +<more>), b one only
 // suites naming another release offer, and p a process mapping a library
 // an o or b package ships. maps is how many processes the collector could
 // read of those running: it isn't root, so usually not all. A header, not
@@ -49,10 +51,16 @@ type Source struct {
 	Components string `json:"components"`
 }
 
-// Pkg is an installed package.
+// Pkg is an installed package. For an obsolete one, collectors 0.5.39 and
+// later also say whether the host's sources offer a package by its name
+// and which installed packages need it (Deps is true when they did).
 type Pkg struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
+	Name     string   `json:"name"`
+	Version  string   `json:"version"`
+	Deps     bool     `json:"deps_reported,omitempty"`
+	Offered  bool     `json:"offered,omitempty"`
+	NeededBy []string `json:"needed_by,omitempty"`
+	More     int      `json:"needed_by_more,omitempty"` // needed by this many more than NeededBy names
 }
 
 // Origin is an installed package and the suites that offer its version.
@@ -130,8 +138,24 @@ func Parse(v string) (State, error) {
 		case kind == "s" && len(f) == 4 && len(st.Sources) < maxSources && fileRe.MatchString(f[0]) &&
 			uriRe.MatchString(f[1]) && suiteRe.MatchString(f[2]) && compsRe.MatchString(f[3]):
 			st.Sources = append(st.Sources, Source{File: f[0], URI: f[1], Suite: f[2], Components: f[3]})
-		case kind == "o" && len(f) == 2 && len(st.Obsolete) < maxPkgs && pkgRe.MatchString(f[0]) && verRe.MatchString(f[1]):
-			st.Obsolete = append(st.Obsolete, Pkg{Name: f[0], Version: f[1]})
+		case kind == "o" && (len(f) == 2 || len(f) == 4) && len(st.Obsolete) < maxPkgs && pkgRe.MatchString(f[0]) && verRe.MatchString(f[1]):
+			p := Pkg{Name: f[0], Version: f[1]}
+			if len(f) == 4 {
+				if f[2] != "0" && f[2] != "1" {
+					continue
+				}
+				p.Deps, p.Offered = true, f[2] == "1"
+				for n := range strings.SplitSeq(f[3], ",") {
+					if m, ok := strings.CutPrefix(n, "+"); ok {
+						if v, err := strconv.Atoi(m); err == nil && v > 0 && v < 100000 {
+							p.More = v
+						}
+					} else if pkgRe.MatchString(n) && len(p.NeededBy) < 6 {
+						p.NeededBy = append(p.NeededBy, n)
+					}
+				}
+			}
+			st.Obsolete = append(st.Obsolete, p)
 		case kind == "b" && len(f) == 3 && len(st.Origins) < maxPkgs && pkgRe.MatchString(f[0]) && verRe.MatchString(f[1]):
 			o := Origin{Name: f[0], Version: f[1], Suites: []string{}}
 			for s := range strings.SplitSeq(f[2], ",") {

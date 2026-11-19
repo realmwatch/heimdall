@@ -29,7 +29,7 @@ export LC_ALL=C
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
-VERSION=0.5.38
+VERSION=0.5.39
 FORMAT=heimdall.snapshot/v4
 
 die() { printf 'heimdall-collect: %s\n' "$*" >&2; exit 1; }
@@ -980,7 +980,11 @@ RELEASE_CODENAMES='jessie stretch buster bullseye bookworm trixie forky duke tru
 #   v1 cn=<codename> maps=<readable>/<processes>
 #   u=<file>                         a file the release upgrader left behind
 #   s=<file>|<uri>|<suite>|<components>   an enabled apt source, per suite
-#   o=<package>|<version>            obsolete: no configured source has it
+#   o=<package>|<version>|<offered>|<needed by>
+#                                    obsolete: no configured source has
+#                                    this version; offered is 1 when they
+#                                    have the name, needed by the installed
+#                                    packages depending on it (see below)
 #   b=<package>|<version>|<suites>   offered only by suites naming another
 #                                    release (or oldstable)
 #   p=<pid>|<unit>|<command>|<library>|<package>
@@ -990,10 +994,13 @@ RELEASE_CODENAMES='jessie stretch buster bullseye bookworm trixie forky duke tru
 # Read-only and unprivileged, so only processes this user may read are
 # looked at: maps says how many that was. The hub decides which sources
 # and packages are left over from an older release. HEIMDALL_APT_DIR,
-# HEIMDALL_APT_LIST, HEIMDALL_DPKG_INFO and HEIMDALL_PROC are for tests.
+# HEIMDALL_APT_LIST, HEIMDALL_APT_LISTS, HEIMDALL_DPKG_INFO,
+# HEIMDALL_DPKG_STATUS and HEIMDALL_PROC are for tests.
 release_state() {
 	apt=${HEIMDALL_APT_DIR:-/etc/apt}
 	info=${HEIMDALL_DPKG_INFO:-/var/lib/dpkg/info}
+	status=${HEIMDALL_DPKG_STATUS:-/var/lib/dpkg/status}
+	lists=${HEIMDALL_APT_LISTS:-/var/lib/apt/lists}
 	proc=${HEIMDALL_PROC:-/proc}
 	cn=$(os_value VERSION_CODENAME | tr -cd 'a-z0-9')
 	[ -n "$cn" ] || return 0
@@ -1052,6 +1059,64 @@ release_state() {
 			if (suites == "" && $0 ~ /[[,]local[],]/) print "o=" name "|" $2
 			else if (theirs && !mine) print "b=" name "|" $2 "|" suites
 		}' | head -n 300 >"$rtmp/pkgs"
+	# For each obsolete package, from apt's lists and dpkg's status file
+	# (both world-readable): whether this release's sources offer a
+	# package by that name (1: replace it with their build), and the
+	# installed packages that need it (Depends or Pre-Depends on it, or on
+	# a name it Provides), at most 6 and then +<more>. Without the status
+	# file, o= keeps its two fields: what needs it isn't known.
+	if grep -q '^o=' "$rtmp/pkgs" && [ -r "$status" ]; then
+		sed -n 's/^o=\([^|]*\)|.*/\1/p' "$rtmp/pkgs" >"$rtmp/obs"
+		for f in "$lists"/*_Packages; do
+			[ -r "$f" ] || continue
+			awk 'NR == FNR { o[$1] = 1; next } /^Package:/ && ($2 in o) { print $2 }' "$rtmp/obs" "$f"
+		done | LC_ALL=C sort -u >"$rtmp/offered"
+		awk -v obs="$rtmp/obs" -v off="$rtmp/offered" -v pkgs="$rtmp/pkgs" '
+			function flush(   n, i, d) {
+				if (pkg != "" && status ~ / installed$/) {
+					order[++np] = pkg; deps[pkg] = dep
+					if (pkg in o) {
+						n = split(prov, pv, ",")
+						for (i = 1; i <= n; i++) { d = pv[i]; gsub(/\([^)]*\)|[ \t]/, "", d); sub(/:.*/, "", d); if (d != "") virt[d] = virt[d] " " pkg }
+					}
+				}
+				pkg = status = dep = prov = field = ""
+			}
+			function add(d, p) {
+				if ((d, p) in seen) return
+				seen[d, p] = 1
+				if (++cnt[d] <= 6) need[d] = need[d] (need[d] == "" ? "" : ",") p
+			}
+			BEGIN {
+				while ((getline l < obs) > 0) o[l] = 1
+				while ((getline l < off) > 0) offered[l] = 1
+			}
+			/^$/ { flush(); next }
+			/^[ \t]/ { if (field == "dep") dep = dep " " $0; else if (field == "prov") prov = prov " " $0; next }
+			/^Package:/ { pkg = $2; field = ""; next }
+			/^Status:/ { status = $0; field = ""; next }
+			/^(Pre-)?Depends:/ { sub(/^[^:]*:/, ""); dep = dep "," $0; field = "dep"; next }
+			/^Provides:/ { sub(/^[^:]*:/, ""); prov = prov "," $0; field = "prov"; next }
+			{ field = "" }
+			END {
+				flush()
+				for (k = 1; k <= np; k++) {
+					p = order[k]; n = split(deps[p], ds, /[,|]/)
+					for (i = 1; i <= n; i++) {
+						d = ds[i]; gsub(/\([^)]*\)|[ \t]/, "", d); sub(/:.*/, "", d)
+						if (d == "" || d == p) continue
+						if (d in o) add(d, p)
+						if (d in virt) { m = split(virt[d], vs, " "); for (j = 1; j <= m; j++) if (vs[j] != p) add(vs[j], p) }
+					}
+				}
+				while ((getline l < pkgs) > 0) {
+					if (l !~ /^o=/) { print l; continue }
+					name = substr(l, 3, index(l, "|") - 3)
+					more = cnt[name] > 6 ? ",+" (cnt[name] - 6) : ""
+					print l "|" ((name in offered) ? 1 : 0) "|" need[name] more
+				}
+			}' "$status" >"$rtmp/pkgs2" && mv "$rtmp/pkgs2" "$rtmp/pkgs"
+	fi
 	# The libraries those packages ship, and the processes mapping them.
 	: >"$rtmp/libs"
 	sed -n 's/^[ob]=\([^|]*\)|.*/\1/p' "$rtmp/pkgs" | while read -r p; do

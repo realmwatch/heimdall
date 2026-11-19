@@ -42,12 +42,55 @@ cat >"$t/apt.list" <<'LIST'
 Listing...
 curl/jammy-updates,jammy-security,now 7.81.0-1ubuntu1.20 amd64 [installed]
 libssl1.1/now 1.1.1f-1ubuntu2.24+esm6 amd64 [installed,local]
+acme-agent/now 3.0.0.1000 amd64 [installed,local]
+libargon2-1/now 0~20190702-0.1+ubuntu20.04.1+deb.sury.org+1 amd64 [installed,local]
 libpq5/focal-pgdg,now 17.5-1.pgdg20.04+1 amd64 [installed,upgradable to: 17.6-1.pgdg20.04+1]
 libzip4/focal,now 1.7.3-1+ubuntu20.04.1+deb.sury.org+2 amd64 [installed,automatic]
 php8.3-fpm/focal,jammy,now 8.3.14-1+ubuntu22.04.1+deb.sury.org+1 amd64 [installed]
 liblocale-gettext-perl/jammy,now 1.07-4build3 amd64 [installed,automatic]
 linux-image-5.4.0-200-generic/now 5.4.0-200.220 amd64 [installed,local]
 LIST
+# dpkg's status: nodejs needs libssl1.1 (one of two alternatives still
+# counts), a removed package's leftover config doesn't, php8.3-common
+# needs libargon2-1 and php-old the name it Provides; nothing needs the
+# vendor's agent. Only libargon2-1 is in this release's lists.
+cat >"$t/status" <<'ST'
+Package: libssl1.1
+Status: install ok installed
+Architecture: amd64
+Version: 1.1.1f-1ubuntu2.24+esm6
+Description: Secure Sockets Layer toolkit
+ Depends: not-a-field
+
+Package: nodejs
+Status: install ok installed
+Pre-Depends: libc6 (>= 2.17)
+Depends: libgcc-s1:amd64, libssl1.1 (>= 1.1.1) | libssl3
+Version: 16.20.2-deb-1nodesource1
+
+Package: oldtool
+Status: deinstall ok config-files
+Depends: libssl1.1
+
+Package: acme-agent
+Status: install ok installed
+Version: 3.0.0.1000
+
+Package: libargon2-1
+Status: install ok installed
+Provides: libargon2-0 (= 0~20190702-0.1+ubuntu20.04.1+deb.sury.org+1)
+Version: 0~20190702-0.1+ubuntu20.04.1+deb.sury.org+1
+
+Package: php8.3-common
+Status: install ok installed
+Depends: libargon2-1 (>= 0~20171227), libc6
+
+Package: php-old
+Status: hold ok installed
+Depends: libargon2-0
+ST
+mkdir -p "$t/lists"
+printf 'Package: curl\nVersion: 7.81.0-1ubuntu1.20\n\nPackage: libargon2-1\nVersion: 0~20171227-0.3build2\n' >"$t/lists/archive.ubuntu.com_ubuntu_dists_jammy_main_binary-amd64_Packages"
 printf '/.\n/usr/lib/x86_64-linux-gnu/libssl.so.1.1\n/usr/lib/x86_64-linux-gnu/libcrypto.so.1.1\n/usr/share/doc/libssl1.1\n' >"$t/info/libssl1.1:amd64.list"
 printf '/usr/lib/x86_64-linux-gnu/libpq.so.5.17\n/usr/lib/x86_64-linux-gnu/libpq.so.5\n' >"$t/info/libpq5:amd64.list"
 # php-fpm maps the leftover OpenSSL (through /lib, which is /usr/lib) and
@@ -75,14 +118,16 @@ s=sources.list|http://archive.ubuntu.com/ubuntu|jammy|main,universe
 s=sources.list.d/pgdg.list|http://apt.postgresql.org/pub/repos/apt|focal-pgdg|main
 s=sources.list.d/ondrej.sources|https://ppa.launchpadcontent.net/ondrej/php/ubuntu/|focal|main
 s=sources.list.d/ondrej.sources|https://ppa.launchpadcontent.net/ondrej/php/ubuntu/|jammy|main
-o=libssl1.1|1.1.1f-1ubuntu2.24+esm6
+o=libssl1.1|1.1.1f-1ubuntu2.24+esm6|0|nodejs
+o=acme-agent|3.0.0.1000|0|
+o=libargon2-1|0~20190702-0.1+ubuntu20.04.1+deb.sury.org+1|1|php8.3-common,php-old
 b=libpq5|17.5-1.pgdg20.04+1|focal-pgdg
 b=libzip4|1.7.3-1+ubuntu20.04.1+deb.sury.org+2|focal'
 
 run() {
 	# shellcheck disable=SC2086 # $sh may be "busybox sh"
 	got=$(HEIMDALL_ALLOW_ROOT=1 HEIMDALL_OS_RELEASE="$t/etc/os-release" HEIMDALL_APT_DIR="$t/apt" HEIMDALL_APT_LIST="$t/apt.list" \
-		HEIMDALL_DPKG_INFO="$t/info" HEIMDALL_PROC="$t/proc" $sh "$collect" --release)
+		HEIMDALL_DPKG_INFO="$t/info" HEIMDALL_DPKG_STATUS="$t/status" HEIMDALL_APT_LISTS="$t/lists" HEIMDALL_PROC="$t/proc" $sh "$collect" --release)
 	if [ "$(id -u)" -eq 0 ]; then # root reads the unreadable one anyway
 		got=$(printf '%s\n' "$got" | sed 's/^v1 cn=jammy maps=3\/3$/v1 cn=jammy maps=2\/3/')
 	fi
@@ -91,6 +136,14 @@ $got
 want:
 $want"
 	printf 'ok   release state (%s)\n' "$sh"
+	# Without dpkg's status file, o= keeps its two fields.
+	# shellcheck disable=SC2086
+	got=$(HEIMDALL_ALLOW_ROOT=1 HEIMDALL_OS_RELEASE="$t/etc/os-release" HEIMDALL_APT_DIR="$t/apt" HEIMDALL_APT_LIST="$t/apt.list" \
+		HEIMDALL_DPKG_INFO="$t/info" HEIMDALL_DPKG_STATUS="$t/missing" HEIMDALL_APT_LISTS="$t/lists" HEIMDALL_PROC="$t/proc" $sh "$collect" --release | grep '^o=')
+	[ "$got" = "o=libssl1.1|1.1.1f-1ubuntu2.24+esm6
+o=acme-agent|3.0.0.1000
+o=libargon2-1|0~20190702-0.1+ubuntu20.04.1+deb.sury.org+1" ] || fail "no status file: $got"
+	printf 'ok   release state without dpkg status (%s)\n' "$sh"
 	# Not apt: nothing at all.
 	printf 'ID=alpine\n' >"$t/etc/alpine-release"
 	# shellcheck disable=SC2086

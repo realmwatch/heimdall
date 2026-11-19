@@ -318,7 +318,7 @@ func (s *server) hostPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 	}
 	body.RebootURL = s.cfg.ChangeLink.rebootLink(host.OrgSlug, host.Name, body.Reboot == "required" || body.Report.NewerKernel != "")
 	body.OSView.RebootURL = body.RebootURL
-	body.CleanupURL = s.cfg.ChangeLink.releaseCleanupLink(host.OrgSlug, host.Name, body.Report.ReleaseLeftovers != nil)
+	body.CleanupURL = s.cfg.ChangeLink.releaseCleanupLink(host.OrgSlug, host.Name, body.Report.ReleaseLeftovers)
 	body.NginxHTTP2Off = s.cfg.ChangeLink.nginxHTTP2OffLink(host.OrgSlug, host.Name, body.Report)
 	body.NginxRestart = s.cfg.ChangeLink.nginxRestartLink(host.OrgSlug, host.Name, body.Report)
 	body.NginxSwitch = s.cfg.ChangeLink.nginxSourceSwitchLink(host.OrgSlug, host.Name, body.Report)

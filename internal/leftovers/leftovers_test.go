@@ -145,8 +145,8 @@ func TestAnalyzeWeb01(t *testing.T) {
 			t.Errorf("%s built for %q, want %q", name, got, want)
 		}
 	}
-	if !a.Obsolete["vendor-agent"] || !a.Leftover("vendor-agent") || a.Leftover("curl") || a.Leftover("libssl3") {
-		t.Error("an obsolete package can't be upgraded, whatever it's built for")
+	if a.Obsolete["vendor-agent"] || a.Leftover("vendor-agent") || !a.Obsolete["libssl1.1"] || a.Leftover("curl") || a.Leftover("libssl3") {
+		t.Error("an obsolete package can't be upgraded, whatever it's built for; a vendor's .deb isn't obsolete")
 	}
 	f := a.Finding
 	if f == nil {
@@ -170,8 +170,11 @@ func TestAnalyzeWeb01(t *testing.T) {
 		old = append(old, l.Name+"@"+strings.Join(l.Offered, ","))
 	}
 	if !slices.Equal(obs, []string{"libssl1.1@Ubuntu 20.04 (focal)", "libwebp6@Ubuntu 20.04 (focal)",
-		"libldap-2.4-2@Ubuntu 20.04 (focal)", "libperl5.30@Ubuntu 20.04 (focal)", "python3.8@Ubuntu 20.04 (focal)", "vendor-agent@"}) {
-		t.Errorf("obsolete %v (no kernels; a hand-installed .deb has no release)", obs)
+		"libldap-2.4-2@Ubuntu 20.04 (focal)", "libperl5.30@Ubuntu 20.04 (focal)", "python3.8@Ubuntu 20.04 (focal)"}) {
+		t.Errorf("obsolete %v (no kernels, no vendor's .deb)", obs)
+	}
+	if len(f.Vendor) != 1 || f.Vendor[0].Name != "vendor-agent" {
+		t.Errorf("vendor debs %+v", f.Vendor)
 	}
 	if !slices.Equal(old, []string{"libpq5@focal-pgdg", "libzip4@focal", "redis-tools@focal"}) {
 		t.Errorf("old builds %v", old)
@@ -179,7 +182,8 @@ func TestAnalyzeWeb01(t *testing.T) {
 	if len(f.UsedBy) != 2 || f.UsedBy[0].Unit != "php8.3-fpm.service" || f.UsedBy[1].Package != "libzip4" {
 		t.Errorf("used by %+v (curl isn't a leftover)", f.UsedBy)
 	}
-	if len(f.Remediation) != 4 || !strings.HasPrefix(f.Remediation[0], "Retarget") || !strings.HasPrefix(f.Remediation[3], "Remove") {
+	// An older collector's o= records: no plan.
+	if len(f.Remediation) != 4 || !strings.HasPrefix(f.Remediation[0], "Retarget") || !strings.HasPrefix(f.Remediation[3], "Remove the obsolete") {
 		t.Errorf("remediation %q", f.Remediation)
 	}
 }
@@ -225,11 +229,88 @@ func TestAnalyzeCleanHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a := Analyze(jammy, pkgs, &st); a.Finding != nil || len(a.BuiltFor) != 0 || !a.Obsolete["vendor-agent"] {
+	if a := Analyze(jammy, pkgs, &st); a.Finding != nil || len(a.BuiltFor) != 0 || a.Obsolete["vendor-agent"] {
 		t.Errorf("a .deb installed by hand isn't a release leftover: %+v", a)
 	}
 	if a := Analyze(jammy, pkgs, nil); a.Finding != nil || len(a.BuiltFor) != 0 {
 		t.Errorf("no collector state: %+v", a)
+	}
+}
+
+// With what needs each obsolete package (collectors 0.5.39 on), each gets
+// a plan.
+func TestObsoletePlan(t *testing.T) {
+	pkgs := []Package{
+		{"libssl3", "3.0.2-0ubuntu1.18", "openssl", "3.0.2-0ubuntu1.18"},
+		{"libssl1.1", "1.1.1f-1ubuntu2.24+esm6", "openssl", "1.1.1f-1ubuntu2.24+esm6"},
+		{"acme-edr", "7.2.0.1234", "", ""},
+		{"acme-scanner", "4.1.0", "", ""},
+		{"libpq5", "17.5-1.pgdg20.04+1", "postgresql-17", "17.5-1.pgdg20.04+1"},
+		{"libwebp6", "0.6.1-2ubuntu0.20.04.3", "libwebp", "0.6.1-2ubuntu0.20.04.3"},
+		{"libicu66", "66.1-2ubuntu2.1", "icu", "66.1-2ubuntu2.1"},
+		{"libxslt-old", "1.1.34-4ubuntu0.20.04.1", "libxslt", "1.1.34-4ubuntu0.20.04.1"},
+		{"python-pyasn1", "0.4.2-3ubuntu0.20.04.1~esm1", "pyasn1", "0.4.2-3ubuntu0.20.04.1~esm1"},
+		{"libldap-2.4-2", "2.4.49+dfsg-2ubuntu1.10", "openldap", "2.4.49+dfsg-2ubuntu1.10"},
+	}
+	st, err := Parse("v1 cn=jammy maps=10/10;u=sources.list.distUpgrade;" +
+		"p=812|acme-scanner.service|acme-scand|libldap-2.4.so.2|libldap-2.4-2;" +
+		"o=libssl1.1|1.1.1f-1ubuntu2.24+esm6|0|nodejs;" + // something current needs it
+		"o=acme-edr|7.2.0.1234|0|;o=acme-scanner|4.1.0|0|;" +
+		"o=libpq5|17.5-1.pgdg20.04+1|1|php8.3-pgsql,+12;" + // jammy has a libpq5
+		"o=libwebp6|0.6.1-2ubuntu0.20.04.3|0|;" + // nothing needs it
+		"o=libicu66|66.1-2ubuntu2.1|0|libxslt-old;o=libxslt-old|1.1.34-4ubuntu0.20.04.1|0|;" + // removed together
+		"o=python-pyasn1|0.4.2-3ubuntu0.20.04.1~esm1|0|acme-edr;" + // the kept agent needs it
+		"o=libldap-2.4-2|2.4.49+dfsg-2ubuntu1.10|0|;" + // loaded by a running service
+		"o=bad|1.0|2|x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Obsolete) != 9 || st.Obsolete[3].More != 12 || !st.Obsolete[3].Offered || !st.Obsolete[0].Deps {
+		t.Fatalf("parsed %+v", st.Obsolete)
+	}
+	f := Analyze(jammy, pkgs, &st).Finding
+	if f == nil {
+		t.Fatal("no finding")
+	}
+	got := map[string]string{}
+	for _, l := range f.Obsolete {
+		got[l.Name] = l.Plan + ": " + l.Reason
+	}
+	for name, want := range map[string]string{
+		"libssl1.1":     "review: needed by nodejs",
+		"libpq5":        "replace: jammy's sources have a build of it: install that in its place",
+		"libwebp6":      "remove: nothing installed needs it",
+		"libicu66":      "remove: needed only by libxslt-old, removed too",
+		"libxslt-old":   "remove: nothing installed needs it",
+		"python-pyasn1": "review: needed by acme-edr",
+		"libldap-2.4-2": "review: loaded by acme-scanner.service",
+	} {
+		if got[name] != want {
+			t.Errorf("%s: %q, want %q", name, got[name], want)
+		}
+	}
+	want := []string{
+		"Install jammy's build of libpq5 in place of the old one (apt install --allow-downgrades <package>=<the version apt-cache policy offers>): what needs them keeps working.",
+		"Remove libwebp6, libicu66, libxslt-old: nothing installed needs them (apt purge; check that apt removes nothing else).",
+		"Leave libssl1.1, python-pyasn1, libldap-2.4-2 until what needs or loads them is replaced or removed, then remove them.",
+	}
+	if r := f.Remediation; len(r) < 3 || !slices.Equal(r[len(r)-3:], want) {
+		t.Errorf("remediation %q", r)
+	}
+	if len(got) != 7 || len(f.Vendor) != 2 || f.Vendor[0].Name != "acme-edr" || f.Vendor[1].Name != "acme-scanner" {
+		t.Errorf("the vendor's .debs aren't obsolete: %v, %+v", got, f.Vendor)
+	}
+}
+
+func TestOnPurpose(t *testing.T) {
+	for v, want := range map[string]bool{
+		"7.2.0.1234": true, "4.1.0": true, "3.0.0.1000": true, "1:2.0.4": true,
+		"66.1-2ubuntu2.1": false, "278.pgdg20.04+1": false, "1.2+deb.sury.org": false, "0.4.2": true,
+		"2.1~esm1": false, "": false, "v2": false, "11ubuntu5": false,
+	} {
+		if OnPurpose(v) != want {
+			t.Errorf("%q: %v", v, !want)
+		}
 	}
 }
 

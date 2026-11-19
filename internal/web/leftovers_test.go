@@ -16,8 +16,10 @@ import (
 
 // A noble host upgraded from jammy: its release leftovers card lists the
 // stale source, the old build, the obsolete package and the service that
-// loads it, offers the cleanup action with no params, and its leftover's
-// finding says no update fixes it.
+// loads it, each obsolete package's plan, a vendor's .deb apart (not
+// obsolete), offers the
+// cleanup action with that plan as its params, and its leftover's finding
+// says no update fixes it.
 func TestHostPageReleaseLeftovers(t *testing.T) {
 	t.Parallel()
 	e := newEnvCfg(t, "http://127.0.0.1:8080", nil, func(c *Config) {
@@ -35,6 +37,7 @@ func TestHostPageReleaseLeftovers(t *testing.T) {
 	json.Unmarshal(storetest.KernelCaseSnapshot(t, storetest.OldKernelHost, testNow), &snap)
 	snap["packages"] = append(snap["packages"].([]any),
 		map[string]any{"name": "libtinfo5", "version": "6.3-2", "arch": "amd64", "source_name": "ncurses", "source_version": "6.3-2"},
+		map[string]any{"name": "acme-agent", "version": "3.0.0.1000", "arch": "amd64"},
 		map[string]any{"name": "libpq5", "version": "16.4-1.pgdg22.04+1", "arch": "amd64", "source_name": "postgresql-16", "source_version": "16.4-1.pgdg22.04+1"})
 	raw, _ := json.Marshal(snap)
 	s, err := snapshot.DecodeBytes(raw)
@@ -47,7 +50,7 @@ func TestHostPageReleaseLeftovers(t *testing.T) {
 	st, err := leftovers.Parse("v1 cn=noble maps=10/90;u=sources.list.d/pgdg.list.distUpgrade;" +
 		"p=812|php8.3-fpm.service|php-fpm8.3|libpq.so.5|libpq5;" +
 		"s=sources.list.d/pgdg.list|http://apt.postgresql.org/pub/repos/apt|jammy-pgdg|main;" +
-		"o=libtinfo5|6.3-2;b=libpq5|16.4-1.pgdg22.04+1|jammy-pgdg")
+		"o=libtinfo5|6.3-2|0|;o=acme-agent|3.0.0.1000|0|;b=libpq5|16.4-1.pgdg22.04+1|jammy-pgdg")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +71,10 @@ func TestHostPageReleaseLeftovers(t *testing.T) {
 		"<code>/etc/apt/sources.list.d/pgdg.list</code>", "<td>noble-pgdg</td>",
 		"<code>php8.3-fpm.service</code>", "maps <code>libpq.so.5</code> from libpq5",
 		"<td>libtinfo5</td>", "<td>libpq5</td>", "only some processes",
-		`href="https://changes.example.com/propose?action=release.cleanup&amp;org=acme&amp;host=web-01&amp;"`,
+		`href="https://changes.example.com/propose?action=release.cleanup&amp;org=acme&amp;host=web-01&amp;keep=acme-agent&amp;remove=libtinfo5"`,
+		"<h3>Installed from a vendor's .deb</h3>", `<code>acme-agent</code> <span class="muted">3.0.0.1000</span>`,
+		`<span class="badge warn">remove</span> <span class="muted">nothing installed needs it</span>`,
+
 		"built for Ubuntu 22.04 (jammy)", "no update: a leftover",
 	} {
 		if !strings.Contains(page, want) {

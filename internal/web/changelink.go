@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/realmwatch/heimdall/internal/leftovers"
 	"github.com/realmwatch/heimdall/internal/report"
 	"github.com/realmwatch/heimdall/internal/store"
 )
@@ -120,14 +121,40 @@ func (c ChangeLink) rebootLink(org, host string, needed bool) string {
 }
 
 // releaseCleanupLink drafts cleaning up what an in-place release upgrade
-// left (report.Host.ReleaseLeftovers), or is "" with nothing left. It
-// carries no {params}: the tool asks the host's agent for the current
-// state itself and decides what to change when it runs.
-func (c ChangeLink) releaseCleanupLink(org, host string, left bool) string {
-	if !left {
+// left (report.Host.ReleaseLeftovers), or is "" with nothing left. Its
+// {params} are Heimdall's plan for the obsolete packages, comma-separated
+// names: keep (a vendor's .deb, not a leftover), replace (an obsolete one,
+// with the host's release's build) and remove (nothing needs it); an
+// obsolete package in none of them is for the tool to judge. The tool still asks the host's agent for the current
+// state and checks the plan against it when it runs. A plan too long for
+// a link is left out.
+func (c ChangeLink) releaseCleanupLink(org, host string, f *leftovers.Finding) string {
+	if f == nil {
 		return ""
 	}
-	return c.actionLink("release.cleanup", org, host, nil)
+	return c.actionLink("release.cleanup", org, host, cleanupParams(f))
+}
+
+// cleanupParams are a release cleanup's plan (releaseCleanupLink).
+func cleanupParams(f *leftovers.Finding) url.Values {
+	const maxNames = 50
+	by := map[string][]string{}
+	for _, l := range f.Obsolete {
+		by[l.Plan] = append(by[l.Plan], l.Name)
+	}
+	for _, l := range f.Vendor {
+		by["keep"] = append(by["keep"], l.Name)
+	}
+	v := url.Values{}
+	for _, plan := range []string{"keep", leftovers.PlanReplace, leftovers.PlanRemove} {
+		if len(by[plan]) > maxNames {
+			return nil
+		}
+		if len(by[plan]) > 0 {
+			v.Set(plan, strings.Join(by[plan], ","))
+		}
+	}
+	return v
 }
 
 // phpUpgradeLink drafts moving one site to a newer PHP through the action

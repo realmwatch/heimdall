@@ -81,8 +81,11 @@
   {{with .OldBuilds}}<h3>Packages still built for an older release</h3>
   <div class="scroll"><table class="small"><thead><tr><th>Package</th><th>Installed</th><th>Built for</th><th>Offered by</th></tr></thead><tbody>{{range .}}<tr><td>{{.Name}}</td><td class="ver">{{.Version}}</td><td>{{.BuiltFor}}</td><td>{{with .Offered}}{{join . ", "}}{{else}}<span class="muted">—</span>{{end}}</td></tr>{{end}}</tbody></table></div>{{end}}
   {{with .Obsolete}}<h3>Obsolete packages</h3>
-  <p class="muted small">No configured apt source has these any more, so nothing upgrades them.</p>
-  <div class="scroll"><table class="small"><thead><tr><th>Package</th><th>Installed</th><th>Built for</th></tr></thead><tbody>{{range .}}<tr><td>{{.Name}}</td><td class="ver">{{.Version}}</td><td>{{with .BuiltFor}}{{.}}{{else}}<span class="muted" title="Its version doesn't say; it may also be a .deb installed on purpose">unknown</span>{{end}}</td></tr>{{end}}</tbody></table></div>{{end}}
+  <p class="muted small">No configured apt source has these versions any more, so nothing upgrades them.{{if (index . 0).Plan}} The plan is from what the server's packages need: the cleanup follows it.{{end}}</p>
+  <div class="scroll"><table class="small"><thead><tr><th>Package</th><th>Installed</th><th>Built for</th><th>Plan</th></tr></thead><tbody>{{range .}}<tr><td>{{.Name}}</td><td class="ver">{{.Version}}</td><td>{{with .BuiltFor}}{{.}}{{else}}<span class="muted" title="Its version doesn't say">unknown</span>{{end}}</td><td>{{template "leftoverplan" .}}</td></tr>{{end}}</tbody></table></div>{{end}}
+  {{with .Vendor}}<h3>Installed from a vendor's .deb</h3>
+  <p class="muted small">No apt source has these, but their versions are a vendor's own, not a distro's: they were installed on purpose, not left by the upgrade. The cleanup leaves them alone.</p>
+  <p class="small">{{range $i, $l := .}}{{if $i}}, {{end}}<code>{{$l.Name}}</code> <span class="muted">{{$l.Version}}</span>{{end}}</p>{{end}}
   {{if eq .UsageScan "partial"}}<p class="muted small">The collector isn't root, so it could read only some processes' memory maps: services running as other users may load these libraries too.</p>{{else if eq .UsageScan "not_reported"}}<p class="muted small">Found from package versions alone. Upgrade the collector (<code>sudo heimdall-collect upgrade</code>) to see stale apt sources, obsolete packages and what still loads them.</p>{{end}}
   {{with .Remediation}}<h3>To clean up, in order</h3><ol class="small">{{range .}}<li>{{.}}</li>{{end}}</ol>{{end}}
 </section>{{end}}
