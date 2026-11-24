@@ -1,4 +1,5 @@
-# Heimdall collector: report soon after packages change, or a site deploys.
+# Heimdall collector: report soon after packages change, apt's package
+# lists refresh, or a site deploys.
 #
 # A change to a watched path starts heimdall-collect-changes.service,
 # which restarts heimdall-collect-soon.timer, which starts
@@ -20,6 +21,8 @@ PathChanged=/var/lib/dpkg/status
 # rpm 4.16+ (RHEL, Rocky, Alma 9), then older Berkeley DB rpm
 PathChanged=/var/lib/rpm/rpmdb.sqlite
 PathChanged=/var/lib/rpm/Packages
+# apt's package lists refreshed (apt's update hook touches it): new updates show in minutes
+PathChanged=/var/lib/apt/periodic/update-success-stamp
 # apk (Alpine)
 PathChanged=/lib/apk/db/installed
 # pacman (Arch): one directory per installed package

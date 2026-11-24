@@ -92,7 +92,7 @@ func (h fleetHost) Attention() bool {
 	c := h.R.Counts
 	return h.Reported && (c.KEV > 0 || h.News > 0 || c.Fixable > 0 || c.Watch > 0 || h.EOL || h.EOLSoon || h.Stale ||
 		h.Anomalies > 0 || h.Reboot || c.RebootPending > 0 || h.PendingSecurity > 0 || h.SitesAttention > 0 || h.CollectorBehind ||
-		h.ChangeWatch == "off" || h.SSH.Risky() || len(h.R.PHPFromPPA) > 0)
+		h.ChangeWatch == "off" || h.SSH.Risky() || len(h.R.PHPFromPPA) > 0 || h.R.AptStale)
 }
 
 // tagCap is how many tags a host list row shows before "+N".
@@ -696,6 +696,7 @@ var hostFilters = []struct {
 	{"reboot", "Needs reboot", func(h fleetHost) bool { return h.Reboot }},
 	{"stale", "Stale", func(h fleetHost) bool { return h.Stale }},
 	{"anomalies", "Anomalies", func(h fleetHost) bool { return h.Anomalies > 0 }},
+	{"apt-stale", "Package lists stale", func(h fleetHost) bool { return h.R.AptStale }},
 	{"php-ppa", "PHP PPA", func(h fleetHost) bool { return len(h.R.PHPFromPPA) > 0 }},
 	{"collector", "Collector", func(h fleetHost) bool { return h.CollectorBehind || h.ChangeWatch == "off" }},
 	{"privilege", "Privilege watch", func(h fleetHost) bool { return h.HasPrivilege && !h.Privilege.Full }},

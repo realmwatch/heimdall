@@ -292,6 +292,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.recordSiteBranches(r.Context(), log, host, r)              // branches.go
 		h.recordAgents(r.Context(), log, host, r)                    // agents.go
 		h.recordPHP(r.Context(), log, host, r)                       // php.go
+		h.recordApt(r.Context(), log, host, r)                       // php.go
 		h.recordSSH(r.Context(), log, host, r)                       // ssh.go
 		h.recordRelease(r.Context(), log, host, r)                   // release.go
 		h.recordOrigins(r.Context(), log, host, r)                   // origins.go

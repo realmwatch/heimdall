@@ -29,7 +29,7 @@ export LC_ALL=C
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
-VERSION=0.5.44
+VERSION=0.5.45
 FORMAT=heimdall.snapshot/v4
 
 die() { printf 'heimdall-collect: %s\n' "$*" >&2; exit 1; }
@@ -944,29 +944,63 @@ site_branch() {
 
 # ── PHP in use (sent as X-Heimdall-PHP) ────────────────────────────────────
 
-# php_state: the X-Heimdall-PHP value, "v1 cli=<x.y> fpm=<x.y>,...", with
+# php_state: the X-Heimdall-PHP value, "v2 cli=<x.y> fpm=<x.y>,...", with
 # "-" for none. cli is the version the command line's php runs (where
 # /usr/bin/php leads; the alternatives link on Debian and Ubuntu), fpm the
-# versions whose PHP-FPM is running (a /run/php pid file whose process
-# exists). With the sites' FastCGI sockets, the hub can tell an installed
-# PHP version nothing uses. Read-only; never fails the push.
+# versions whose PHP-FPM is running: a master process, a pool's socket in
+# /run/php, or a /run/php pid file whose process exists (many hosts write
+# no pid file). "v2" tells the hub fpm is complete, so it may call a
+# version nothing runs unused. With the sites' FastCGI sockets, the hub
+# can tell an installed PHP version nothing uses. Read-only; never fails
+# the push. HEIMDALL_PROC and HEIMDALL_RUN_PHP are for tests.
 php_state() {
 	cli=-
 	t=$(readlink -f /usr/bin/php 2>/dev/null) || t=
 	case ${t##*/} in
 	php[5-9].[0-9] | php[5-9].[0-9][0-9]) cli=${t##*/php} ;;
 	esac
+	proc=${HEIMDALL_PROC:-/proc}
+	run=${HEIMDALL_RUN_PHP:-/run/php}
 	fpm=
-	for f in /run/php/php*-fpm.pid; do
-		[ -r "$f" ] || continue
-		v=${f##*/php}
-		v=${v%-fpm.pid}
+	for v in $(
+		for f in "$run"/php*-fpm.pid; do
+			[ -r "$f" ] || continue
+			pid=$(tr -cd 0-9 <"$f" 2>/dev/null | cut -c1-10)
+			if [ -n "$pid" ] && [ -d "$proc/$pid" ]; then
+				w=${f##*/php}
+				printf '%s\n' "${w%-fpm.pid}"
+			fi
+		done
+		# A pool's socket: php8.1-fpm.sock, php8.1-fpm-acme.sock.
+		for f in "$run"/php*-fpm*.sock; do
+			[ -S "$f" ] || continue
+			w=${f##*/php}
+			printf '%s\n' "${w%%-fpm*}"
+		done
+		# A master process retitles itself:
+		# "php-fpm: master process (/etc/php/8.1/fpm/php-fpm.conf)".
+		cat "$proc"/[0-9]*/cmdline 2>/dev/null | tr '\000' '\n' |
+			sed -n 's|^php-fpm[0-9.]*: master process (/etc/php/\([5-9]\.[0-9][0-9]*\)/fpm/.*|\1|p'
+	); do
 		case $v in [5-9].[0-9] | [5-9].[0-9][0-9]) ;; *) continue ;; esac
-		pid=$(tr -cd 0-9 <"$f" 2>/dev/null | cut -c1-10)
-		if [ -z "$pid" ] || [ ! -d "/proc/$pid" ]; then continue; fi
-		fpm=${fpm:+$fpm,}$v
+		case ",$fpm," in *",$v,"*) ;; *) fpm=${fpm:+$fpm,}$v ;; esac
 	done
-	printf 'v1 cli=%s fpm=%s' "$cli" "${fpm:--}"
+	printf 'v2 cli=%s fpm=%s' "$cli" "${fpm:--}"
+}
+
+# apt_state: the X-Heimdall-Apt value, "v1 refreshed=<unix time>", when
+# apt's package lists were last refreshed successfully (the stamp apt's
+# update hook touches on every successful apt-get update, on Ubuntu and
+# wherever update-notifier-common is installed), or "v1 refreshed=-" when
+# there's no stamp. Pending updates come from these lists, so the hub can
+# tell when they're stale (a refresh failing, or none scheduled). Nothing
+# on hosts without apt. HEIMDALL_APT_STAMP is for tests.
+apt_state() {
+	command -v apt-get >/dev/null 2>&1 || [ -n "${HEIMDALL_APT_STAMP:-}" ] || return 0
+	stamp=${HEIMDALL_APT_STAMP:-/var/lib/apt/periodic/update-success-stamp}
+	at=
+	[ -f "$stamp" ] && at=$(date -r "$stamp" +%s 2>/dev/null | tr -cd 0-9 | cut -c1-12)
+	printf 'v1 refreshed=%s' "${at:--}"
 }
 
 # ── Release-upgrade leftovers (sent as X-Heimdall-Release) ─────────────────
@@ -1835,6 +1869,10 @@ push() {
 	branches_header="header = \"X-Heimdall-Site-Branches: $(site_branches <"$tmp/snapshot.json" | tr -cd 'A-Za-z0-9._~:/@+, -' | cut -c1-4096)\""
 	# The PHP versions in use outside the sites' sockets (php_state).
 	php_header="header = \"X-Heimdall-PHP: $(php_state | tr -cd 'a-z0-9.=, -' | cut -c1-200)\""
+	# When apt's package lists were last refreshed (apt_state).
+	apt_header=
+	ap_state=$(apt_state | tr -cd 'a-z0-9=- ' | cut -c1-60)
+	[ -z "$ap_state" ] || apt_header="header = \"X-Heimdall-Apt: $ap_state\""
 	# sshd's settings and listening addresses (ssh_state).
 	ssh_header="header = \"X-Heimdall-SSH: $(ssh_state | tr -cd 'a-z0-9.:=,? -' | cut -c1-400)\""
 	# Apt sources and packages left over from an older release, and what
@@ -1860,7 +1898,7 @@ push() {
 	status=$(printf '%s\n' \
 		"header = \"Authorization: Bearer $token\"" \
 		'header = "Content-Type: application/json"' \
-		"$encoding" "$cacert" "$hostname_header" "$machine_header" "$triggers_header" "$agents_header" "$repos_header" "$branches_header" "$php_header" "$ssh_header" "$release_header" "$origins_header" "$nginx_header" "$(privilege_config)" "$(logins_config)" |
+		"$encoding" "$cacert" "$hostname_header" "$machine_header" "$triggers_header" "$agents_header" "$repos_header" "$branches_header" "$php_header" "$apt_header" "$ssh_header" "$release_header" "$origins_header" "$nginx_header" "$(privilege_config)" "$(logins_config)" |
 		"$curl" --config - --silent --show-error \
 			--proto '=https,http' --tlsv1.2 \
 			--connect-timeout 10 --max-time 120 \
@@ -2192,7 +2230,7 @@ set_hub() {
 usage() {
 	cat >&2 <<'EOF'
 usage: heimdall-collect --print | --push | --push-trips | --trips |
-                        --site-repos | --site-branches | --php | --ssh |
+                        --site-repos | --site-branches | --php | --apt | --ssh |
                         --release | --origins | --nginx | --deploy-watches |
                         --logins | --version
        heimdall-collect deployed
@@ -2213,6 +2251,8 @@ usage: heimdall-collect --print | --push | --push-trips | --trips |
                 print the sites' checked-out branches --push would send
   --php         print the PHP versions in use --push would send (the command
                 line's and the running PHP-FPMs')
+  --apt         print when apt last refreshed its package lists, as --push
+                would send it
   --ssh         print sshd's settings and listening addresses --push would
                 send
   --release     print the apt sources and packages left over from an older
@@ -2266,7 +2306,7 @@ case $1 in
 deployed) deployed; exit 0 ;; # any user, root too: it only touches a file
 # For heimdall-collect-soon.service (root), not for people:
 event-allowed) if event_allowed; then exit 0; else exit 1; fi ;;
---print | --push | --push-trips | --trips | --site-repos | --site-branches | --php | --ssh | --release | --origins | --nginx | --deploy-watches | --logins) ;;
+--print | --push | --push-trips | --trips | --site-repos | --site-branches | --php | --apt | --ssh | --release | --origins | --nginx | --deploy-watches | --logins) ;;
 *) usage ;;
 esac
 
@@ -2299,6 +2339,7 @@ case $1 in
 --site-repos) sites_json | site_repos; echo ;;
 --site-branches) sites_json | site_branches; echo ;;
 --php) php_state; echo ;;
+--apt) apt_state; echo ;;
 --ssh) ssh_state; echo ;;
 --release) release_state ;;
 --origins) apt_origins ;;

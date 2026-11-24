@@ -228,12 +228,16 @@
 {{- if .SitesAttention}}<span class="pill warn">{{.SitesAttention}} site{{if ne .SitesAttention 1}}s{{end}}</span>{{end}}
 {{- if .CollectorBehind}}{{with .CollectorURL}}<a class="pill muted" href="{{.}}" target="_blank" rel="noopener noreferrer" title="Draft the upgrade in your change-management tool">collector behind</a>{{else}}<span class="pill muted" title="On the server: sudo heimdall-collect upgrade">collector behind</span>{{end}}{{end}}
 {{- if eq .ChangeWatch "off"}}<span class="pill warn" title="Changes are only reported on the schedule">change watch off</span>{{end}}
-{{- template "phpppa" .}}
+{{- template "phpppa" .}}{{template "aptstale" .}}
 </span>{{end}}
 
 {{/* phpppa: a fleetHost's pill when apt still gets PHP from the deprecated
 ondrej/php PPA, linking to the move (or, with no tool, the host's section). */}}
 {{define "phpppa"}}{{with .R.PHPFromPPA}}{{$t := "PHP comes from the ondrej/php PPA, which is deprecated and frozen: no more PHP updates, and apt can't refresh its package lists"}} {{with $.PHPMoveURL}}<a class="pill warn" href="{{.}}" target="_blank" rel="noopener noreferrer" title="{{$t}}. Draft moving it to packages.sury.org in your change-management tool">PHP PPA</a>{{else}}<a class="pill warn" href="{{hostURL $.OrgSlug $.Name}}#php-ppa" title="{{$t}}">PHP PPA</a>{{end}}{{end}}{{end}}
+
+{{/* aptstale: a fleetHost's pill when its apt package lists are old, so
+its pending updates are likely incomplete (report.AptStaleAfter). */}}
+{{define "aptstale"}}{{if .R.AptStale}} <a class="pill bad" href="{{hostURL .OrgSlug .Name}}" title="apt last refreshed the package lists {{ago .R.AptRefreshed}}: updates released since don't show. Refreshes are failing (often a source apt can't read, such as the deprecated ondrej/php PPA) or turned off.">lists stale</a>{{end}}{{end}}
 
 {{/* ipbadge: what's known about an address (ipBadge, ips.go) */}}
 {{define "ipbadge"}}{{if or .PersonHref .Href}}<a class="pill {{.Class}}" href="{{or .PersonHref .Href}}"{{with .Title}} title="{{.}}"{{end}}>{{.Text}}</a>{{else}}<span class="pill {{.Class}}"{{with .Title}} title="{{.}}"{{end}}>{{.Text}}</span>{{end}}{{end}}
