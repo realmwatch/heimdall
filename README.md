@@ -112,7 +112,8 @@ Most PHP apps are a site on a shared box, so Heimdall inventories **sites**, not
 
 ### Vulnerability & lifecycle checks
 - Matches package versions against **[OSV.dev](https://osv.dev)**, which aggregates the Debian, Ubuntu, Alpine, Red Hat, Rocky, Alma, npm, Packagist, PyPI and other advisory feeds
-- Matches nginx against **[nginx.org's own advisories](https://nginx.org/en/security_advisories.html)** too: nginx.org's builds by them alone (a distro's advisories can't judge another source's versions), and the distro's builds until the distro publishes its own record, so a new nginx flaw shows the day nginx.org fixes it. Packages from any other third-party apt source are listed on the host page as not checked ([collector.md](docs/collector.md#third-party-packages))
+- Matches nginx against **[nginx.org's own advisories](https://nginx.org/en/security_advisories.html)** too: nginx.org's builds by them alone (a distro's advisories can't judge another source's versions), and the distro's builds until the distro publishes its own record, so a new nginx flaw shows the day nginx.org fixes it
+- Matches third-party PHP (Ondřej Surý's builds, which most Laravel and WordPress servers run) against **[the PHP project's own advisories](https://github.com/php/php-src/security/advisories)**, the day a PHP release fixes them: by branch, with the branch's fixed release, and only where the part of PHP each flaw is in (PHP-FPM, SOAP, the core…) is installed. An end-of-life branch is flagged with no fix to offer. Packages from any other third-party apt source are listed on the host page as not checked ([collector.md](docs/collector.md#third-party-packages))
 - Says whether each nginx flaw is reachable as configured (HTTP/2, HTTP/3, mail, resolver, PROXY protocol, mp4), which sites speak HTTP/2, and when nginx is still running the code from before an update ([nginx settings](docs/collector.md#nginx-settings))
 - Flags CVEs listed in **[CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)** (Known Exploited Vulnerabilities)
 - Optional **[EPSS](https://www.first.org/epss/)** scores to help rank what to fix first
@@ -174,7 +175,7 @@ See [docs/anomaly-signals.md](docs/anomaly-signals.md) for what each signal mean
                                  │
                      SQLite (heimdall.db)  ◄── feed sync (outbound, allowlisted:
                                                 OSV, KEV, EPSS, endoflife.date,
-                                                nginx.org advisories)
+                                                nginx.org and PHP advisories)
                                  ▲
         ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
           one-way HTTPS push     │      (hub never initiates connections)
@@ -391,6 +392,7 @@ kev = true
 epss = true
 endoflife = true
 nginx = true         # nginx.org's own advisories (needs osv)
+php = true           # PHP's own advisories, for Surý's builds (needs osv)
 
 [hosts]
 stale_after = "72h"
@@ -399,7 +401,8 @@ alert_after = "3h"   # quiet this long: silence anomaly + immediate notice ("0" 
 [news]                             # threat news, off by default
 enabled  = false
 sources  = ["https://pwn.watch/incidents.json", "https://feeds.feedburner.com/TheHackersNews",
-            "https://www.wordfence.com/blog/feed/", "https://patchstack.com/feed/1.xml"]
+            "https://www.wordfence.com/blog/feed/", "https://patchstack.com/feed/1.xml",
+            "https://cve.now/feed?tech=php"]
 interval = "1h"
 
 [ai]                               # AI analysis with your own Azure deployment, off by default
@@ -627,7 +630,7 @@ internal/store/      SQLite schema, migrations, org-scoped queries
 internal/ingest/     strict decoding, validation, normalization
 internal/auth/       passwords, TOTP, sessions, CSRF, rate limiting
 internal/auth/entra/ OIDC code+PKCE flow, JWKS cache, ID token validation
-internal/feeds/      OSV, KEV, EPSS, endoflife.date, nginx.org clients
+internal/feeds/      OSV, KEV, EPSS, endoflife.date, nginx.org, PHP clients
 internal/match/      version comparison (dpkg, rpm, apk, semver)
 internal/web/        handlers, templates, static assets
 collector/collect.sh

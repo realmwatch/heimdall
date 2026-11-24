@@ -67,6 +67,7 @@ Commands:
   import                       Store (or --check) a snapshot file
   collector trust|list         Manage known-good collector checksums
   feeds sync|status            Refresh OSV, KEV and end-of-life data now
+  feeds set-github-token       Optional: a GitHub token for PHP's advisories (raises the rate limit)
   report                       Findings and lifecycle per host (text, JSON, CSV or HTML)
   notify preview|send          Show (with each destination's payload) or send the digest now
   notify test [destination]    Send a labelled test message (all destinations, or one)
@@ -130,7 +131,7 @@ var commands = map[string]command{
 	"enroll": group("enroll", map[string]command{"create": cmdEnrollCreate, "list": cmdEnrollList, "revoke": cmdEnrollRevoke,
 		"pending": cmdEnrollPending, "approve": cmdEnrollApprove}),
 	"collector": group("collector", map[string]command{"trust": cmdCollectorTrust, "list": cmdCollectorList}),
-	"feeds":     group("feeds", map[string]command{"sync": cmdFeedsSync, "status": cmdFeedsStatus}),
+	"feeds":     group("feeds", map[string]command{"sync": cmdFeedsSync, "status": cmdFeedsStatus, "set-github-token": cmdFeedsSetGitHubToken}),
 	"report":    cmdReport,
 	"drift":     cmdDrift,
 	"sbom":      cmdSBOM,

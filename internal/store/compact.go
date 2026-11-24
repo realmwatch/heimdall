@@ -146,9 +146,9 @@ func (s *Store) SlimAdvisories(ctx context.Context, slim func([]byte) ([]byte, e
 // (no host has had that package version since), then advisories that no
 // finding (open or resolved) and no remaining query result refers to.
 // Withdrawn advisories go the same way once nothing refers to them.
-// nginx.org's (internal/feeds/nginx) are kept: they're matched from the
-// store, not through query results, and their sync replaces them. It
-// returns the number of advisories deleted.
+// nginx.org's and PHP's (internal/feeds/nginx, internal/feeds/php) are
+// kept: they're matched from the store, not through query results, and
+// their sync replaces them. It returns the number of advisories deleted.
 func (s *Store) PruneAdvisories(ctx context.Context, before time.Time) (int, error) {
 	var n int64
 	err := s.tx(ctx, func(tx *sql.Tx) error {
@@ -160,7 +160,7 @@ func (s *Store) PruneAdvisories(ctx context.Context, before time.Time) (int, err
 			DELETE FROM advisories
 			WHERE id NOT IN (SELECT advisory_id FROM findings)
 			  AND id NOT IN (SELECT DISTINCT v.value FROM osv_query_cache c, json_each(c.vuln_ids) v)
-			  AND substr(id, 1, 6) <> 'NGINX-'`)
+			  AND substr(id, 1, 6) <> 'NGINX-' AND substr(id, 1, 4) <> 'PHP-'`)
 		if err != nil {
 			return err
 		}

@@ -20,13 +20,14 @@ func TestThirdPartySources(t *testing.T) {
 	origins := map[string]string{"nginx": "nginx", "php8.3-fpm": "LP-PPA-ondrej-php", "libgd3": "LP-PPA-ondrej-php", "gone": "nginx"}
 	got := thirdPartySources(origins, pkgs)
 	want := []ThirdPartySource{
-		{Origin: "LP-PPA-ondrej-php", Packages: []string{"libgd3", "php8.3-fpm"}},
+		// PHP is checked against PHP's own advisories; libgd3 by nothing.
+		{Origin: "LP-PPA-ondrej-php", Packages: []string{"libgd3", "php8.3-fpm"}, Checked: []string{"php8.3-fpm"}},
 		{Origin: "nginx", Packages: []string{"nginx"}, Checked: []string{"nginx"}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v\nwant %+v", got, want)
 	}
-	if u := got[0].Unchecked(); !reflect.DeepEqual(u, []string{"libgd3", "php8.3-fpm"}) {
+	if u := got[0].Unchecked(); !reflect.DeepEqual(u, []string{"libgd3"}) {
 		t.Errorf("unchecked = %v", u)
 	}
 	if u := got[1].Unchecked(); u != nil {

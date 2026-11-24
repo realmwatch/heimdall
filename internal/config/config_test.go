@@ -153,7 +153,7 @@ func TestValidate(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("news enabled should be valid: %v", err)
 	}
-	if got := cfg.News.Hosts(); !slices.Equal(got, []string{"pwn.watch", "feeds.feedburner.com", "www.wordfence.com", "patchstack.com", "feeds.example.com"}) {
+	if got := cfg.News.Hosts(); !slices.Equal(got, []string{"pwn.watch", "feeds.feedburner.com", "www.wordfence.com", "patchstack.com", "cve.now", "feeds.example.com"}) {
 		t.Errorf("news hosts: %v", got)
 	}
 }

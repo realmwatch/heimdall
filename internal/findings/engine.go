@@ -51,7 +51,8 @@ type HostResult struct {
 
 // EvaluateHost recomputes a host's findings from its latest snapshot: OS
 // packages against the distro's OSV ecosystem (nginx also against
-// nginx.org's own advisories, see upstream.go), each site's Composer
+// nginx.org's own advisories, see upstream.go; third-party PHP against
+// PHP's, see upstream_php.go), each site's Composer
 // packages against Packagist and its npm packages against npm, and
 // allowlisted lockfiles against theirs.
 func (e *Engine) EvaluateHost(ctx context.Context, host store.IngestHost) (HostResult, error) {
@@ -66,6 +67,7 @@ func (e *Engine) EvaluateHost(ctx context.Context, host store.IngestHost) (HostR
 
 	targets := map[target]*targetInfo{}
 	var upstream []upstreamPackage
+	var phpPkgs []phpPackage
 	info, osOK := HostEcosystem(inv)
 	if osOK {
 		res.Ecosystem = info.OSV
@@ -92,6 +94,7 @@ func (e *Engine) EvaluateHost(ctx context.Context, host store.IngestHost) (HostR
 		}
 		addOSTargets(targets, info, distro, ReleaseAnalysis(inv, info, state, kept))
 		upstream = nginxPackages(inv.Packages, third)
+		phpPkgs = phpPackages(inv.Packages, third)
 	} else {
 		e.Log.Info("findings: OS packages not supported, skipping them", "host", host.Name, "os", inv.OSID, "version", inv.OSVersion)
 	}
@@ -101,6 +104,11 @@ func (e *Engine) EvaluateHost(ctx context.Context, host store.IngestHost) (HostR
 	if err != nil {
 		return res, err
 	}
+	phpUp, err := e.phpFindings(ctx, info, phpPkgs)
+	if err != nil {
+		return res, err
+	}
+	up = append(up, phpUp...)
 	if len(targets) == 0 && len(up) == 0 {
 		return res, nil
 	}

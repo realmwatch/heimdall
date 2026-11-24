@@ -106,7 +106,7 @@
 </section>{{end}}
 {{with .Report.ThirdParty}}<section class="card third-party" id="third-party" aria-labelledby="third-party-h">
   <h2 id="third-party-h">Packages from other sources</h2>
-  <p class="small">These came from apt sources other than the distro's, so their versions aren't the distro's and its advisories can't judge them. Heimdall checks nginx against nginx.org's own advisories; it doesn't check the rest against any.</p>
+  <p class="small">These came from apt sources other than the distro's, so their versions aren't the distro's and its advisories can't judge them. Heimdall checks nginx against nginx.org's own advisories and PHP against the PHP project's; it doesn't check the rest against any.</p>
   <details{{if le (len .) 3}} open{{end}}><summary class="small">{{len .}} source{{if ne (len .) 1}}s{{end}}</summary>
   <div class="scroll"><table class="small"><thead><tr><th>Source</th><th>Checked</th><th>Not checked</th></tr></thead><tbody>{{range .}}<tr><td><code>{{.Origin}}</code></td><td>{{with .Checked}}{{join . ", "}}{{else}}<span class="muted">—</span>{{end}}</td><td>{{with .Unchecked}}{{join . ", "}}{{else}}<span class="muted">—</span>{{end}}</td></tr>{{end}}</tbody></table></div>
   </details>

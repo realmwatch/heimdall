@@ -57,6 +57,7 @@ kev           = true
 epss          = true
 endoflife     = true
 nginx         = true      # nginx.org's own advisories (needs osv)
+php           = true      # PHP's own advisories, for Ondřej Surý's builds (needs osv; sudo heimdall feeds set-github-token raises GitHub's rate limit)
 
 [hosts]
 stale_after        = "72h"
@@ -92,6 +93,7 @@ sources  = [
   "https://feeds.feedburner.com/TheHackersNews",
   "https://www.wordfence.com/blog/feed/",
   "https://patchstack.com/feed/1.xml",
+  "https://cve.now/feed?tech=php",
 ]
 interval = "1h"
 

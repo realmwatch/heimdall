@@ -30,6 +30,7 @@ import (
 	"github.com/realmwatch/heimdall/internal/auth/entra"
 	"github.com/realmwatch/heimdall/internal/bans"
 	"github.com/realmwatch/heimdall/internal/feeds/nginx"
+	"github.com/realmwatch/heimdall/internal/feeds/php"
 	"github.com/realmwatch/heimdall/internal/handoff"
 	"github.com/realmwatch/heimdall/internal/ipinfo"
 	"github.com/realmwatch/heimdall/internal/privilege"
@@ -833,6 +834,11 @@ var funcs = template.FuncMap{
 	},
 	// fromNginx: an advisory from nginx.org's own list (internal/feeds/nginx).
 	"fromNginx": func(id string) bool { return strings.HasPrefix(id, nginx.IDPrefix) },
+	// fromPHP: an advisory from the PHP project's own (internal/feeds/php).
+	"fromPHP": func(id string) bool { return strings.HasPrefix(id, php.IDPrefix) },
+	"phpAdvisoryURL": func(id string) string {
+		return php.PageURL + "/" + strings.TrimPrefix(id, php.IDPrefix)
+	},
 	"watchEPSS": func() string { return pct(store.WatchEPSS) },
 	"pct":       pct,
 	// siteURL is a site's page: sites are a host plus a web root.
