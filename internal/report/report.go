@@ -57,6 +57,15 @@ type Host struct {
 	// PHPKnown: the collector reported what uses PHP, so the PHP
 	// runtimes' Use is set (php.go).
 	PHPKnown bool `json:"php_known,omitempty"`
+	// PHPUnsure says why no PHP version is called unused although nothing
+	// Heimdall sees runs one (PHPUse.Unknown): "" when it can tell.
+	PHPUnsure string `json:"php_unsure,omitempty"`
+	// AptRefreshed is when apt's package lists were last refreshed
+	// successfully (nil: unknown, an older collector or no stamp), and
+	// AptStale whether that's more than AptStaleAfter ago: pending updates
+	// come from those lists, so updates released since don't show.
+	AptRefreshed *time.Time `json:"apt_refreshed,omitempty"`
+	AptStale     bool       `json:"apt_stale,omitempty"`
 	// ReleaseLeftovers is what an in-place release upgrade left behind
 	// (stale apt sources, obsolete packages, old-release builds) and what
 	// still loads it; nil when there's nothing (see internal/leftovers).
@@ -80,6 +89,12 @@ type Host struct {
 	// collector.
 	Nginx *store.NginxState `json:"nginx,omitempty"`
 }
+
+// AptStaleAfter is how old a host's apt lists may be before its pending
+// updates are flagged as likely incomplete: apt refreshes them twice a
+// day, at random within 12 hours, so a day and a bit means refreshes are
+// failing (a repository it can't read) or not scheduled.
+const AptStaleAfter = 30 * time.Hour
 
 type Container struct {
 	Name   string `json:"name"`
@@ -260,6 +275,10 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 			return nil, err
 		}
 	}
+	apts, err := st.HostApts(ctx)
+	if err != nil {
+		return nil, err
+	}
 	phps, err := st.HostPHPs(ctx)
 	if err != nil {
 		return nil, err
@@ -411,6 +430,10 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 				return nil, err
 			}
 			host.Sites = append(host.Sites, site)
+		}
+		if at, ok := apts[h.ID]; ok && !at.IsZero() {
+			host.AptRefreshed = &at
+			host.AptStale = now.Sub(at) > AptStaleAfter
 		}
 		if p, ok := phps[h.ID]; ok && findings.PackageManager(inv) == "dpkg" {
 			phpUse(&host, p, inv.Packages)

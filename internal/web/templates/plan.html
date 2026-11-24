@@ -15,7 +15,7 @@
     {{if $bulk}}<td><input type="checkbox" aria-label="Select {{.Host.Name}}" data-plan-row data-org="{{.Host.OrgSlug}}" data-host="{{.Host.Name}}" data-batch="{{.Batch}}" data-needs="{{.Needs}}"></td>{{end}}
     <td>{{.Batch}}</td>
     <td><a href="{{hostURL .Host.OrgSlug .Host.Name}}">{{.Host.Name}}</a>{{if $cross}} <span class="muted small">{{.Host.OrgSlug}}</span>{{end}}</td>
-    {{range $cols}}{{$cell := $row.Cell .Action}}<td class="plan-col">{{if not $row.Reported}}<span class="muted">—</span>{{else if $cell.Need}}<span class="pill {{if $cell.Bad}}bad{{else}}warn{{end}}"{{with $cell.Title}} title="{{.}}"{{end}}>{{$cell.Text}}</span>{{else}}<span class="muted">{{or $cell.Text "—"}}</span>{{end}}</td>{{end}}
+    {{range $cols}}{{$cell := $row.Cell .Action}}<td class="plan-col">{{if not $row.Reported}}<span class="muted">—</span>{{else if or $cell.Need $cell.Bad}}<span class="pill {{if $cell.Bad}}bad{{else}}warn{{end}}"{{with $cell.Title}} title="{{.}}"{{end}}>{{$cell.Text}}</span>{{else}}<span class="muted">{{or $cell.Text "—"}}</span>{{end}}</td>{{end}}
     <td>{{if not .VerifiedAt.IsZero}}<span class="badge ok">verified</span>{{else if not .DoneAt.IsZero}}<span class="badge">done{{if .DoneBy}} by {{.DoneBy}}{{end}}</span> <span class="muted">waiting for a clean check-in</span>{{else}}to do{{end}}</td>
     {{if $can}}<td>
       <form method="post" action="/plans/{{$id}}/{{if .DoneAt.IsZero}}done{{else}}undo{{end}}" class="inline">

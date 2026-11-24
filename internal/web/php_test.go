@@ -58,7 +58,16 @@ func TestHostPageUnusedPHP(t *testing.T) {
 	if page := e.get("/hosts/acme/web-01", signedIn(e)).Body.String(); strings.Contains(page, "php-unused") {
 		t.Error("suggests removal without the collector's PHP state")
 	}
-	if err := e.st.SetHostPHP(ctx, host.ID, "8.1", []string{"8.4"}, testNow); err != nil {
+	// From an older collector, which can't see every running PHP-FPM:
+	// nothing is called unused.
+	if err := e.st.SetHostPHP(ctx, host.ID, "8.1", []string{"8.4"}, false, testNow); err != nil {
+		t.Fatal(err)
+	}
+	if page := html.UnescapeString(e.get("/hosts/acme/web-01", signedIn(e)).Body.String()); strings.Contains(page, `id="php-unused"`) ||
+		!strings.Contains(page, ">use unknown</span>") || !strings.Contains(page, "0.5.45") {
+		t.Error("an older collector's PHP state: removal suggested, or no 'use unknown'")
+	}
+	if err := e.st.SetHostPHP(ctx, host.ID, "8.1", []string{"8.4"}, true, testNow); err != nil {
 		t.Fatal(err)
 	}
 	page := html.UnescapeString(e.get("/hosts/acme/web-01", signedIn(e)).Body.String())
@@ -117,7 +126,7 @@ func TestHostPagePHPRemoveButton(t *testing.T) {
 	if res, err := acc.Accept(ctx, host, "push", raw); err != nil || res.Status != http.StatusCreated {
 		t.Fatalf("seed: %+v %v", res, err)
 	}
-	if err := e.st.SetHostPHP(ctx, host.ID, "8.4", []string{"8.4"}, testNow); err != nil {
+	if err := e.st.SetHostPHP(ctx, host.ID, "8.4", []string{"8.4"}, true, testNow); err != nil {
 		t.Fatal(err)
 	}
 	page := e.get("/hosts/acme/web-01", signedIn(e)).Body.String()
@@ -170,7 +179,7 @@ func TestHostPagePHPRemoveAllButton(t *testing.T) {
 	if res, err := acc.Accept(ctx, host, "push", raw); err != nil || res.Status != http.StatusCreated {
 		t.Fatalf("seed: %+v %v", res, err)
 	}
-	if err := e.st.SetHostPHP(ctx, host.ID, "8.4", []string{"8.4"}, testNow); err != nil {
+	if err := e.st.SetHostPHP(ctx, host.ID, "8.4", []string{"8.4"}, true, testNow); err != nil {
 		t.Fatal(err)
 	}
 	page := e.get("/hosts/acme/web-01", signedIn(e)).Body.String()
@@ -239,5 +248,29 @@ func TestSitePagePHPUpgradeButton(t *testing.T) {
 	seed(t, e, "apache")
 	if body := e.get(page, signedIn(e)).Body.String(); strings.Contains(body, "Propose PHP upgrade") {
 		t.Error("shown for an apache site")
+	}
+}
+
+// Old apt lists: the host page says when they were refreshed and flags
+// them, and the host list marks the host; recent ones aren't flagged.
+func TestAptListsStale(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, "http://127.0.0.1:8080", nil)
+	host := e.seed()
+	if err := e.st.SetHostApt(t.Context(), host.ID, testNow.Add(-2*time.Hour), testNow); err != nil {
+		t.Fatal(err)
+	}
+	page := e.get("/hosts/acme/web-01", signedIn(e)).Body.String()
+	if !strings.Contains(page, ">lists refreshed ") || strings.Contains(page, "package lists stale") {
+		t.Errorf("fresh lists:\n%s", page)
+	}
+	if err := e.st.SetHostApt(t.Context(), host.ID, testNow.Add(-50*time.Hour), testNow); err != nil {
+		t.Fatal(err)
+	}
+	if page := e.get("/hosts/acme/web-01", signedIn(e)).Body.String(); !strings.Contains(page, ">package lists stale</span>") {
+		t.Error("stale lists not flagged on the host page")
+	}
+	if list := e.get("/hosts", signedIn(e)).Body.String(); !strings.Contains(list, ">lists stale</a>") || !strings.Contains(list, "only=apt-stale") {
+		t.Error("stale lists not flagged in the host list")
 	}
 }

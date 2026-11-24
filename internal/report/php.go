@@ -30,6 +30,9 @@ type PHPUse struct {
 	// PHP, so it's kept as a target for that site's upgrade.
 	Spare bool   `json:"spare,omitempty"`
 	CLITo string `json:"cli_to,omitempty"`
+	// Unknown: nothing Heimdall sees uses it, but it can't rule out what it
+	// can't see (Host.PHPUnsure says what), so it isn't called unused.
+	Unknown bool `json:"unknown,omitempty"`
 	// Packages are its installed packages (php8.1-*), when unused; DryRun
 	// and Commands remove them (Commands in order: the CLI switch first).
 	Packages []string `json:"packages,omitempty"`
@@ -56,8 +59,21 @@ func PHPPackageMinor(name string) string {
 // maxPHPPackages bounds one removal command.
 const maxPHPPackages = 60
 
-// phpUse sets Use on the host's PHP runtimes.
+// phpUse sets Use on the host's PHP runtimes. A version nothing seen uses
+// is called unused only when nothing could hide a use: the collector's
+// running PHP-FPM list is complete (p.FPMKnown), and every PHP site's
+// PHP-FPM version is known. Otherwise Host.PHPUnsure says why not.
 func phpUse(host *Host, p store.HostPHP, pkgs []store.InventoryPackage) {
+	unsure := ""
+	if !p.FPMKnown {
+		unsure = "This server's collector can't see which PHP-FPMs are running (it needs 0.5.45 or later: sudo heimdall-collect upgrade)."
+	}
+	for _, s := range host.Sites {
+		if s.PHPFPM == "" && (s.PHPRequirement != "" || s.Packages > 0 || s.Framework != "") {
+			unsure = "Heimdall can't tell which PHP serves " + cmp.Or(siteLabel(s), s.Root) + ", so it can't rule out a version."
+			break
+		}
+	}
 	byMinor := map[string][]string{}
 	for _, pk := range pkgs {
 		if m := PHPPackageMinor(pk.Name); m != "" && !slices.Contains(byMinor[m], pk.Name) {
@@ -125,6 +141,11 @@ func phpUse(host *Host, p store.HostPHP, pkgs []store.InventoryPackage) {
 		}
 		if floor != "" && version.CompareDpkg(m, floor) > 0 {
 			u.Spare = true
+			continue
+		}
+		if unsure != "" {
+			u.Unknown = true
+			host.PHPUnsure = unsure
 			continue
 		}
 		if u.CLI {

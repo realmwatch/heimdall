@@ -40,7 +40,7 @@ func TestPHPUse(t *testing.T) {
 	// 8.1 is installed and the command line's; 8.5 is just installed.
 	// 8.0 is installed and older than every site's, so it goes too.
 	h, pkgs := phpHost(map[string]string{"app.example.com": "8.4"}, "8.0", "8.1", "8.3", "8.4", "8.5")
-	phpUse(&h, store.HostPHP{CLI: "8.1", FPM: []string{"8.3", "8.4"}}, pkgs)
+	phpUse(&h, store.HostPHP{CLI: "8.1", FPM: []string{"8.3", "8.4"}, FPMKnown: true}, pkgs)
 	if u := useOf(h, "8.0"); !u.Unused || u.Spare || len(u.Commands) != 1 {
 		t.Errorf("8.0 (older than every site's): %+v", u)
 	}
@@ -77,14 +77,14 @@ func TestPHPUse(t *testing.T) {
 func TestPHPUseCLIOnly(t *testing.T) {
 	// The only version, run by nothing but the command line: it stays.
 	h, pkgs := phpHost(nil, "8.1")
-	phpUse(&h, store.HostPHP{CLI: "8.1"}, pkgs)
+	phpUse(&h, store.HostPHP{CLI: "8.1", FPMKnown: true}, pkgs)
 	if u := useOf(h, "8.1"); u == nil || u.Unused {
 		t.Errorf("only version: %+v", u)
 	}
 	// With another installed but unused, the command line moves to the
 	// newest other one.
 	h, pkgs = phpHost(nil, "8.1", "8.2", "8.3")
-	phpUse(&h, store.HostPHP{CLI: "8.1"}, pkgs)
+	phpUse(&h, store.HostPHP{CLI: "8.1", FPMKnown: true}, pkgs)
 	if u := useOf(h, "8.1"); !u.Unused || u.CLITo != "8.3" {
 		t.Errorf("8.1 with others: %+v", u)
 	}
@@ -94,5 +94,29 @@ func TestPHPUseCLIOnly(t *testing.T) {
 	}
 	if u := useOf(h, "8.2"); !u.Unused {
 		t.Errorf("8.2: %+v", u)
+	}
+}
+
+// Nothing is called unused while something could hide a use: an older
+// collector that can't see running PHP-FPMs, or a PHP site whose PHP-FPM
+// version is unknown.
+func TestPHPUseUnsure(t *testing.T) {
+	h, pkgs := phpHost(map[string]string{"app.example.com": "8.3"}, "8.1", "8.3")
+	phpUse(&h, store.HostPHP{CLI: "8.3"}, pkgs) // v1: FPM not known
+	if u := useOf(h, "8.1"); u.Unused || !u.Unknown || len(u.Commands) != 0 || !strings.Contains(h.PHPUnsure, "0.5.45") {
+		t.Errorf("older collector: %+v, %q", u, h.PHPUnsure)
+	}
+	h, pkgs = phpHost(map[string]string{"app.example.com": "8.3"}, "8.1", "8.3")
+	h.Sites = append(h.Sites, Site{Root: "/home/acme/shop", ServerNames: []string{"shop.example.com"}, PHPRequirement: "^8.1"})
+	phpUse(&h, store.HostPHP{CLI: "8.3", FPMKnown: true}, pkgs)
+	if u := useOf(h, "8.1"); u.Unused || !u.Unknown || !strings.Contains(h.PHPUnsure, "shop.example.com") {
+		t.Errorf("unknown site: %+v, %q", u, h.PHPUnsure)
+	}
+	// A site with no PHP (a default page) doesn't hold it back.
+	h, pkgs = phpHost(map[string]string{"app.example.com": "8.3"}, "8.1", "8.3")
+	h.Sites = append(h.Sites, Site{Root: "/var/www/html", ServerNames: []string{"_"}})
+	phpUse(&h, store.HostPHP{CLI: "8.3", FPMKnown: true}, pkgs)
+	if u := useOf(h, "8.1"); !u.Unused || h.PHPUnsure != "" {
+		t.Errorf("static site: %+v, %q", u, h.PHPUnsure)
 	}
 }

@@ -73,6 +73,9 @@ func (r planRow) Cell(action string) planCell {
 	need := r.needs(action)
 	switch action {
 	case "updates.install":
+		if !need && h.R.AptStale {
+			return planCell{Text: "lists stale", Title: "apt's package lists are old, so updates released since don't show", Bad: true}
+		}
 		if !need {
 			return planCell{Text: "0"}
 		}
