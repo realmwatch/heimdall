@@ -30,6 +30,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/realmwatch/heimdall/internal/feeds/nginx"
+	"github.com/realmwatch/heimdall/internal/feeds/php"
 	"github.com/realmwatch/heimdall/internal/version"
 )
 
@@ -689,6 +690,9 @@ func advisoryURL(id string) string {
 	}
 	if strings.HasPrefix(id, nginx.IDPrefix) {
 		return nginx.PageURL // nginx.org's own advisory, not in OSV
+	}
+	if strings.HasPrefix(id, php.IDPrefix) {
+		return php.PageURL + "/" + strings.TrimPrefix(id, php.IDPrefix) // PHP's own, on php-src
 	}
 	return "https://osv.dev/vulnerability/" + id
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/realmwatch/heimdall/internal/ecosystem"
 	"github.com/realmwatch/heimdall/internal/feeds/nginx"
 	"github.com/realmwatch/heimdall/internal/feeds/osv"
+	"github.com/realmwatch/heimdall/internal/feeds/php"
 	"github.com/realmwatch/heimdall/internal/netx"
 	"github.com/realmwatch/heimdall/internal/store"
 )
@@ -35,9 +36,9 @@ import (
 //     none yet); the distro's record takes over once it exists.
 
 // UpstreamChecked reports whether an upstream project's own advisories
-// cover a package (today, nginx.org's cover nginx), so a third-party build
+// cover a package (nginx.org's cover nginx, PHP's own cover PHP), so a third-party build
 // of it is still checked.
-func UpstreamChecked(p store.InventoryPackage) bool { return isNginx(p) }
+func UpstreamChecked(p store.InventoryPackage) bool { return isNginx(p) || isPHP(p) }
 
 // upstreamPackage is one nginx package version installed on a host.
 type upstreamPackage struct {
@@ -60,13 +61,13 @@ func isNginx(p store.InventoryPackage) bool {
 
 // thirdPartyPackages are the host's packages that came from a source other
 // than the distro's, by name: those the collector says came from another
-// apt source, and nginx.org's and Ondřej Surý's nginx builds by their
-// version (for collectors that don't say, and for a source whose lists are
-// gone, like the removed ondrej/nginx PPA).
+// apt source, and nginx.org's and Ondřej Surý's nginx and PHP builds by
+// their version (for collectors that don't say, and for a source whose
+// lists are gone, like the removed ondrej/nginx PPA).
 func thirdPartyPackages(pkgs []store.InventoryPackage, origins map[string]string) map[string]bool {
 	out := map[string]bool{}
 	for _, p := range pkgs {
-		if origins[p.Name] != "" || (isNginx(p) && nginx.IsThirdPartyBuild(p.Version)) {
+		if origins[p.Name] != "" || (isNginx(p) && nginx.IsThirdPartyBuild(p.Version)) || (isPHP(p) && php.IsSuryBuild(p.Version)) {
 			out[p.Name] = true
 		}
 	}

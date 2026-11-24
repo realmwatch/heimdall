@@ -41,6 +41,13 @@ func newSyncer(cfg config.Config, s *store.Store, log *slog.Logger) *findings.Sy
 		Log:    log,
 	}
 	s2.Retention.For, s2.Retention.Min = cfg.Hosts.KeepFor.Duration, cfg.Hosts.KeepMin
+	if cfg.Feeds.PHP {
+		tok, err := githubToken(keyFallback(false))
+		if err != nil {
+			log.Warn("feeds: not using the GitHub token", "err", err)
+		}
+		s2.GitHubToken = tok
+	}
 	return s2
 }
 

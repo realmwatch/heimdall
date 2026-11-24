@@ -50,6 +50,7 @@ make build        # → bin/heimdall (a single static file you can copy anywhere
 | `heimdall import [--check] <file.json>` | Store a snapshot collected by hand, or just validate it |
 | `heimdall collector trust --version <v> <sha256>` / `collector list` | Mark collector releases as known-good, and see which hosts run what |
 | `heimdall feeds sync` / `feeds status` | Refresh OSV, CISA KEV and end-of-life data now, and show when each feed last synced |
+| `heimdall feeds set-github-token` | Optional: a GitHub token for reading PHP's advisories, if the hub's address shares GitHub's rate limit with other clients |
 | `heimdall report [--format json] [--limit N]` | What to patch first: findings per host (known-exploited, then fixable, then by severity) plus OS and runtime end-of-life |
 | `heimdall version` | Print the version |
 

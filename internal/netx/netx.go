@@ -28,6 +28,8 @@ var FeedHosts = []string{
 	"api.first.org", // EPSS (M6)
 	// nginx.org's advisory list, from the repository nginx.org is built from.
 	"raw.githubusercontent.com",
+	// PHP's advisories, from php-src's repository (GitHub's REST API).
+	"api.github.com",
 }
 
 // ReleaseHosts are where the hub checks for newer releases (version only).

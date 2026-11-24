@@ -275,14 +275,16 @@ type News struct {
 const DefaultNewsSource = "https://pwn.watch/incidents.json"
 
 // DefaultNewsSources are pwn.watch's curated incidents plus security news
-// feeds whose articles name CVE IDs: broad news, and WordPress and PHP
-// plugin vulnerabilities, which reach these before OSV. One source going
-// quiet then leaves the others.
+// feeds whose articles name CVE IDs: broad news, WordPress and PHP plugin
+// vulnerabilities, and cve.now's feed of PHP's own CVEs (one entry per
+// CVE, updated when an exploit is published), which reach these before
+// OSV. One source going quiet then leaves the others.
 var DefaultNewsSources = []string{
 	DefaultNewsSource,
 	"https://feeds.feedburner.com/TheHackersNews",
 	"https://www.wordfence.com/blog/feed/",
 	"https://patchstack.com/feed/1.xml",
+	"https://cve.now/feed?tech=php",
 }
 
 // MaxNewsSources caps [news] sources.
@@ -420,6 +422,9 @@ type Feeds struct {
 	// Nginx: nginx.org's own advisories, matched against nginx.org's
 	// builds and, until the distro publishes its own, the distro's.
 	Nginx bool `toml:"nginx"`
+	// PHP: the PHP project's own advisories (php-src's, on GitHub),
+	// matched against third-party PHP builds such as Ondřej Surý's.
+	PHP bool `toml:"php"`
 }
 
 type Hosts struct {
@@ -459,6 +464,7 @@ func Default() Config {
 			EPSS:         true,
 			EndOfLife:    true,
 			Nginx:        true,
+			PHP:          true,
 		},
 		Hosts:   Hosts{StaleAfter: Duration{72 * time.Hour}, AlertAfter: Duration{3 * time.Hour}, KeepFor: Duration{180 * 24 * time.Hour}, KeepMin: 30},
 		Notify:  Notify{SMTPPort: 587, WebhookFormat: "slack", AlertAnomalies: true},
