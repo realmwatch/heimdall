@@ -161,10 +161,10 @@ func TestUpstreamPHPPruneAndWithdraw(t *testing.T) {
 		t.Fatal(err)
 	}
 	recs, err := e.st.UpstreamAdvisories(ctx, "PHP-")
-	if err != nil || len(recs) != 4 {
+	if err != nil || len(recs) != 5 {
 		t.Fatalf("after prune: %d, %v", len(recs), err)
 	}
-	if n, err := e.st.WithdrawUpstream(ctx, "PHP-", []string{"PHP-GHSA-2222-3333-4444"}, e.now); err != nil || n != 3 {
+	if n, err := e.st.WithdrawUpstream(ctx, "PHP-", []string{"PHP-GHSA-2222-3333-4444"}, e.now); err != nil || n != 4 {
 		t.Fatalf("withdraw = %d, %v", n, err)
 	}
 	if _, err := e.eng.EvaluateHost(ctx, e.host); err != nil {

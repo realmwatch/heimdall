@@ -258,6 +258,7 @@ func parseItem(it apiAdvisory) (Advisory, bool) {
 	if len(a.Ranges) == 0 || len(a.Ranges) > maxRanges {
 		return Advisory{}, false
 	}
+	scopeOpenRanges(a.Ranges)
 	slices.SortFunc(a.Good, cmp)
 	// One entry without a component means the core: it applies wherever
 	// PHP is installed.
@@ -266,6 +267,29 @@ func parseItem(it apiAdvisory) (Advisory, bool) {
 	}
 	slices.Sort(a.Components)
 	return a, true
+}
+
+// scopeOpenRanges reads ranges with no lower bound the way php-src means
+// them. Most advisories give one per branch ("< 8.4.21", "< 8.5.6"); read
+// literally, "< 8.5.6" would take in all of 8.4 and "< 8.4.21" every older
+// branch, which PHP didn't patch for it. So with two or more, or when it's
+// the advisory's only range ("< 8.3.5" for a flaw only 8.3 had), each
+// covers its own branch. One beside ranges with lower bounds ("< 8.2.36"
+// before ">= 8.3.0, < 8.3.37") means that branch and every older one, and
+// stays as it is.
+func scopeOpenRanges(ranges []Range) {
+	var open []int
+	for i, r := range ranges {
+		if r.Lo == "" && r.Hi != "" {
+			open = append(open, i)
+		}
+	}
+	if len(open) == 0 || (len(open) == 1 && len(ranges) > 1) {
+		return
+	}
+	for _, i := range open {
+		ranges[i].Lo = branch(ranges[i].Hi) + ".0"
+	}
 }
 
 // Component normalizes an advisory's package name to the part of PHP it

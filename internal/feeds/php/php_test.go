@@ -42,8 +42,8 @@ func byGHSA(list []Advisory, id string) Advisory {
 
 func TestParse(t *testing.T) {
 	list := testList(t)
-	if len(list) != 4 {
-		t.Fatalf("parsed %d, want 4", len(list))
+	if len(list) != 5 {
+		t.Fatalf("parsed %d, want 5", len(list))
 	}
 	fpm := byGHSA(list, "GHSA-2222-3333-4444")
 	if fpm.ID != "PHP-GHSA-2222-3333-4444" || fpm.CVE != "CVE-2026-990001" || fpm.Severity != "critical" ||
@@ -68,6 +68,7 @@ func TestAffectsAndFix(t *testing.T) {
 	fpm := byGHSA(list, "GHSA-2222-3333-4444")
 	date := byGHSA(list, "GHSA-c2c2-f3f3-g4g4")
 	old := byGHSA(list, "GHSA-p8p8-q9q9-r2r2")
+	dom := byGHSA(list, "GHSA-m2m2-p3p3-q4q4")
 	for _, c := range []struct {
 		a    Advisory
 		v    string
@@ -87,6 +88,12 @@ func TestAffectsAndFix(t *testing.T) {
 		{old, "8.0.0", false, ""}, // "> 8.0.0"
 		{old, "8.0.1", true, "8.0.30"},
 		{old, "8.4.1", false, ""},
+		// "< 8.4.21" and "< 8.5.6": one branch each, not every older one.
+		{dom, "8.4.20", true, "8.4.21"},
+		{dom, "8.5.5", true, "8.5.6"},
+		{dom, "8.4.28", false, ""},
+		{dom, "8.3.37", false, ""},
+		{dom, "8.1.34", false, ""},
 	} {
 		if got := c.a.Affects(c.v); got != c.want {
 			t.Errorf("%s affects %s = %v, want %v", c.a.GHSA, c.v, got, c.want)
@@ -96,6 +103,19 @@ func TestAffectsAndFix(t *testing.T) {
 				t.Errorf("%s fix for %s = %q, want %q", c.a.GHSA, c.v, got, c.fix)
 			}
 		}
+	}
+}
+
+// An advisory's only range, open below, is its own branch's.
+func TestLoneRange(t *testing.T) {
+	list, _, err := Parse([]byte(`[{"ghsa_id": "GHSA-w2w2-x3x3-c4c4", "summary": "8.3 only", "severity": "low",
+		"vulnerabilities": [{"package": {"name": ""}, "vulnerable_version_range": "< 8.3.5", "patched_versions": "8.3.6"}]}]`))
+	if err != nil || len(list) != 1 {
+		t.Fatal(list, err)
+	}
+	a := list[0]
+	if !a.Affects("8.3.4") || a.Affects("8.2.36") || a.Affects("8.3.6") {
+		t.Errorf("ranges %v good %v", a.Ranges, a.Good)
 	}
 }
 
@@ -211,7 +231,7 @@ func TestFetchPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list) != 4 || len(auth) != 2 || auth[0] != "" {
+	if len(list) != 5 || len(auth) != 2 || auth[0] != "" {
 		t.Errorf("got %d advisories over %d requests (auth %q)", len(list), len(auth), auth)
 	}
 	auth = nil
