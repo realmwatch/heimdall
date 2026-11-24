@@ -13,6 +13,7 @@ import (
 
 	"github.com/realmwatch/heimdall/internal/auth"
 	"github.com/realmwatch/heimdall/internal/feeds/eol"
+	"github.com/realmwatch/heimdall/internal/feeds/php"
 	"github.com/realmwatch/heimdall/internal/findings"
 	"github.com/realmwatch/heimdall/internal/handoff"
 	"github.com/realmwatch/heimdall/internal/report"
@@ -154,6 +155,8 @@ type hostBody struct {
 	NginxRestart    string // drafts restarting nginx onto its updated binary
 	NginxSwitch     string // drafts moving nginx from the removed ondrej/nginx PPA to nginx.org
 	NginxUpdate     string // drafts upgrading nginx to the version that fixes its findings
+	PHPMove         string // drafts moving PHP from the deprecated ondrej/php PPA to packages.sury.org
+	PHPPPAFindings  int    // open findings from PHP's own advisories, which wait on that move
 	CollectorKnown  bool   // this hub is a release build, so the comparison means something
 	ShowAll         bool   // show every finding instead of the first findingsCap
 	Packages        []store.InventoryPackage
@@ -325,6 +328,14 @@ func (s *server) hostPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 	body.NginxRestart = s.cfg.ChangeLink.nginxRestartLink(host.OrgSlug, host.Name, body.Report)
 	body.NginxSwitch = s.cfg.ChangeLink.nginxSourceSwitchLink(host.OrgSlug, host.Name, body.Report)
 	body.NginxUpdate = s.cfg.ChangeLink.nginxUpdateLink(host.OrgSlug, host.Name, body.Report)
+	body.PHPMove = s.cfg.ChangeLink.phpSourceMoveLink(host.OrgSlug, host.Name, body.Report)
+	if len(body.Report.PHPFromPPA) > 0 {
+		for _, f := range body.Report.Findings {
+			if strings.HasPrefix(f.Advisory, php.IDPrefix) {
+				body.PHPPPAFindings++
+			}
+		}
+	}
 	body.PHPRemove = s.cfg.ChangeLink.phpRemoveLinks(host.OrgSlug, host.Name, body.Report.Runtimes)
 	body.PHPRemoveAll, body.PHPRemoveAllN = s.cfg.ChangeLink.phpRemoveAllLink(host.OrgSlug, host.Name, body.PHPRemove)
 	if raw, err := s.st.HostTriggers(ctx, host.ID); err == nil {

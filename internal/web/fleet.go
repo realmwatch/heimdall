@@ -35,6 +35,7 @@ type fleetHost struct {
 	Collector       string
 	CollectorBehind bool
 	CollectorURL    string // drafts the upgrade in a change-management tool (changelink.go)
+	PHPMoveURL      string // drafts moving PHP off the deprecated ondrej/php PPA (R.PHPFromPPA)
 	ChangeWatch     string // "on", "off", or "" when the collector doesn't say
 	News            int    // threat-news incidents confirmed on the host
 	Anomalies       int    // open (unacknowledged)
@@ -91,7 +92,7 @@ func (h fleetHost) Attention() bool {
 	c := h.R.Counts
 	return h.Reported && (c.KEV > 0 || h.News > 0 || c.Fixable > 0 || c.Watch > 0 || h.EOL || h.EOLSoon || h.Stale ||
 		h.Anomalies > 0 || h.Reboot || c.RebootPending > 0 || h.PendingSecurity > 0 || h.SitesAttention > 0 || h.CollectorBehind ||
-		h.ChangeWatch == "off" || h.SSH.Risky())
+		h.ChangeWatch == "off" || h.SSH.Risky() || len(h.R.PHPFromPPA) > 0)
 }
 
 // tagCap is how many tags a host list row shows before "+N".
@@ -236,6 +237,7 @@ func (s *server) fleet(r *http.Request, v *auth.Viewer, org string) ([]fleetHost
 				row.CollectorBehind = updates.CollectorBehind(row.Collector)
 				row.CollectorURL = s.cfg.ChangeLink.collectorLink(h.OrgSlug, h.Name, row.CollectorBehind)
 			}
+			row.PHPMoveURL = s.cfg.ChangeLink.phpSourceMoveLink(h.OrgSlug, h.Name, rh)
 			if t, err := triggers.Parse(st.Triggers); err == nil {
 				row.ChangeWatch = t.ChangeWatch()
 			}
@@ -641,6 +643,9 @@ type hostsBody struct {
 	// CollectorUpgrades draft upgrading every collector that's behind among
 	// the hosts shown, one per org (changelink.go).
 	CollectorUpgrades []orgLink
+	// PHPMoves draft moving PHP off the deprecated ondrej/php PPA on every
+	// host shown that still uses it, one per org (changelink.go).
+	PHPMoves []orgLink
 }
 
 // RowSpan is the columns a host without a report spans, after the host's.
@@ -691,6 +696,7 @@ var hostFilters = []struct {
 	{"reboot", "Needs reboot", func(h fleetHost) bool { return h.Reboot }},
 	{"stale", "Stale", func(h fleetHost) bool { return h.Stale }},
 	{"anomalies", "Anomalies", func(h fleetHost) bool { return h.Anomalies > 0 }},
+	{"php-ppa", "PHP PPA", func(h fleetHost) bool { return len(h.R.PHPFromPPA) > 0 }},
 	{"collector", "Collector", func(h fleetHost) bool { return h.CollectorBehind || h.ChangeWatch == "off" }},
 	{"privilege", "Privilege watch", func(h fleetHost) bool { return h.HasPrivilege && !h.Privilege.Full }},
 	{"ssh", "SSH", func(h fleetHost) bool { return h.SSH.Flag() }},
@@ -794,6 +800,7 @@ func (s *server) hostsPage(w http.ResponseWriter, r *http.Request, v *auth.Viewe
 		}
 	}
 	body.CollectorUpgrades = s.cfg.ChangeLink.fleetCollectorLinks(body.Hosts)
+	body.PHPMoves = s.cfg.ChangeLink.fleetPHPMoveLinks(body.Hosts)
 	switch q.sort {
 	case "priority":
 		slices.SortStableFunc(body.Hosts, comparePriority)
