@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/realmwatch/heimdall/internal/config"
 	"github.com/realmwatch/heimdall/internal/leftovers"
 	"github.com/realmwatch/heimdall/internal/report"
 	"github.com/realmwatch/heimdall/internal/store"
@@ -31,6 +32,15 @@ type ChangeLink struct {
 	// CollectorUpgradeAction: the tool supports collector.upgrade through
 	// ActionURL, so the host list links every host that's behind.
 	CollectorUpgradeAction bool
+	// BulkActions are the actions the tool takes for several hosts in one
+	// link (config.ChangeLink.BulkActions).
+	BulkActions []string
+}
+
+// Bulk reports whether the tool takes action for several hosts in one
+// link (config.ChangeLink.Bulk).
+func (c ChangeLink) Bulk(action string) bool {
+	return c.ActionURL != "" && config.ChangeLink{BulkActions: c.BulkActions, CollectorUpgradeAction: c.CollectorUpgradeAction}.Bulk(action)
 }
 
 // link fills the template, escaping each value. ids are the findings to
@@ -54,14 +64,34 @@ func (c ChangeLink) link(org, host, pkg string, ids []int64) string {
 
 // fixableIDs are the ids of the findings an update can fix now: a fix is
 // released and the exposure is live (as the Fixable filter counts them).
+// Kernel findings are left out: the tool drafts no kernel fix from a
+// finding link (a new kernel needs a reboot), and refuses the whole link
+// over one.
 func fixableIDs(list []report.Finding) []int64 {
 	var ids []int64
 	for _, f := range list {
-		if f.Fixed != "" && live(f) && !f.Dev && f.ID > 0 {
+		if f.Fixed != "" && live(f) && !f.Dev && f.ID > 0 && !kernelFinding(f) {
 			ids = append(ids, f.ID)
 		}
 	}
 	return ids
+}
+
+// The tool's own test for a kernel finding: a kernel source package
+// (linux and its flavours, kernel on RPM), or a kernel binary among the
+// packages.
+var (
+	kernelSourceRe = regexp.MustCompile(`^(linux|linux-.+|kernel|kernel-.+)$`)
+	kernelBinaryRe = regexp.MustCompile(`^(linux-(image|modules|headers|kbuild|tools|cloud-tools|signed)(-|$)|kernel(-|$))`)
+	notKernel      = []string{"linux-firmware", "linux-base", "linux-atm", "linux-ftpd"}
+)
+
+// kernelFinding reports whether the tool counts f as a kernel finding.
+func kernelFinding(f report.Finding) bool {
+	if kernelSourceRe.MatchString(f.Package) && !slices.Contains(notKernel, f.Package) {
+		return true
+	}
+	return slices.ContainsFunc(f.Binaries, kernelBinaryRe.MatchString)
 }
 
 // updatesLink fills the "Install all updates" template, or is "" with
@@ -375,6 +405,9 @@ func (c ChangeLink) phpSourceMoveLink(org, host string, h report.Host) string {
 // among hosts (the host list as filtered) that still gets it from the
 // ondrej/php PPA: one link per org, in chunks of actionHostsMax.
 func (c ChangeLink) fleetPHPMoveLinks(hosts []fleetHost) []orgLink {
+	if !c.Bulk("php.source.sury_org") {
+		return nil
+	}
 	return c.fleetActionLinks("php.source.sury_org", hosts, func(h fleetHost) bool { return len(h.R.PHPFromPPA) > 0 })
 }
 

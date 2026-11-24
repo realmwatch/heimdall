@@ -37,6 +37,25 @@ type ChangeLink struct {
 	// action (ActionURL, {params} hosts=<names>): the host list then offers
 	// one link per org for every host whose collector is behind.
 	CollectorUpgradeAction bool `toml:"collector_upgrade_action"`
+	// BulkActions are the actions the tool takes for several hosts in one
+	// link (ActionURL, {host} empty, {params} hosts=<names>): a patch
+	// plan's bulk buttons are offered only for these. collector.upgrade is
+	// also on with CollectorUpgradeAction.
+	BulkActions []string `toml:"bulk_actions"`
+}
+
+// BulkActionNames are the actions a patch plan can propose for several
+// hosts at once, in the plan's column order.
+var BulkActionNames = []string{"updates.install", "system.reboot", "kernel.remove", "collector.upgrade",
+	"php.source.sury_org", "nginx.source.nginx_org", "service.restart"}
+
+// DefaultBulkActions are BulkActions when they aren't set: what the tool
+// took for several hosts when the setting was added.
+var DefaultBulkActions = []string{"updates.install", "php.source.sury_org"}
+
+// Bulk reports whether the tool takes action for several hosts at once.
+func (c ChangeLink) Bulk(action string) bool {
+	return slices.Contains(c.BulkActions, action) || (action == "collector.upgrade" && c.CollectorUpgradeAction)
 }
 
 var agentServiceRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,121}-agent$`)
@@ -69,6 +88,11 @@ func (c ChangeLink) validate(add func(string, ...any)) {
 	}
 	if c.AgentService != "" && !agentServiceRe.MatchString(c.AgentService) {
 		add(`change_link.agent_service: a systemd service name ending in -agent, without ".service", e.g. "my-agent"`)
+	}
+	for _, a := range c.BulkActions {
+		if !slices.Contains(BulkActionNames, a) {
+			add("change_link.bulk_actions: unknown action %q (known: %s)", a, strings.Join(BulkActionNames, ", "))
+		}
 	}
 	validateLinkTemplate("change_link.url", c.URL, ChangePlaceholders, add)
 	validateLinkTemplate("change_link.updates_url", c.UpdatesURL, UpdatesPlaceholders, add)

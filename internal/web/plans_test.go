@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/realmwatch/heimdall/internal/auth"
+	"github.com/realmwatch/heimdall/internal/config"
 	"github.com/realmwatch/heimdall/internal/store"
 )
 
@@ -138,13 +139,42 @@ func TestPlanAddsSeveralHosts(t *testing.T) {
 	}
 }
 
-// A plan links each batch's hosts that aren't done to the change tool, one
-// link per batch and org; with action_url off, or for a viewer,
-// there's none.
+// A plan links each batch's hosts that aren't done and have updates
+// pending to the change tool, one link per batch and org; with action_url
+// off, or for a viewer, there's none.
 func TestPlanUpdatesLinks(t *testing.T) {
 	t.Parallel()
+	e := planEnv(t, nil)
+	page := e.get("/plans/1", signedIn(e)).Body.String()
+	// web-01 has two updates pending; web-02 and web-03 haven't reported.
+	b1 := `href="https://changes.example.com/propose?action=updates.install&amp;org=acme&amp;host=&amp;hosts=web-01" target="_blank" rel="noopener noreferrer">Batch 1: install updates on 1 host</a>`
+	if !strings.Contains(page, b1) || strings.Contains(page, "Batch 2: install updates") {
+		t.Errorf("plan page lacks the batch link:\n%s", page)
+	}
+	// A host marked done drops out of its batch's link.
+	if w := e.post("/plans/1/done", url.Values{"csrf": {auth.CSRFToken(goodToken)}, "org": {"acme"}, "host": {"web-01"}}, signedIn(e), origin(e.baseURL)); w.Code != http.StatusSeeOther {
+		t.Fatalf("done: %d", w.Code)
+	}
+	if page = e.get("/plans/1", signedIn(e)).Body.String(); strings.Contains(page, "install updates on") {
+		t.Errorf("done host still linked:\n%s", page)
+	}
+	// A viewer can't propose changes from the plan.
+	asRole(e, 1, store.RoleViewer)
+	if body := e.get("/plans/1", signedIn(e)).Body.String(); strings.Contains(body, "install updates on") || strings.Contains(body, "?bulk=1") {
+		t.Error("a viewer gets the links")
+	}
+}
+
+// planEnv is a plan "October" in acme: web-01 (reported: two updates
+// pending, a reboot needed) and web-02 in batch 1, web-03 in batch 2.
+func planEnv(t *testing.T, bulk []string) *env {
+	t.Helper()
+	if bulk == nil {
+		bulk = config.DefaultBulkActions
+	}
 	e := newEnvCfg(t, "http://127.0.0.1:8080", nil, func(c *Config) {
 		c.ChangeLink.ActionURL = "https://changes.example.com/propose?action={action}&org={org}&host={host}&{params}"
+		c.ChangeLink.BulkActions = bulk
 	})
 	e.seed()
 	ctx := t.Context()
@@ -167,23 +197,52 @@ func TestPlanUpdatesLinks(t *testing.T) {
 	}
 	add("2", "acme/web-03")
 	add("1", "acme/web-01", "acme/web-02")
+	return e
+}
+
+// Bulk-actions mode: a column per action with what each host needs, row
+// boxes carrying it, and a button above each column the tool takes for
+// several hosts, naming the hosts that need it; the others show a count.
+func TestPlanBulkActions(t *testing.T) {
+	t.Parallel()
+	e := planEnv(t, []string{"updates.install", "system.reboot"})
 	page := e.get("/plans/1", signedIn(e)).Body.String()
-	b1 := `href="https://changes.example.com/propose?action=updates.install&amp;org=acme&amp;host=&amp;hosts=web-01%2Cweb-02" target="_blank" rel="noopener noreferrer">Batch 1: install updates on 2 hosts</a>`
-	b2 := `href="https://changes.example.com/propose?action=updates.install&amp;org=acme&amp;host=&amp;hosts=web-03" target="_blank" rel="noopener noreferrer">Batch 2: install updates on 1 host</a>`
-	if i, j := strings.Index(page, b1), strings.Index(page, b2); i < 0 || j < i {
-		t.Errorf("plan page lacks the batch links in order:\n%s", page)
+	if !strings.Contains(page, `href="/plans/1?bulk=1">Bulk actions</a>`) || strings.Contains(page, "data-plan-row") {
+		t.Errorf("outside bulk mode:\n%s", page)
 	}
-	// A host marked done drops out of its batch's link.
-	if w := e.post("/plans/1/done", url.Values{"csrf": {auth.CSRFToken(goodToken)}, "org": {"acme"}, "host": {"web-01"}}, signedIn(e), origin(e.baseURL)); w.Code != http.StatusSeeOther {
-		t.Fatalf("done: %d", w.Code)
+	for _, want := range []string{"<th class=\"plan-col\">Updates (security / all)</th>", "<th class=\"plan-col\">Old kernels</th>"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("columns: lacks %q", want)
+		}
 	}
-	if page = e.get("/plans/1", signedIn(e)).Body.String(); !strings.Contains(page, `host=&amp;hosts=web-02" target="_blank" rel="noopener noreferrer">Batch 1: install updates on 1 host</a>`) {
-		t.Errorf("done host still linked:\n%s", page)
+	page = e.get("/plans/1?bulk=1", signedIn(e)).Body.String()
+	for _, want := range []string{
+		`data-org="acme" data-host="web-01" data-batch="1" data-needs="updates.install system.reboot"`,
+		`data-org="acme" data-host="web-02" data-batch="1" data-needs=""`,
+		`data-url="https://changes.example.com/propose?action=updates.install&amp;org=__org__&amp;host=&amp;hosts=__hosts__"`,
+		`href="https://changes.example.com/propose?action=updates.install&amp;org=acme&amp;host=&amp;hosts=web-01" target="_blank" rel="noopener noreferrer">Install updates · 1</a>`,
+		`href="https://changes.example.com/propose?action=system.reboot&amp;org=acme&amp;host=&amp;hosts=web-01" target="_blank" rel="noopener noreferrer">Reboot · 1</a>`,
+		`data-plan-pick="2">batch 2</button>`,
+		">Done with bulk actions</a>",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("bulk mode lacks %q", want)
+		}
 	}
-	// A viewer can't propose changes from the plan.
-	asRole(e, 1, store.RoleViewer)
-	if strings.Contains(e.get("/plans/1", signedIn(e)).Body.String(), "install updates on") {
-		t.Error("a viewer gets the links")
+	if strings.Contains(page, "Batch 1: install updates") {
+		t.Error("bulk mode keeps the batch buttons")
+	}
+	// Nobody needs old kernels removed; PHP's column isn't shown at all.
+	if !strings.Contains(page, `data-plan-action="kernel.remove" data-verb="Remove old kernels"><span class="muted small" title="No host in this plan needs it">done</span>`) ||
+		strings.Contains(page, "PHP source") {
+		t.Errorf("kernel and PHP columns:\n%s", page)
+	}
+
+	// An action the tool doesn't take in bulk yet shows only its count.
+	e = planEnv(t, []string{"updates.install"})
+	page = e.get("/plans/1?bulk=1", signedIn(e)).Body.String()
+	if strings.Contains(page, "action=system.reboot") || !strings.Contains(page, ">1 need it</span>") {
+		t.Errorf("reboot without bulk support:\n%s", page)
 	}
 }
 
@@ -193,11 +252,11 @@ func TestPlanUpdateLinksChunks(t *testing.T) {
 		items[i] = store.PlanItem{Batch: 1, Host: store.IngestHost{OrgSlug: "acme", Name: "web-" + strconv.Itoa(i)}}
 	}
 	items = append(items, store.PlanItem{Batch: 1, Host: store.IngestHost{OrgSlug: "other", Name: "db-01"}})
-	got := planUpdateLinks(ChangeLink{ActionURL: "https://changes.example.com/p?action={action}&org={org}&host={host}&{params}"}, items)
+	got := planUpdateLinks(ChangeLink{ActionURL: "https://changes.example.com/p?action={action}&org={org}&host={host}&{params}", BulkActions: config.DefaultBulkActions}, items, nil)
 	if len(got) != 3 || got[0].Hosts != actionHostsMax || got[1].Hosts != 1 || got[1].Org != "acme" || got[2].Org != "other" || got[2].URL != "https://changes.example.com/p?action=updates.install&org=other&host=&hosts=db-01" {
 		t.Errorf("links %+v", got[1:])
 	}
-	if planUpdateLinks(ChangeLink{}, items) != nil {
+	if planUpdateLinks(ChangeLink{BulkActions: config.DefaultBulkActions}, items, nil) != nil {
 		t.Error("links with action_url off")
 	}
 }

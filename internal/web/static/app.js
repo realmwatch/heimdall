@@ -366,6 +366,83 @@ document.addEventListener("DOMContentLoaded", function () {
   update();
 });
 
+// A patch plan's bulk actions: each column's buttons name the ticked hosts
+// that need its action (every host that does when none is ticked), one
+// button per org in chunks of 100, from the column's URL template. Without
+// JavaScript the server's buttons name every host that needs it.
+document.addEventListener("DOMContentLoaded", function () {
+  var table = document.querySelector("table[data-plan-bulk]");
+  if (!table) return;
+  var rows = Array.prototype.slice.call(table.querySelectorAll("input[data-plan-row]"));
+  var cols = Array.prototype.slice.call(table.querySelectorAll("th[data-plan-action][data-url]"));
+  var bar = document.querySelector("[data-plan-select]");
+  var count = bar ? bar.querySelector("[data-plan-count]") : null;
+  var last = null;
+  function needs(r, action) { return (" " + r.getAttribute("data-needs") + " ").indexOf(" " + action + " ") >= 0; }
+  function render() {
+    var ticked = rows.filter(function (r) { return r.checked; });
+    var pool = ticked.length ? ticked : rows;
+    if (count) count.textContent = ticked.length ? ticked.length + " ticked" : "none ticked: buttons name every host that needs it";
+    cols.forEach(function (th) {
+      var action = th.getAttribute("data-plan-action");
+      var tmpl = th.getAttribute("data-url");
+      var verb = th.getAttribute("data-verb");
+      var cross = th.hasAttribute("data-cross");
+      var byOrg = {}, orgs = [];
+      pool.forEach(function (r) {
+        if (!needs(r, action)) return;
+        var org = r.getAttribute("data-org");
+        if (!byOrg[org]) { byOrg[org] = []; orgs.push(org); }
+        byOrg[org].push(r.getAttribute("data-host"));
+      });
+      orgs.sort();
+      th.textContent = "";
+      if (!orgs.length) {
+        var none = document.createElement("span");
+        none.className = "muted small";
+        none.textContent = ticked.length ? "none ticked need it" : "done";
+        th.appendChild(none);
+        return;
+      }
+      orgs.forEach(function (org) {
+        var names = byOrg[org].sort();
+        for (var i = 0; i < names.length; i += 100) {
+          var chunk = names.slice(i, i + 100);
+          var a = document.createElement("a");
+          a.className = "button change-btn small";
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          a.href = tmpl.replace("__org__", encodeURIComponent(org)).replace("__hosts__", encodeURIComponent(chunk.join(",")));
+          a.textContent = verb + (cross ? " · " + org : "") + " · " + chunk.length;
+          th.appendChild(a);
+          th.appendChild(document.createTextNode(" "));
+        }
+      });
+    });
+  }
+  rows.forEach(function (box) {
+    box.addEventListener("click", function (ev) {
+      if (ev.shiftKey && last && last !== box) {
+        var a = rows.indexOf(last), b = rows.indexOf(box);
+        rows.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(function (r) { r.checked = box.checked; });
+      }
+      last = box;
+      render();
+    });
+  });
+  if (bar) {
+    bar.hidden = false;
+    bar.querySelectorAll("[data-plan-pick]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var pick = b.getAttribute("data-plan-pick");
+        rows.forEach(function (r) { r.checked = pick === "all" || (pick !== "none" && r.getAttribute("data-batch") === pick); });
+        render();
+      });
+    });
+  }
+  render();
+});
+
 // Times: the server writes instants in UTC (<time data-ts>, and snapshot
 // <option>s with data-at); show them in this browser's time zone, named
 // ("Oct 29, 2026 2:14 PM CDT"). Their tooltips keep UTC. data-ts is

@@ -30,8 +30,17 @@ type planBody struct {
 	CanReopen  bool
 	Error      string
 	// Updates are the "Install updates on N hosts" links: one per batch
-	// and org, for the hosts not yet done ([change_link] action_url).
+	// and org, for the hosts not yet done with updates pending
+	// ([change_link] action_url).
 	Updates []planUpdates
+	// Rows are the items with what each host needs; Columns the actions
+	// shown, with their bulk links (planbulk.go).
+	Rows    []planRow
+	Columns []planColumn
+	// Bulk is bulk-actions mode (?bulk=1): row boxes and column buttons.
+	// CanBulk: the viewer may propose changes and action_url is set.
+	Bulk, CanBulk bool
+	Batches       []int
 }
 
 type planUpdates struct {
@@ -41,11 +50,11 @@ type planUpdates struct {
 	URL   string
 }
 
-// planUpdateLinks groups the plan's hosts that aren't done yet by batch,
-// then org (the tool links one org at a time), in at most actionHostsMax
-// hosts per link.
-func planUpdateLinks(c ChangeLink, items []store.PlanItem) []planUpdates {
-	if c.ActionURL == "" {
+// planUpdateLinks groups the plan's hosts that aren't done yet and want
+// updates (want nil: every one) by batch, then org (the tool links one org
+// at a time), in at most actionHostsMax hosts per link.
+func planUpdateLinks(c ChangeLink, items []store.PlanItem, want func(store.PlanItem) bool) []planUpdates {
+	if !c.Bulk("updates.install") {
 		return nil
 	}
 	type key struct {
@@ -55,7 +64,7 @@ func planUpdateLinks(c ChangeLink, items []store.PlanItem) []planUpdates {
 	var order []key
 	hosts := map[key][]string{}
 	for _, it := range items {
-		if !it.DoneAt.IsZero() {
+		if !it.DoneAt.IsZero() || (want != nil && !want(it)) {
 			continue
 		}
 		k := key{it.Batch, it.Host.OrgSlug}
@@ -159,8 +168,22 @@ func (s *server) renderPlan(w http.ResponseWriter, r *http.Request, v *auth.View
 	body := planBody{Plan: p, Items: items, Error: errMsg,
 		CanOperate: v.Scope.CanOperatePlan(p) && p.ClosedAt.IsZero(),
 		CanReopen:  v.Scope.CanOperatePlan(p) && !p.ClosedAt.IsZero()}
-	if body.CanOperate {
-		body.Updates = planUpdateLinks(s.cfg.ChangeLink, items)
+	fleet, err := s.fleet(r, v, p.OrgSlug)
+	if err != nil {
+		s.fail(w, r, v, err)
+		return
+	}
+	body.Rows = planRows(items, fleet)
+	pending := map[int64]bool{}
+	for _, row := range body.Rows {
+		pending[row.Host.ID] = row.needs("updates.install")
+	}
+	body.CanBulk = body.CanOperate && s.cfg.ChangeLink.ActionURL != ""
+	body.Bulk = body.CanBulk && r.URL.Query().Get("bulk") == "1"
+	body.Columns = planColumns(s.cfg.ChangeLink, body.Rows, body.CanBulk)
+	body.Batches = planBatches(items)
+	if body.CanOperate && !body.Bulk {
+		body.Updates = planUpdateLinks(s.cfg.ChangeLink, items, func(it store.PlanItem) bool { return pending[it.Host.ID] })
 	}
 	for _, h := range hosts {
 		if !in[h.ID] {

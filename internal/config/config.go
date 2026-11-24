@@ -473,6 +473,7 @@ func Default() Config {
 		News:    News{Sources: slices.Clone(DefaultNewsSources), Interval: Duration{time.Hour}},
 		AI: AI{API: AIResponses, BriefEvery: Duration{24 * time.Hour}, MaxOutputTokens: 8000,
 			MaxInputTokens: 24000, Timeout: Duration{2 * time.Minute}},
+		ChangeLink:     ChangeLink{BulkActions: slices.Clone(DefaultBulkActions)},
 		DeployServices: DefaultDeployServices(),
 		Tailscale:      defaultTailscale,
 		Cloudflare:     CloudflareDefaults,
