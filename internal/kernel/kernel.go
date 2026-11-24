@@ -391,3 +391,31 @@ func (s State) Status(binaries []string) string {
 	}
 	return ""
 }
+
+// unameRelease is uname -r for a Debian/Ubuntu kernel: release and
+// flavour ("6.8.0-45-generic").
+var unameRelease = regexp.MustCompile(`^[0-9]+\.[0-9]+(\.[0-9]+)?-[0-9]+(\.[0-9]+)?(-[a-z0-9]+)+$`)
+
+// flavourPrefixes name a kernel's per-flavour packages; what follows is
+// its uname -r.
+var flavourPrefixes = []string{"linux-image-unsigned-", "linux-image-", "linux-modules-extra-", "linux-modules-", "linux-headers-"}
+
+// UnameReleases are the kernels, as uname -r prints them, that kernel
+// packages belong to, sorted: what a kernel removal names. The
+// series-named shared packages (linux-aws-6.17-headers-6.17.0-1009) add
+// nothing, since a flavour package of the same kernel names it.
+func UnameReleases(pkgs []string) []string {
+	var out []string
+	for _, p := range pkgs {
+		for _, prefix := range flavourPrefixes {
+			if r, ok := strings.CutPrefix(p, prefix); ok {
+				if unameRelease.MatchString(r) && !slices.Contains(out, r) {
+					out = append(out, r)
+				}
+				break
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}

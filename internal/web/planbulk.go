@@ -39,7 +39,7 @@ func (r planRow) needs(action string) bool {
 	case "system.reboot":
 		return h.Reboot || h.R.Counts.RebootPending > 0
 	case "kernel.remove":
-		return len(h.R.OldKernels) > 0
+		return len(h.R.OldKernelReleases) > 0
 	case "collector.upgrade":
 		return h.CollectorBehind
 	case "php.source.sury_org":
@@ -90,7 +90,7 @@ func (r planRow) Cell(action string) planCell {
 		if !need {
 			return planCell{}
 		}
-		return planCell{Text: strconv.Itoa(len(h.R.OldKernels)), Title: strings.Join(h.R.OldKernels, ", "), Need: true}
+		return planCell{Text: strconv.Itoa(len(h.R.OldKernelReleases)), Title: strings.Join(h.R.OldKernelReleases, ", "), Need: true}
 	case "collector.upgrade":
 		if !need {
 			return planCell{}

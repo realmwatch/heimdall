@@ -45,6 +45,9 @@ type Host struct {
 	// OldKernels are installed Debian/Ubuntu kernel packages for releases
 	// older than the running one: on disk, not in use (see kernel.Older).
 	OldKernels []string `json:"old_kernels,omitempty"`
+	// OldKernelReleases are the kernels OldKernels belong to, as uname -r
+	// prints them ("6.8.0-45-generic"): what a kernel removal names.
+	OldKernelReleases []string `json:"old_kernel_releases,omitempty"`
 	// KernelState is kernel.State.Name: current, reboot_pending,
 	// old_kernels or reboot_pending_and_old_kernels ("" if unknown).
 	KernelState string `json:"kernel_state,omitempty"`
@@ -325,6 +328,7 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 		pm := hostPM(inv)
 		ks := kernel.HostState(pm, host.Kernel, InstalledKernels(inv))
 		host.OldKernels, host.KernelState, host.NewerKernel = ks.Old, ks.Name(), ks.Newer
+		host.OldKernelReleases = kernel.UnameReleases(host.OldKernels)
 
 		var rel leftovers.Analysis
 		var origins map[string]string
