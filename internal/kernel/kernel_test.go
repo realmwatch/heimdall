@@ -137,3 +137,17 @@ func TestNewest(t *testing.T) {
 		}
 	}
 }
+
+// Old kernel packages name their kernels as uname -r prints them; the
+// series-named shared packages add nothing.
+func TestUnameReleases(t *testing.T) {
+	got := UnameReleases([]string{"linux-azure-6.8-cloud-tools-6.8.0-1073", "linux-azure-6.8-headers-6.8.0-1073",
+		"linux-cloud-tools-6.8.0-1073-azure", "linux-headers-6.8.0-1073-azure", "linux-image-6.8.0-1073-azure",
+		"linux-modules-6.8.0-1073-azure", "linux-tools-6.8.0-1073-azure", "linux-image-x; rm"})
+	if !slices.Equal(got, []string{"6.8.0-1073-azure"}) {
+		t.Errorf("got %v", got)
+	}
+	if UnameReleases(nil) != nil {
+		t.Error("none")
+	}
+}

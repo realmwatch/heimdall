@@ -29,7 +29,7 @@ export LC_ALL=C
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
-VERSION=0.5.43
+VERSION=0.5.44
 FORMAT=heimdall.snapshot/v4
 
 die() { printf 'heimdall-collect: %s\n' "$*" >&2; exit 1; }
