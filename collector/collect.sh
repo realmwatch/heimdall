@@ -1871,7 +1871,7 @@ push() {
 	php_header="header = \"X-Heimdall-PHP: $(php_state | tr -cd 'a-z0-9.=, -' | cut -c1-200)\""
 	# When apt's package lists were last refreshed (apt_state).
 	apt_header=
-	ap_state=$(apt_state | tr -cd 'a-z0-9=- ' | cut -c1-60)
+	ap_state=$(apt_state | tr -cd 'a-z0-9= -' | cut -c1-60)
 	[ -z "$ap_state" ] || apt_header="header = \"X-Heimdall-Apt: $ap_state\""
 	# sshd's settings and listening addresses (ssh_state).
 	ssh_header="header = \"X-Heimdall-SSH: $(ssh_state | tr -cd 'a-z0-9.:=,? -' | cut -c1-400)\""
