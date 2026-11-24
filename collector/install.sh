@@ -430,6 +430,44 @@ if [ -d /run/systemd/system ] && have systemctl; then
 		systemctl disable --now heimdall-collect-trips.path >/dev/null 2>&1 || true
 		rm -f /etc/systemd/system/heimdall-collect-trips.path /etc/systemd/system/heimdall-collect-trips.service
 	fi
+	# Canonical Livepatch: the collector can't run its client (a snap needs
+	# privileges the collector doesn't have), so a root timer saves the
+	# client's status for it hourly, where the client is installed. It runs
+	# that one read-only command and writes one file.
+	livepatch_watch=0
+	if [ -x /snap/bin/canonical-livepatch ]; then
+		livepatch_watch=1
+		cat >/etc/systemd/system/heimdall-livepatch.service <<'UNIT'
+# Heimdall: save Canonical Livepatch's status for the collector (install.sh).
+[Unit]
+Description=Save Canonical Livepatch's status for Heimdall
+ConditionPathExists=/snap/bin/canonical-livepatch
+
+[Service]
+Type=oneshot
+StateDirectory=heimdall-livepatch
+StateDirectoryMode=0755
+UMask=0022
+TimeoutStartSec=60
+ExecStart=/bin/sh -c '/snap/bin/canonical-livepatch status --format json >/var/lib/heimdall-livepatch/status.json.new && mv -f /var/lib/heimdall-livepatch/status.json.new /var/lib/heimdall-livepatch/status.json'
+UNIT
+		cat >/etc/systemd/system/heimdall-livepatch.timer <<'UNIT'
+# Heimdall: refresh Canonical Livepatch's saved status hourly (install.sh).
+[Unit]
+Description=Hourly Canonical Livepatch status for Heimdall
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1h
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target
+UNIT
+	else
+		systemctl disable --now heimdall-livepatch.timer >/dev/null 2>&1 || true
+		rm -f /etc/systemd/system/heimdall-livepatch.service /etc/systemd/system/heimdall-livepatch.timer
+	fi
 	if [ "$watching" = 1 ]; then
 		install -m 0644 "$work/changes.path" "$unit"
 	else
@@ -449,6 +487,11 @@ if [ -d /run/systemd/system ] && have systemctl; then
 		systemctl restart heimdall-collect-changes.path # picks up a changed watch list
 		scheduler="$scheduler, and a minute after packages change or a deploy"
 		say "$deploy_note, and 'heimdall-collect deployed' (upgrade picks up new sites)"
+	fi
+	if [ "$livepatch_watch" = 1 ]; then
+		systemctl enable --now heimdall-livepatch.timer >/dev/null 2>&1
+		systemctl start --no-block heimdall-livepatch.service >/dev/null 2>&1 || true
+		say "Saving Canonical Livepatch's status hourly for live patch findings"
 	fi
 	if [ "${tripwires_watch:-0}" = 1 ]; then
 		systemctl enable heimdall-collect-trips.path >/dev/null 2>&1

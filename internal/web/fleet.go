@@ -230,7 +230,8 @@ func (s *server) fleet(r *http.Request, v *auth.Viewer, org string) ([]fleetHost
 			row.Reported, row.R = true, rh
 			row.Stale = s.cfg.StaleAfter > 0 && now.Sub(rh.LastSeen) > s.cfg.StaleAfter
 			st := states[h.ID]
-			row.Reboot = st.RebootRequired != nil && *st.RebootRequired
+			// A reboot the live patch lets wait isn't one to push for.
+			row.Reboot = st.RebootRequired != nil && *st.RebootRequired && !rh.RebootCanWait
 			row.Pending, row.PendingSecurity, row.News = st.PendingUpdates, st.PendingSecurity, st.News
 			row.Collector = strings.TrimSpace(st.CollectorVersion)
 			if row.Collector != "" && release {

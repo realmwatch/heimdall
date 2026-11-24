@@ -66,6 +66,13 @@ type Host struct {
 	// come from those lists, so updates released since don't show.
 	AptRefreshed *time.Time `json:"apt_refreshed,omitempty"`
 	AptStale     bool       `json:"apt_stale,omitempty"`
+	// Livepatch is the host's live patch state (nil: unknown, or a kernel
+	// that can't take one). RebootCanWait: a patch is applied, only kernel
+	// packages ask for the pending reboot, and every finding on the running
+	// kernel is one the patch fixes, so the reboot can wait for a quiet
+	// window.
+	Livepatch     *store.HostLivepatch `json:"livepatch,omitempty"`
+	RebootCanWait bool                 `json:"reboot_can_wait,omitempty"`
 	// ReleaseLeftovers is what an in-place release upgrade left behind
 	// (stale apt sources, obsolete packages, old-release builds) and what
 	// still loads it; nil when there's nothing (see internal/leftovers).
@@ -181,6 +188,10 @@ type Counts struct {
 	// aren't a kernel (linux-tools-common, linux-libc-dev…): left out like
 	// NotRunning (Total = Fixable + NoFix + NotRunning + KernelUserland).
 	KernelUserland int `json:"kernel_userland"`
+	// Livepatched are kernel findings the applied live patch fixes: in
+	// Total and no other count (Total = Fixable + NoFix + NotRunning +
+	// KernelUserland + Dev + Livepatched).
+	Livepatched int `json:"livepatched,omitempty"`
 	// Watch are the NoFix findings still worth watching: known-exploited,
 	// in the news, or with an EPSS score of at least store.WatchEPSS. On a
 	// source installed only for its clients (Finding.ClientOnly), only
@@ -229,6 +240,10 @@ type Finding struct {
 	// KernelStatus is kernel.State.Status: running, not_running,
 	// reboot_pending or newer_kernel, or "" when not on a kernel package.
 	KernelStatus string `json:"kernel_status,omitempty"`
+	// Livepatched: on the running kernel, and the host's applied live
+	// patch fixes it (store.HostLivepatch.Mitigates): shown, but not live
+	// exposure, and no reason to reboot.
+	Livepatched bool `json:"livepatched,omitempty"`
 	// ClientOnly names the server package that isn't installed when the
 	// finding's source is installed only for its clients and libraries
 	// (bind9's dig without named): see internal/clientonly.
@@ -274,6 +289,10 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 		if tallies, err = st.OpenFindingCounts(ctx); err != nil {
 			return nil, err
 		}
+	}
+	lps, err := st.HostLivepatches(ctx)
+	if err != nil {
+		return nil, err
 	}
 	apts, err := st.HostApts(ctx)
 	if err != nil {
@@ -386,6 +405,11 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 			host.Runtimes = append(host.Runtimes, out)
 		}
 
+		var mitigates []string
+		if l, ok := lps[h.ID]; ok {
+			host.Livepatch = &l
+			mitigates = l.Mitigates()
+		}
 		siteCounts := map[string]Counts{}
 		if f.CountsOnly {
 			for root, c := range tallies[h.ID] {
@@ -418,9 +442,11 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 					}
 					out.Leftover = len(f.Binaries) > 0 && !slices.ContainsFunc(f.Binaries, func(b string) bool { return !rel.Leftover(b) })
 				}
-				host.Counts.add(f, status, server != "")
+				lp := livepatchedBy(mitigates, f, status)
+				host.Findings[len(host.Findings)-1].Livepatched = lp
+				host.Counts.add(f, status, server != "", lp)
 				c := siteCounts[f.SiteRoot]
-				c.add(f, status, server != "")
+				c.add(f, status, server != "", lp)
 				siteCounts[f.SiteRoot] = c
 			}
 		}
@@ -430,6 +456,11 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 				return nil, err
 			}
 			host.Sites = append(host.Sites, site)
+		}
+		// A reboot only for the kernel, whose findings the live patch
+		// covers, can wait for a quiet window.
+		if l := host.Livepatch; l != nil && l.Applied && l.Reboot == "kernel" && host.Counts.RebootPending == 0 {
+			host.RebootCanWait = true
 		}
 		if at, ok := apts[h.ID]; ok && !at.IsZero() {
 			host.AptRefreshed = &at
@@ -518,10 +549,14 @@ func buildSite(s store.InventorySite, counts Counts, lifecycle func(product, cyc
 // add counts one finding with its kernel status, and whether it's on a
 // source installed only for its clients (Finding.ClientOnly). The store's
 // recount (countsSQL in internal/store) counts the same way.
-func (c *Counts) add(f store.ReportFinding, kernelStatus string, clientOnly bool) {
+func (c *Counts) add(f store.ReportFinding, kernelStatus string, clientOnly, livepatched bool) {
 	c.Total++
 	if f.Dev {
 		c.Dev++
+		return
+	}
+	if livepatched {
+		c.Livepatched++
 		return
 	}
 	switch {
@@ -573,7 +608,7 @@ func countsFrom(c store.FindingCounts) Counts {
 	return Counts{Total: c.Total, KEV: c.KEV, Critical: c.Critical, High: c.High, Medium: c.Medium, Low: c.Low,
 		Unknown: c.Unknown, Fixable: c.Fixable, FixPending: c.FixPending, NoFix: c.NoFix, FixUrgent: c.FixUrgent,
 		InNews: c.InNews, NotRunning: c.NotRunning, RebootPending: c.RebootPending,
-		KernelUserland: c.KernelUserland, Watch: c.Watch, Dev: c.Dev}
+		KernelUserland: c.KernelUserland, Watch: c.Watch, Dev: c.Dev, Livepatched: c.Livepatched}
 }
 
 func (c *Counts) merge(o Counts) {
@@ -587,6 +622,7 @@ func (c *Counts) merge(o Counts) {
 	c.Fixable += o.Fixable
 	c.FixPending += o.FixPending
 	c.NoFix += o.NoFix
+	c.Livepatched += o.Livepatched
 	c.FixUrgent += o.FixUrgent
 	c.InNews += o.InNews
 	c.NotRunning += o.NotRunning
@@ -727,4 +763,20 @@ func clientOnly(inv store.HostInventory) map[string]string {
 		pkgs[i] = clientonly.Package{Name: p.Name, Source: p.SourceName}
 	}
 	return clientonly.Sources(pkgs)
+}
+
+// livepatchedBy reports whether a host's applied live patch, which fixes
+// mitigates, covers an open finding: an OS finding on a kernel source that
+// isn't only on an old kernel or kernel userland packages, whose advisory
+// or one of its CVEs the patch fixes. The store's recount (countsSQL)
+// decides the same way.
+func livepatchedBy(mitigates []string, f store.ReportFinding, kernelStatus string) bool {
+	if len(mitigates) == 0 || f.SiteRoot != "" || f.Dev || !store.KernelSource(f.Package) ||
+		kernelStatus == kernel.StatusNotRunning || kernelStatus == kernel.StatusUserland {
+		return false
+	}
+	if slices.Contains(mitigates, f.AdvisoryID) {
+		return true
+	}
+	return slices.ContainsFunc(f.CVEs, func(c string) bool { return slices.Contains(mitigates, c) })
 }

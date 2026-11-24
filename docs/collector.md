@@ -575,16 +575,34 @@ To tell an installed PHP version that nothing uses, the hub needs more than the 
 
 On the hub, an installed PHP version is **not used** when no site's PHP-FPM runs it, its PHP-FPM isn't running, and it's older than the oldest PHP a site runs. An unused version newer than that is kept, marked "upgrade target", since a site's PHP upgrade may move to it. The host page marks the rest "not used" and its **Unused PHP** card lists them, with **Propose removal** when a [change-management tool](integrations.md) is linked, and under **By hand**, in order: a check that no cron, supervisor or systemd job calls `phpX.Y` by name (which Heimdall can't see), a dry run (`sudo apt-get purge -s …`, listing every package that would go, unversioned ones such as `php-cli` or `php-redis` included when they depend on it), and the removal. The removal lists that version's own packages (`phpX.Y`, `phpX.Y-*`). When the unused version is the command line's, it first points `php` at one that stays (`sudo update-alternatives --set php /usr/bin/php8.4`): one the sites use, else the newest other, which is then kept. The only PHP installed is never suggested. The daily brief and host explanation can suggest the same commands. Nothing is suggested while something could hide a use: a collector older than 0.5.45, which can't see every running PHP-FPM, or a PHP site (one with a `composer.json` or a framework) whose PHP-FPM version Heimdall can't tell. Such a version is marked **use unknown**, with the reason in its tooltip.
 
-### Package list age
-
-Pending updates come from apt's package lists, which the collector reads but, with no privileges, never refreshes. From 0.5.45 it also sends when they were last refreshed successfully, as `X-Heimdall-Apt: v1 refreshed=<unix time>` (`-` when there's no stamp; `heimdall-collect --apt` prints it). The stamp is `/var/lib/apt/periodic/update-success-stamp`. The host page shows it under **Packages** ("lists refreshed 3h ago"). Lists more than 30 hours old are flagged **package lists stale** on the host page, **lists stale** in the host list (with a **Package lists stale** filter) and in a plan's Updates column. apt refreshes them twice a day, so lists that old mean refreshes are failing, often on a source apt can't read such as the deprecated ondrej/php PPA, or are turned off. Updates released since then don't show until the lists refresh.
-
 **Known limitations**
-- `include` lines aren't followed, so `server_name`/`root`/`fastcgi_pass` must be in the vhost file itself. That's true for Forge, Ploi and most hand-written configs.
+- `include` lines aren't followed, so `server_name`/`root`/`fastcgi_pass` must be in the vhost file itself. That's true for Forge, most hosting panels and most hand-written configs.
 - Regex server names (`~^…`), roots containing variables (`$…`) and TCP PHP pools (`127.0.0.1:9000`) are skipped or reported without a PHP version.
 - `composer.lock` and `package-lock.json` must be in their tools' normal pretty-printed layout. A minified lock file yields no packages.
 - `package-lock.json` is read only from the app root, so a frontend in a subfolder (or a Node app whose document root isn't `public`) isn't found. List that lockfile in `HEIMDALL_LOCKFILES`.
 - Caddy, LiteSpeed and apps inside Docker containers aren't discovered yet. List their roots in `HEIMDALL_SITES`, or wait for M9.
+
+### Package list age
+
+Pending updates come from apt's package lists, which the collector reads but, with no privileges, never refreshes. From 0.5.45 it also sends when they were last refreshed successfully, as `X-Heimdall-Apt: v1 refreshed=<unix time>` (`-` when there's no stamp; `heimdall-collect --apt` prints it). The stamp is `/var/lib/apt/periodic/update-success-stamp`. The host page shows it under **Packages** ("lists refreshed 3h ago"). Lists more than 30 hours old are flagged **package lists stale** on the host page, **lists stale** in the host list (with a **Package lists stale** filter) and in a plan's Updates column. apt refreshes them twice a day, so lists that old mean refreshes are failing, often on a source apt can't read such as the deprecated ondrej/php PPA, or are turned off. Updates released since then don't show until the lists refresh.
+
+### Live patching
+
+Where the kernel can take live patches (`/sys/kernel/livepatch` exists), collector 0.5.45 and later send `X-Heimdall-Livepatch` (`heimdall-collect --livepatch` prints it):
+
+```
+v1 applied=1 state=applied version=108.1 support=supported checked=1764000000 reboot=kernel fixes=CVE-2026-1234,CVE-2026-2345
+```
+
+- **applied** is the kernel's own word: a patch is loaded, enabled and not mid-transition (`/sys/kernel/livepatch/*/enabled` and `transition`).
+- **state, version, support and fixes** come from Canonical's Livepatch client. The collector can't run it: it's a snap, and snaps need privileges the collector doesn't have. So where `/snap/bin/canonical-livepatch` exists, `install.sh` adds `heimdall-livepatch.timer`, which runs `canonical-livepatch status --format json` as root hourly and saves it to `/var/lib/heimdall-livepatch/status.json`. It runs that one read-only command and writes that one file. **checked** is that file's time. The client's JSON isn't a stable interface, so the collector reads the running kernel's entry by its known field names and picks the CVE ids out by pattern.
+- **reboot** is what `/run/reboot-required.pkgs` asks a reboot for: `kernel` (only kernel packages) or `other`.
+
+`-` is unknown or none. On the hub:
+
+- A finding on the running kernel whose advisory or CVE the applied patch fixes is marked **live patched**. It's shown, but it isn't live exposure: it's left out of every count but the total, and out of "reboot pending". A kernel CVE the patch doesn't list stays open. The client's status counts only while it's under 26 hours older than the report.
+- When only kernel packages ask for a reboot and the patch fixes every finding on the running kernel, the reboot **can wait**. The host page says so, and the host list and patch plans don't push for it.
+- The "kernel changed without a reboot" anomaly isn't raised while a patch is applied, which is what live patching does. No manual "runs Livepatch" suppression is needed.
 
 ## SSH settings
 

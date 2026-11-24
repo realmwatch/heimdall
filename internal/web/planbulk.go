@@ -81,6 +81,9 @@ func (r planRow) Cell(action string) planCell {
 		}
 		return planCell{Text: strconv.Itoa(h.PendingSecurity) + " / " + strconv.Itoa(h.Pending), Title: strconv.Itoa(h.PendingSecurity) + " security of " + strconv.Itoa(h.Pending) + " pending", Need: true, Bad: h.PendingSecurity > 0}
 	case "system.reboot":
+		if !need && h.R.RebootCanWait {
+			return planCell{Text: "can wait", Title: "Only kernel packages ask for it, and the live patch fixes every finding on the running kernel: reboot in a quiet window"}
+		}
 		if !need {
 			return planCell{}
 		}

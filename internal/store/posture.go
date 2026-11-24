@@ -30,6 +30,7 @@ type FindingCounts struct {
 	NotRunning                                       int // on an old kernel that's installed but not running
 	RebootPending                                    int // on the running kernel, a newer one installed
 	KernelUserland                                   int // only on kernel userland packages (kernel.Userland)
+	Livepatched                                      int // on the kernel, fixed by its applied live patch (HostLivepatch.Mitigates)
 	Watch                                            int // of NoFix, known-exploited, in the news or WatchEPSS likely
 	Dev                                              int // npm dev dependencies: in Total, and no other count
 }
@@ -45,7 +46,7 @@ const WatchEPSS = 0.10
 func (s *Store) OpenFindingCounts(ctx context.Context) (map[int64]map[string]FindingCounts, error) {
 	rows, err := s.rd.QueryContext(ctx, `
 		SELECT host_id, site_root, total, kev, critical, high, medium, low, unknown,
-		       fixable, fix_pending, fix_urgent, in_news, not_running, reboot_pending, kernel_userland, watch, dev
+		       fixable, fix_pending, fix_urgent, in_news, not_running, reboot_pending, kernel_userland, watch, dev, livepatched
 		FROM finding_counts`)
 	if err != nil {
 		return nil, err
@@ -57,10 +58,10 @@ func (s *Store) OpenFindingCounts(ctx context.Context) (map[int64]map[string]Fin
 		var root string
 		var c FindingCounts
 		if err := rows.Scan(&host, &root, &c.Total, &c.KEV, &c.Critical, &c.High, &c.Medium, &c.Low, &c.Unknown,
-			&c.Fixable, &c.FixPending, &c.FixUrgent, &c.InNews, &c.NotRunning, &c.RebootPending, &c.KernelUserland, &c.Watch, &c.Dev); err != nil {
+			&c.Fixable, &c.FixPending, &c.FixUrgent, &c.InNews, &c.NotRunning, &c.RebootPending, &c.KernelUserland, &c.Watch, &c.Dev, &c.Livepatched); err != nil {
 			return nil, err
 		}
-		c.NoFix = c.Total - c.Fixable - c.NotRunning - c.KernelUserland - c.Dev
+		c.NoFix = c.Total - c.Fixable - c.NotRunning - c.KernelUserland - c.Dev - c.Livepatched
 		if out[host] == nil {
 			out[host] = map[string]FindingCounts{}
 		}
@@ -83,7 +84,9 @@ func (s *Store) OpenFindingCounts(ctx context.Context) (map[int64]map[string]Fin
 // source installed only for its clients (temp.client_only, clientonly),
 // only known-exploited ones. A
 // finding on an npm dev dependency (findings.dev) counts in total and dev
-// only (report.Counts.Dev).
+// only (report.Counts.Dev), and one on a kernel source whose advisory or a
+// CVE alias is in temp.livepatch_fix (the host's applied live patch fixes
+// it, HostLivepatch.Mitigates) in total and livepatched only.
 //
 // The sets are indexed tables, not JSON arrays: a host with tens of
 // thousands of findings and a hundred old-kernel packages made
@@ -117,22 +120,28 @@ const countsSQL = `
 		           SELECT 1 FROM json_each(f.binaries) b
 		           WHERE NOT EXISTS (SELECT 1 FROM temp.kernel_boot kb WHERE kb.host_id = f.host_id AND kb.name = b.value)), 0) AS rb,
 		       f.site_root = '' AND EXISTS (
-		           SELECT 1 FROM temp.client_only co WHERE co.host_id = f.host_id AND co.name = f.package_name) AS co
+		           SELECT 1 FROM temp.client_only co WHERE co.host_id = f.host_id AND co.name = f.package_name) AS co,
+		       f.site_root = '' AND (f.package_name = 'linux' OR f.package_name LIKE 'linux-%')
+		           AND f.package_name NOT IN ('linux-firmware', 'linux-base', 'linux-atm', 'linux-ftpd')
+		           AND (EXISTS (SELECT 1 FROM temp.livepatch_fix lf WHERE lf.host_id = f.host_id AND lf.cve = f.advisory_id)
+		             OR EXISTS (SELECT 1 FROM advisory_aliases aa JOIN temp.livepatch_fix lf ON lf.host_id = f.host_id AND lf.cve = aa.alias
+		                        WHERE aa.advisory_id = f.advisory_id)) AS lp0
 		FROM findings f JOIN advisories a INDEXED BY advisories_tally ON a.id = f.advisory_id
 		JOIN (SELECT h.id, coalesce(s.package_manager = 'dpkg', 0) AS dpkg FROM hosts h
 		      LEFT JOIN snapshots s ON s.id = h.last_snapshot_id WHERE ?1 = 0 OR h.id = ?1) h ON h.id = f.host_id
 		WHERE f.resolved_at IS NULL AND a.withdrawn IS NULL),
-	fk AS (SELECT *, nr0 AND NOT ku AS nr, ku OR nr0 OR dev AS off FROM fs)
+	fl AS (SELECT *, lp0 AND NOT ku AND NOT nr0 AND NOT dev AS lp FROM fs),
+	fk AS (SELECT *, nr0 AND NOT ku AS nr, ku OR nr0 OR dev OR lp AS off FROM fl)
 	INSERT INTO finding_counts (host_id, site_root, total, kev, critical, high, medium, low, unknown,
-	                            fixable, fix_pending, fix_urgent, in_news, not_running, reboot_pending, kernel_userland, watch, dev)
+	                            fixable, fix_pending, fix_urgent, in_news, not_running, reboot_pending, kernel_userland, watch, dev, livepatched)
 	SELECT host_id, site_root, count(*),
 	       sum(kev AND NOT off),
-	       sum(sev = 'critical' AND NOT dev), sum(sev = 'high' AND NOT dev), sum(sev = 'medium' AND NOT dev),
-	       sum(sev = 'low' AND NOT dev), sum(sev NOT IN ('critical', 'high', 'medium', 'low') AND NOT dev),
+	       sum(sev = 'critical' AND NOT dev AND NOT lp), sum(sev = 'high' AND NOT dev AND NOT lp), sum(sev = 'medium' AND NOT dev AND NOT lp),
+	       sum(sev = 'low' AND NOT dev AND NOT lp), sum(sev NOT IN ('critical', 'high', 'medium', 'low') AND NOT dev AND NOT lp),
 	       sum(fixable AND NOT off), sum(pending AND NOT off),
 	       sum(fixable AND NOT off AND sev IN ('critical', 'high')),
-	       sum(news AND NOT dev), sum(nr), sum(rb AND NOT off), sum(ku),
-	       sum(NOT fixable AND NOT off AND (kev OR ((news OR hot) AND NOT co))), sum(dev)
+	       sum(news AND NOT dev AND NOT lp), sum(nr), sum(rb AND NOT off), sum(ku),
+	       sum(NOT fixable AND NOT off AND (kev OR ((news OR hot) AND NOT co))), sum(dev), sum(lp)
 	FROM fk
 	GROUP BY host_id, site_root`
 
@@ -144,11 +153,12 @@ var kernelTables = []string{
 	`CREATE TEMP TABLE IF NOT EXISTS kernel_boot (host_id INTEGER, name TEXT, PRIMARY KEY (host_id, name)) WITHOUT ROWID`,
 	`CREATE TEMP TABLE IF NOT EXISTS kernel_userland (name TEXT PRIMARY KEY) WITHOUT ROWID`,
 	`CREATE TEMP TABLE IF NOT EXISTS client_only (host_id INTEGER, name TEXT, PRIMARY KEY (host_id, name)) WITHOUT ROWID`,
+	`CREATE TEMP TABLE IF NOT EXISTS livepatch_fix (host_id INTEGER, cve TEXT, PRIMARY KEY (host_id, cve)) WITHOUT ROWID`,
 }
 
 // clearKernelTables empties kernelTables.
 func clearKernelTables(ctx context.Context, tx *sql.Tx) error {
-	for _, t := range []string{"kernel_old", "kernel_boot", "kernel_userland", "client_only"} {
+	for _, t := range []string{"kernel_old", "kernel_boot", "kernel_userland", "client_only", "livepatch_fix"} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM temp.`+t); err != nil {
 			return err
 		}
@@ -230,6 +240,18 @@ func writeFindingCounts(ctx context.Context, tx *sql.Tx, hostID int64, sets map[
 	for id, names := range co {
 		if err := fill("client_only", id, names); err != nil {
 			return err
+		}
+	}
+	lps, err := hostLivepatches(ctx, tx, hostID)
+	if err != nil {
+		return err
+	}
+	for id, l := range lps {
+		if fixes := l.Mitigates(); len(fixes) > 0 {
+			b, _ := json.Marshal(fixes)
+			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO temp.livepatch_fix (host_id, cve) SELECT ?, value FROM json_each(?)`, id, string(b)); err != nil {
+				return err
+			}
 		}
 	}
 	for id, ks := range sets {

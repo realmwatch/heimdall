@@ -177,6 +177,21 @@ func TestRebootAndKernel(t *testing.T) {
 	}
 }
 
+// With a live patch applied, a kernel that changes without a reboot is
+// expected: no alarm.
+func TestKernelChangeLivepatched(t *testing.T) {
+	e := newEnv(t)
+	h := e.host("web-01")
+	e.learn(h)
+	if err := e.st.SetHostLivepatch(t.Context(), h.ID, store.HostLivepatch{Applied: true}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	e.push(h, snap{pkgs: base, uptime: 600}) // a reboot, as in TestRebootAndKernel
+	if got := e.push(h, snap{pkgs: base, uptime: 600 + 86400, kernel: "6.1.0-27"}); len(got) != 0 {
+		t.Errorf("livepatched kernel change raised %v", got)
+	}
+}
+
 // Event-driven reports: one a minute after a kernel upgrade, the next 3
 // minutes after the reboot into it. That's a reboot, not a kernel that
 // changed in place.
