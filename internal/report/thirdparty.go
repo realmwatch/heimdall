@@ -86,3 +86,20 @@ func nginxSuryBuild(pkgs []store.InventoryPackage) string {
 	}
 	return ""
 }
+
+// PHPPPAOrigin is the Release Origin of Ondřej Surý's ondrej/php PPA (and
+// of its ppa.setup-php.com mirror). packages.sury.org's is "deb.sury.org".
+const PHPPPAOrigin = "LP-PPA-ondrej-php"
+
+// phpFromPPA are the installed packages apt gets from the ondrej/php PPA,
+// sorted, or nil.
+func phpFromPPA(origins map[string]string, pkgs []store.InventoryPackage) []string {
+	var out []string
+	for _, p := range pkgs {
+		if origins[p.Name] == PHPPPAOrigin && !slices.Contains(out, p.Name) {
+			out = append(out, p.Name)
+		}
+	}
+	slices.Sort(out)
+	return out
+}

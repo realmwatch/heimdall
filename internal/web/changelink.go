@@ -99,13 +99,22 @@ type orgLink struct {
 // org, in chunks of actionHostsMax. None unless the tool supports the
 // action (CollectorUpgradeAction).
 func (c ChangeLink) fleetCollectorLinks(hosts []fleetHost) []orgLink {
-	if !c.CollectorUpgradeAction || c.ActionURL == "" {
+	if !c.CollectorUpgradeAction {
+		return nil
+	}
+	return c.fleetActionLinks("collector.upgrade", hosts, func(h fleetHost) bool { return h.CollectorBehind })
+}
+
+// fleetActionLinks drafts action on every host among hosts that wants it:
+// one link per org, in chunks of actionHostsMax, orgs and names sorted.
+func (c ChangeLink) fleetActionLinks(action string, hosts []fleetHost, wants func(fleetHost) bool) []orgLink {
+	if c.ActionURL == "" {
 		return nil
 	}
 	byOrg := map[string][]string{}
 	var orgs []string
 	for _, h := range hosts {
-		if !h.CollectorBehind {
+		if !wants(h) {
 			continue
 		}
 		if byOrg[h.OrgSlug] == nil {
@@ -119,7 +128,7 @@ func (c ChangeLink) fleetCollectorLinks(hosts []fleetHost) []orgLink {
 		names := byOrg[org]
 		slices.Sort(names)
 		for chunk := range slices.Chunk(names, actionHostsMax) {
-			out = append(out, orgLink{Org: org, Hosts: len(chunk), URL: c.hostsActionLink("collector.upgrade", org, chunk)})
+			out = append(out, orgLink{Org: org, Hosts: len(chunk), URL: c.hostsActionLink(action, org, chunk)})
 		}
 	}
 	return out
@@ -347,6 +356,26 @@ func (c ChangeLink) nginxSourceSwitchLink(org, host string, h report.Host) strin
 		return ""
 	}
 	return c.actionLink("nginx.source.nginx_org", org, host, nil)
+}
+
+// phpSourceMoveLink drafts moving PHP from Ondřej Surý's deprecated,
+// frozen ondrej/php PPA to packages.sury.org, its replacement (action
+// php.source.sury_org, no params), or is "" unless apt still gets packages
+// from the PPA. The tool's agent installs debsuryorg-repository-php from
+// the PPA, which adds packages.sury.org's source and key, then removes the
+// PPA's source; it installs, upgrades or restarts no PHP package.
+func (c ChangeLink) phpSourceMoveLink(org, host string, h report.Host) string {
+	if len(h.PHPFromPPA) == 0 {
+		return ""
+	}
+	return c.actionLink("php.source.sury_org", org, host, nil)
+}
+
+// fleetPHPMoveLinks drafts moving PHP to packages.sury.org on every host
+// among hosts (the host list as filtered) that still gets it from the
+// ondrej/php PPA: one link per org, in chunks of actionHostsMax.
+func (c ChangeLink) fleetPHPMoveLinks(hosts []fleetHost) []orgLink {
+	return c.fleetActionLinks("php.source.sury_org", hosts, func(h fleetHost) bool { return len(h.R.PHPFromPPA) > 0 })
 }
 
 // nginxUpdateLink drafts upgrading nginx through the package template, for

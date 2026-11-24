@@ -443,3 +443,56 @@ func TestFleetCollectorLinks(t *testing.T) {
 		t.Errorf("no action_url: %+v", got)
 	}
 }
+
+// A host that still gets packages from the ondrej/php PPA gets a section
+// with the move's link on its page, a pill and a filter in the host list,
+// and the list one link per org for every such host.
+func TestPHPSourceMove(t *testing.T) {
+	t.Parallel()
+	const action = "https://changes.example.com/propose?action={action}&org={org}&host={host}&{params}"
+	e := newEnvCfg(t, "http://127.0.0.1:8080", nil, func(c *Config) { c.ChangeLink.ActionURL = action })
+	host := e.seed()
+	before := e.get("/hosts/acme/web-01", signedIn(e)).Body.String()
+	if strings.Contains(before, "php-ppa-h") || strings.Contains(e.get("/hosts", signedIn(e)).Body.String(), "Move PHP to packages.sury.org") {
+		t.Error("move offered without the PPA")
+	}
+	if err := e.st.SetHostOrigins(t.Context(), host.ID, map[string]string{"libssl3": report.PHPPPAOrigin, "openssl": "deb.sury.org"}, testNow); err != nil {
+		t.Fatal(err)
+	}
+	page := e.get("/hosts/acme/web-01", signedIn(e)).Body.String()
+	for _, want := range []string{
+		`<h2 id="php-ppa-h">PHP can't be updated from its source`,
+		`href="https://changes.example.com/propose?action=php.source.sury_org&amp;org=acme&amp;host=web-01&amp;"`,
+		">Move PHP to packages.sury.org</a>",
+		"(1 installed package)",
+		"<code>libssl3</code>",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("host page lacks %q", want)
+		}
+	}
+	list := e.get("/hosts", signedIn(e)).Body.String()
+	for _, want := range []string{
+		`href="https://changes.example.com/propose?action=php.source.sury_org&amp;org=acme&amp;host=&amp;hosts=web-01"`,
+		"on this host\">Move PHP to packages.sury.org (1)</a>",
+		">PHP PPA</a>",
+	} {
+		if !strings.Contains(list, want) {
+			t.Errorf("host list lacks %q", want)
+		}
+	}
+	if only := e.get("/hosts?only=php-ppa", signedIn(e)).Body.String(); !strings.Contains(only, "web-01") || strings.Contains(only, ">db-01<") {
+		t.Error("the PHP PPA filter")
+	}
+
+	// Without the tool, the section stays and the pill leads to it.
+	bare := newEnv(t, "http://127.0.0.1:8080", nil)
+	host = bare.seed()
+	bare.st.SetHostOrigins(t.Context(), host.ID, map[string]string{"libssl3": report.PHPPPAOrigin}, testNow)
+	if page := bare.get("/hosts/acme/web-01", signedIn(bare)).Body.String(); !strings.Contains(page, "php-ppa-h") || strings.Contains(page, "php.source.sury_org") {
+		t.Error("without a tool: section without a link")
+	}
+	if list := bare.get("/hosts", signedIn(bare)).Body.String(); !strings.Contains(list, `href="/hosts/acme/web-01#php-ppa"`) {
+		t.Error("without a tool: the pill should lead to the section")
+	}
+}

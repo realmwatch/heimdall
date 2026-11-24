@@ -38,6 +38,22 @@ func TestThirdPartySources(t *testing.T) {
 	}
 }
 
+// Only what's installed from the ondrej/php PPA counts, once per name;
+// packages.sury.org's builds don't.
+func TestPHPFromPPA(t *testing.T) {
+	pkgs := []store.InventoryPackage{
+		{Name: "php8.3-fpm", Arch: "amd64"}, {Name: "libgd3", Arch: "amd64"}, {Name: "libgd3", Arch: "i386"},
+		{Name: "php8.4-fpm"}, {Name: "curl"},
+	}
+	origins := map[string]string{"php8.3-fpm": PHPPPAOrigin, "libgd3": PHPPPAOrigin, "php8.4-fpm": "deb.sury.org", "gone": PHPPPAOrigin}
+	if got := phpFromPPA(origins, pkgs); !reflect.DeepEqual(got, []string{"libgd3", "php8.3-fpm"}) {
+		t.Errorf("got %v", got)
+	}
+	if got := phpFromPPA(map[string]string{"php8.4-fpm": "deb.sury.org"}, pkgs); got != nil {
+		t.Errorf("packages.sury.org: %v", got)
+	}
+}
+
 func TestNginxSuryBuild(t *testing.T) {
 	v := "1.26.3-1+ubuntu22.04.1+deb.sury.org+1"
 	if got := nginxSuryBuild([]store.InventoryPackage{{Name: "nginx-common", Version: v}, {Name: "nginx", Version: v}}); got != v {

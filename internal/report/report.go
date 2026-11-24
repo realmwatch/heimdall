@@ -66,6 +66,11 @@ type Host struct {
 	// Surý's build, from the ondrej/nginx PPA Launchpad removed: no fix
 	// will come from it, so the server needs nginx.org's packages instead.
 	NginxSuryBuild string `json:"nginx_sury_build,omitempty"`
+	// PHPFromPPA are the installed packages apt gets from Ondřej Surý's
+	// ondrej/php PPA, which he deprecated and froze: it gets no more PHP
+	// updates and apt-get update fails on it, so the server needs moving to
+	// packages.sury.org, its replacement. Nil when none do.
+	PHPFromPPA []string `json:"php_from_ppa,omitempty"`
 	// Nginx is what the collector read from nginx's configuration: what
 	// speaks HTTP/2 and HTTP/3, the parts some advisories are about, and
 	// whether nginx needs a restart. Nil without nginx or from an older
@@ -325,12 +330,13 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 		var origins map[string]string
 		if info, ok := findings.HostEcosystem(inv); ok {
 			host.Ecosystem = info.OSV
+			if origins, _, err = st.HostOrigins(ctx, h.ID); err != nil {
+				return nil, err
+			}
+			host.PHPFromPPA = phpFromPPA(origins, inv.Packages)
 			if !f.CountsOnly { // fleet pages don't show it
 				rel = findings.ReleaseAnalysis(inv, info, releases[h.ID], kept[h.ID])
 				host.ReleaseLeftovers = rel.Finding
-				if origins, _, err = st.HostOrigins(ctx, h.ID); err != nil {
-					return nil, err
-				}
 				host.ThirdParty = thirdPartySources(origins, inv.Packages)
 				host.NginxSuryBuild = nginxSuryBuild(inv.Packages)
 			}
