@@ -461,3 +461,60 @@ func TestMatchNewsRecountsOnlyOnChange(t *testing.T) {
 		t.Errorf("MatchNews(0) didn't recount: total %d", total())
 	}
 }
+
+// A kernel finding the applied live patch fixes (by its advisory or a CVE
+// alias) counts in total and livepatched only; one it doesn't fix stays
+// open, and a patch that isn't applied, or a stale client status, covers
+// nothing.
+func TestFindingCountsLivepatched(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	ctx := t.Context()
+	s.CreateOrg(ctx, "test", "acme", "")
+	s.CreateEnv(ctx, "test", "acme", "prod", "")
+	h := addSnapshotHost(t, s, "web-01", "ubuntu2404-aws-reboot-pending.json")
+	boot := allKernelSets(t, s, h.ID)[h.ID].Boot
+	for i, cve := range []string{"CVE-2099-1001", "CVE-2099-1002"} {
+		if err := s.PutAdvisory(ctx, Advisory{ID: fmt.Sprintf("UBUNTU-%d", i), Modified: newsNow, Severity: "high", Raw: []byte(`{}`), Aliases: []string{cve}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := s.SetFindings(ctx, h.ID, []Finding{
+		{AdvisoryID: "UBUNTU-0", Ecosystem: "Ubuntu:24.04:LTS", Package: "linux-aws-6.17", Version: "1", FixedVersion: "2", Binaries: firstN(boot, 1)},
+		{AdvisoryID: "UBUNTU-1", Ecosystem: "Ubuntu:24.04:LTS", Package: "linux-aws-6.17", Version: "1", FixedVersion: "2", Binaries: firstN(boot, 1)},
+	}, newsNow); err != nil {
+		t.Fatal(err)
+	}
+	counts := func() FindingCounts {
+		t.Helper()
+		all, err := s.OpenFindingCounts(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return all[h.ID][""]
+	}
+	if c := counts(); c.Livepatched != 0 || c.High != 2 || c.RebootPending != 2 {
+		t.Fatalf("before: %+v", c)
+	}
+	lp := HostLivepatch{Applied: true, State: "applied", Checked: newsNow, Fixes: []string{"CVE-2099-1001"}}
+	if err := s.SetHostLivepatch(ctx, h.ID, lp, newsNow); err != nil {
+		t.Fatal(err)
+	}
+	if c := counts(); c.Total != 2 || c.Livepatched != 1 || c.High != 1 || c.Fixable != 1 || c.RebootPending != 1 || c.NoFix != 0 {
+		t.Errorf("one fixed by the patch: %+v", c)
+	}
+	lp.Checked = newsNow.Add(-3 * LivepatchFresh) // the client's status is stale
+	if err := s.SetHostLivepatch(ctx, h.ID, lp, newsNow); err != nil {
+		t.Fatal(err)
+	}
+	if c := counts(); c.Livepatched != 0 || c.High != 2 {
+		t.Errorf("stale status: %+v", c)
+	}
+	lp.Checked, lp.Applied = newsNow, false
+	if err := s.SetHostLivepatch(ctx, h.ID, lp, newsNow); err != nil {
+		t.Fatal(err)
+	}
+	if c := counts(); c.Livepatched != 0 {
+		t.Errorf("not applied: %+v", c)
+	}
+}

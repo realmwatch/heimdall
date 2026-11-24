@@ -1003,6 +1003,59 @@ apt_state() {
 	printf 'v1 refreshed=%s' "${at:--}"
 }
 
+# livepatch_state: the X-Heimdall-Livepatch value, or nothing where the
+# kernel can't take live patches (no /sys/kernel/livepatch):
+#
+#   v1 applied=1 state=applied version=108.1 support=supported
+#      checked=<unix> reboot=kernel fixes=CVE-2026-1234,CVE-2026-2345
+#
+# applied: a patch is loaded, enabled and not mid-way through being
+# applied (/sys/kernel/livepatch/*/enabled and transition). The rest come
+# from Canonical's client, which the collector can't run (it's a snap, and
+# snaps need privileges the collector doesn't have): install.sh's
+# heimdall-livepatch.timer saves its `status --format json` hourly as root
+# to /var/lib/heimdall-livepatch/status.json, and checked is that file's
+# time. The client's JSON isn't a stable interface, so its fields are read
+# by their known names, from the running kernel's entry, and the CVE ids
+# by pattern. reboot says what /run/reboot-required.pkgs asks a reboot
+# for: "kernel" (only kernel packages), "other", or "-" (none). "-" for
+# anything unknown. Read-only. HEIMDALL_LIVEPATCH_SYS,
+# HEIMDALL_LIVEPATCH_STATUS and HEIMDALL_REBOOT_PKGS are for tests.
+livepatch_state() {
+	sys=${HEIMDALL_LIVEPATCH_SYS:-/sys/kernel/livepatch}
+	[ -d "$sys" ] || return 0
+	applied=0
+	for d in "$sys"/*/; do
+		[ -r "${d}enabled" ] || continue
+		en=$(tr -cd 0-9 <"${d}enabled" 2>/dev/null)
+		tr_=$(tr -cd 0-9 <"${d}transition" 2>/dev/null) || tr_=
+		if [ "$en" = 1 ] && [ "$tr_" != 1 ]; then applied=1; fi
+	done
+	state=- version=- support=- checked=- fixes=-
+	st=${HEIMDALL_LIVEPATCH_STATUS:-/var/lib/heimdall-livepatch/status.json}
+	if [ -f "$st" ] && [ -r "$st" ]; then
+		checked=$(date -r "$st" +%s 2>/dev/null | tr -cd 0-9 | cut -c1-12)
+		# The running kernel's entry: split the status list at each
+		# "kernel" key and keep the one that says "running": true (else
+		# the only one).
+		entry=$(head -c 200000 "$st" | tr -d '\n' | awk 'BEGIN { RS = "\"kernel\"" } NR > 1 { n++; last = $0; if ($0 ~ /"running"[ \t]*:[ \t]*true/) { run = $0 } } END { if (run != "") print run; else if (n == 1) print last }')
+		field() { printf '%s' "$entry" | grep -oE "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -n 1 | sed 's/.*:[[:space:]]*"//; s/"$//' | tr -cd 'A-Za-z0-9._-' | cut -c1-40; }
+		v=$(field patchState); state=${v:--}
+		v=$(field version); version=${v:--}
+		v=$(field supported); [ -n "$v" ] || v=$(field support); support=${v:--}
+		v=$(printf '%s' "$entry" | grep -oiE 'cve-[0-9]{4}-[0-9]{4,7}' | tr '[:lower:]' '[:upper:]' | sort -u | head -n 300 | tr '\n' ',' | sed 's/,$//')
+		fixes=${v:--}
+	fi
+	reboot=-
+	pk=${HEIMDALL_REBOOT_PKGS:-/run/reboot-required.pkgs}
+	if [ -s "$pk" ]; then
+		reboot=kernel
+		if grep -vqE '^(linux-(image|modules|headers|base|signed|generic|virtual|aws|azure|gcp|oracle|kvm|lowlatency|hwe|firmware)[a-z0-9.+~-]*|)$' "$pk" 2>/dev/null; then reboot=other; fi
+	fi
+	printf 'v1 applied=%s state=%s version=%s support=%s checked=%s reboot=%s fixes=%s' \
+		"$applied" "$state" "$version" "$support" "${checked:--}" "$reboot" "$fixes"
+}
+
 # ── Release-upgrade leftovers (sent as X-Heimdall-Release) ─────────────────
 
 # Ubuntu and Debian release codenames, oldest first, to tell a suite or
@@ -1869,6 +1922,10 @@ push() {
 	branches_header="header = \"X-Heimdall-Site-Branches: $(site_branches <"$tmp/snapshot.json" | tr -cd 'A-Za-z0-9._~:/@+, -' | cut -c1-4096)\""
 	# The PHP versions in use outside the sites' sockets (php_state).
 	php_header="header = \"X-Heimdall-PHP: $(php_state | tr -cd 'a-z0-9.=, -' | cut -c1-200)\""
+	# Live patching: applied, and the CVEs the patch fixes (livepatch_state).
+	livepatch_header=
+	lp_state=$(livepatch_state | tr -cd 'A-Za-z0-9.=,_ -' | cut -c1-6000)
+	[ -z "$lp_state" ] || livepatch_header="header = \"X-Heimdall-Livepatch: $lp_state\""
 	# When apt's package lists were last refreshed (apt_state).
 	apt_header=
 	ap_state=$(apt_state | tr -cd 'a-z0-9= -' | cut -c1-60)
@@ -1898,7 +1955,7 @@ push() {
 	status=$(printf '%s\n' \
 		"header = \"Authorization: Bearer $token\"" \
 		'header = "Content-Type: application/json"' \
-		"$encoding" "$cacert" "$hostname_header" "$machine_header" "$triggers_header" "$agents_header" "$repos_header" "$branches_header" "$php_header" "$apt_header" "$ssh_header" "$release_header" "$origins_header" "$nginx_header" "$(privilege_config)" "$(logins_config)" |
+		"$encoding" "$cacert" "$hostname_header" "$machine_header" "$triggers_header" "$agents_header" "$repos_header" "$branches_header" "$php_header" "$apt_header" "$livepatch_header" "$ssh_header" "$release_header" "$origins_header" "$nginx_header" "$(privilege_config)" "$(logins_config)" |
 		"$curl" --config - --silent --show-error \
 			--proto '=https,http' --tlsv1.2 \
 			--connect-timeout 10 --max-time 120 \
@@ -2230,7 +2287,8 @@ set_hub() {
 usage() {
 	cat >&2 <<'EOF'
 usage: heimdall-collect --print | --push | --push-trips | --trips |
-                        --site-repos | --site-branches | --php | --apt | --ssh |
+                        --site-repos | --site-branches | --php | --apt |
+                        --livepatch | --ssh |
                         --release | --origins | --nginx | --deploy-watches |
                         --logins | --version
        heimdall-collect deployed
@@ -2253,6 +2311,8 @@ usage: heimdall-collect --print | --push | --push-trips | --trips |
                 line's and the running PHP-FPMs')
   --apt         print when apt last refreshed its package lists, as --push
                 would send it
+  --livepatch   print the live patch state --push would send (nothing where
+                the kernel can't take live patches)
   --ssh         print sshd's settings and listening addresses --push would
                 send
   --release     print the apt sources and packages left over from an older
@@ -2306,7 +2366,7 @@ case $1 in
 deployed) deployed; exit 0 ;; # any user, root too: it only touches a file
 # For heimdall-collect-soon.service (root), not for people:
 event-allowed) if event_allowed; then exit 0; else exit 1; fi ;;
---print | --push | --push-trips | --trips | --site-repos | --site-branches | --php | --apt | --ssh | --release | --origins | --nginx | --deploy-watches | --logins) ;;
+--print | --push | --push-trips | --trips | --site-repos | --site-branches | --php | --apt | --livepatch | --ssh | --release | --origins | --nginx | --deploy-watches | --logins) ;;
 *) usage ;;
 esac
 
@@ -2340,6 +2400,7 @@ case $1 in
 --site-branches) sites_json | site_branches; echo ;;
 --php) php_state; echo ;;
 --apt) apt_state; echo ;;
+--livepatch) livepatch_state; echo ;;
 --ssh) ssh_state; echo ;;
 --release) release_state ;;
 --origins) apt_origins ;;

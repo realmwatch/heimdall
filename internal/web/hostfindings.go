@@ -132,7 +132,7 @@ func oldKernelReleases(pkgs []string) []string { return kernel.UnameReleases(pkg
 // that isn't running, nor only on kernel userland packages, nor on an npm
 // dev dependency (needed to build the site, not to run it).
 func live(f report.Finding) bool {
-	return !f.NotRunning && f.KernelStatus != kernel.StatusUserland && !f.Dev
+	return !f.NotRunning && f.KernelStatus != kernel.StatusUserland && !f.Dev && !f.Livepatched
 }
 
 // needsAction reports whether a finding needs attention: it's live, and

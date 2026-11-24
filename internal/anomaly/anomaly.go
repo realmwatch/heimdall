@@ -84,7 +84,14 @@ func (e *Engine) OnSnapshot(ctx context.Context, host store.IngestHost) ([]store
 	}
 	expected := inWindow || inPlan
 
-	// Reboots and kernels.
+	// Reboots and kernels. A kernel that changes without a reboot is what
+	// live patching does: no alarm while the collector says a patch is
+	// applied.
+	lp, _, err := e.Store.HostLivepatchOf(ctx, host.ID)
+	if err != nil {
+		return nil, err
+	}
+	livepatched := lp.Applied
 	elapsed := int64(cur.ReceivedAt.Sub(prev.ReceivedAt).Seconds())
 	if cur.UptimeSeconds >= 0 && prev.UptimeSeconds >= 0 {
 		// Uptime never goes backwards without a reboot, however close
@@ -99,7 +106,7 @@ func (e *Engine) OnSnapshot(ctx context.Context, host store.IngestHost) ([]store
 				Detail:  map[string]any{"key": cur.Key(), "uptime_seconds": cur.UptimeSeconds}}); err != nil {
 				return nil, err
 			}
-		case !rebooted && cur.Kernel != prev.Kernel && cur.Kernel != "" && prev.Kernel != "":
+		case !rebooted && cur.Kernel != prev.Kernel && cur.Kernel != "" && prev.Kernel != "" && !livepatched:
 			if err := raise(store.Anomaly{Rule: "kernel_no_reboot", Severity: "medium",
 				Summary: fmt.Sprintf("Kernel changed from %s to %s without a reboot", prev.Kernel, cur.Kernel),
 				Detail:  map[string]any{"key": prev.Kernel + "→" + cur.Kernel}}); err != nil {
