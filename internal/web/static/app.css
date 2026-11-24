@@ -1245,6 +1245,14 @@ form.row.card.bulk-form label.bulk-all { flex: 1 1 100%; padding-bottom: 0; font
 .plan-add input[type=checkbox] { width: 1.05rem; height: 1.05rem; margin: 0; flex: none; }
 .card form.plan-add button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
 
+/* A patch plan's action columns and, in bulk-actions mode, their buttons. */
+.plan-bulk-toggle { margin: 10px 0; }
+table.plan-table .plan-col { white-space: nowrap; }
+table.plan-table tr.plan-actions th { font-weight: 400; vertical-align: top; padding-top: 4px; }
+table.plan-table tr.plan-actions .button { font-size: 12px; padding: 4px 8px; margin: 2px 0; white-space: nowrap; }
+table.plan-table input[type=checkbox] { width: 1.05rem; height: 1.05rem; margin: 0; vertical-align: middle; }
+.plan-select button.link { padding: 0; }
+
 /* /cloudflare dangling records: Cloudflare's proxy cloud, grouped by zone. */
 .cf-cloud { display: inline-flex; color: var(--cf-off); }
 .cf-cloud.on { color: var(--cf-on); }

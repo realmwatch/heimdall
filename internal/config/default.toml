@@ -186,6 +186,14 @@ agent_service = ""
 # link per org. Leave it false until the tool does, or the link leads
 # nowhere.
 collector_upgrade_action = false
+# The actions the tool takes for several hosts in one link (action_url,
+# {host} empty, {params} hosts=web-01,web-02): a patch plan's "Bulk actions"
+# offers a button only for these. Known: updates.install, system.reboot,
+# kernel.remove (no kernels: each host's agent picks its own),
+# collector.upgrade, php.source.sury_org, nginx.source.nginx_org and
+# service.restart (unit=nginx.service). Add one only once the tool takes it
+# for several hosts.
+bulk_actions = ["updates.install", "php.source.sury_org"]
 
 [report_webhook]
 # POST a signed report.received event (org, host, snapshot, time; no

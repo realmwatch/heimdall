@@ -8,11 +8,13 @@ import (
 	"html/template"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/realmwatch/heimdall/internal/config"
 	"github.com/realmwatch/heimdall/internal/ingest"
 	"github.com/realmwatch/heimdall/internal/report"
 	"github.com/realmwatch/heimdall/internal/store"
@@ -450,7 +452,9 @@ func TestFleetCollectorLinks(t *testing.T) {
 func TestPHPSourceMove(t *testing.T) {
 	t.Parallel()
 	const action = "https://changes.example.com/propose?action={action}&org={org}&host={host}&{params}"
-	e := newEnvCfg(t, "http://127.0.0.1:8080", nil, func(c *Config) { c.ChangeLink.ActionURL = action })
+	e := newEnvCfg(t, "http://127.0.0.1:8080", nil, func(c *Config) {
+		c.ChangeLink.ActionURL, c.ChangeLink.BulkActions = action, config.DefaultBulkActions
+	})
 	host := e.seed()
 	before := e.get("/hosts/acme/web-01", signedIn(e)).Body.String()
 	if strings.Contains(before, "php-ppa-h") || strings.Contains(e.get("/hosts", signedIn(e)).Body.String(), "Move PHP to packages.sury.org") {
@@ -494,5 +498,21 @@ func TestPHPSourceMove(t *testing.T) {
 	}
 	if list := bare.get("/hosts", signedIn(bare)).Body.String(); !strings.Contains(list, `href="/hosts/acme/web-01#php-ppa"`) {
 		t.Error("without a tool: the pill should lead to the section")
+	}
+}
+
+// Kernel findings stay out of a finding link, as the tool counts them:
+// it drafts no kernel fix from one and turns down the whole link over one.
+func TestFixableIDsSkipKernel(t *testing.T) {
+	t.Parallel()
+	list := []report.Finding{
+		{ID: 1, Fixed: "7.0.0-1020.21", Package: "linux-azure-7.0", Binaries: []string{"linux-image-7.0.0-1017-azure"}},
+		{ID: 2, Fixed: "6.8.0-90.91", Package: "linux", Binaries: []string{"linux-libc-dev"}},
+		{ID: 3, Fixed: "3.0.13-0ubuntu3.6", Package: "openssl", Binaries: []string{"libssl3"}},
+		{ID: 4, Fixed: "20240318.git3b128b60-0ubuntu2.9", Package: "linux-firmware", Binaries: []string{"linux-firmware"}},
+		{ID: 5, Fixed: "1.2", Package: "acme-kmod", Binaries: []string{"linux-modules-extra-6.8.0-45-generic"}},
+	}
+	if got := fixableIDs(list); !slices.Equal(got, []int64{3, 4}) {
+		t.Errorf("fixable = %v, want [3 4]", got)
 	}
 }

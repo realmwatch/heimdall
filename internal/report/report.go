@@ -334,11 +334,11 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 				return nil, err
 			}
 			host.PHPFromPPA = phpFromPPA(origins, inv.Packages)
+			host.NginxSuryBuild = nginxSuryBuild(inv.Packages)
 			if !f.CountsOnly { // fleet pages don't show it
 				rel = findings.ReleaseAnalysis(inv, info, releases[h.ID], kept[h.ID])
 				host.ReleaseLeftovers = rel.Finding
 				host.ThirdParty = thirdPartySources(origins, inv.Packages)
-				host.NginxSuryBuild = nginxSuryBuild(inv.Packages)
 			}
 		}
 		if product, cycle, ok := eol.OSCycle(inv.OSID, inv.OSVersion, inv.OSIDLike); ok {

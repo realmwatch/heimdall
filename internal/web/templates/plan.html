@@ -4,12 +4,18 @@
 {{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
 <p class="muted">{{.Plan.Hosts}} hosts · {{.Plan.Done}} done · {{.Plan.Verified}} verified{{if not .Plan.ClosedAt.IsZero}} · closed {{ts .Plan.ClosedAt}}{{end}}</p>
 {{if .Updates}}<p class="change-link">{{$cross := eq .Plan.OrgSlug ""}}{{range .Updates}}<a class="button change-btn" href="{{.URL}}" target="_blank" rel="noopener noreferrer">Batch {{.Batch}}{{if $cross}} · {{.Org}}{{end}}: install updates on {{.Hosts}} host{{if ne .Hosts 1}}s{{end}}</a> {{end}}<span class="muted small">Opens your change-management tool to draft every pending update on the hosts not yet done, as one change set if it groups them: one review, one approval, a canary host first. Heimdall sends it nothing.</span></p>{{end}}
-<div class="scroll"><table>
-  <thead><tr><th>Batch</th><th>Host</th><th>Pending security</th><th>State</th>{{if $can}}<th></th>{{end}}</tr></thead>
-  <tbody>{{range .Items}}<tr>
+{{$bulk := .Bulk}}{{$cols := .Columns}}{{$cross := eq .Plan.OrgSlug ""}}
+{{if .CanBulk}}<p class="plan-bulk-toggle">{{if $bulk}}<a class="button secondary" href="/plans/{{$id}}">Done with bulk actions</a> <span class="muted small">Tick hosts to limit each button to them; with none ticked, a button names every host in the plan that needs it. Each opens your change-management tool to draft one change set for those hosts: one review, one approval, a canary host first. Heimdall sends it nothing.</span>{{else}}<a class="button secondary" href="/plans/{{$id}}?bulk=1">Bulk actions</a>{{end}}</p>{{end}}
+{{if $bulk}}<p class="plan-select small" data-plan-select hidden>Select: <button type="button" class="link" data-plan-pick="all">all</button> · <button type="button" class="link" data-plan-pick="none">none</button>{{range .Batches}} · <button type="button" class="link" data-plan-pick="{{.}}">batch {{.}}</button>{{end}} <span class="muted" data-plan-count></span></p>{{end}}
+<div class="scroll"><table class="plan-table"{{if $bulk}} data-plan-bulk{{end}}>
+  <thead><tr>{{if $bulk}}<th aria-label="Select"></th>{{end}}<th>Batch</th><th>Host</th>{{range $cols}}<th class="plan-col">{{.Label}}</th>{{end}}<th>State</th>{{if $can}}<th></th>{{end}}</tr>
+  {{if $bulk}}<tr class="plan-actions"><th></th><th></th><th></th>{{range $cols}}<th class="plan-col" data-plan-action="{{.Action}}"{{with .URL}} data-url="{{.}}"{{end}} data-verb="{{.Verb}}"{{if $cross}} data-cross{{end}}>{{if .Count}}{{if .Bulk}}{{$c := .}}{{range .Links}}<a class="button change-btn small" href="{{.URL}}" target="_blank" rel="noopener noreferrer">{{$c.Verb}}{{if $cross}} · {{.Org}}{{end}} · {{.Hosts}}</a> {{end}}{{else}}<span class="muted small" title="Your change-management tool doesn't take this for several hosts yet: add {{.Action}} to [change_link] bulk_actions once it does. Each host's page still offers it.">{{.Count}} need it</span>{{end}}{{else}}<span class="muted small" title="No host in this plan needs it">done</span>{{end}}</th>{{end}}<th></th>{{if $can}}<th></th>{{end}}</tr>{{end}}
+  </thead>
+  <tbody>{{range .Rows}}{{$row := .}}<tr>
+    {{if $bulk}}<td><input type="checkbox" aria-label="Select {{.Host.Name}}" data-plan-row data-org="{{.Host.OrgSlug}}" data-host="{{.Host.Name}}" data-batch="{{.Batch}}" data-needs="{{.Needs}}"></td>{{end}}
     <td>{{.Batch}}</td>
-    <td><a href="{{hostURL .Host.OrgSlug .Host.Name}}">{{.Host.Name}}</a></td>
-    <td>{{.PendingSecurity}}</td>
+    <td><a href="{{hostURL .Host.OrgSlug .Host.Name}}">{{.Host.Name}}</a>{{if $cross}} <span class="muted small">{{.Host.OrgSlug}}</span>{{end}}</td>
+    {{range $cols}}{{$cell := $row.Cell .Action}}<td class="plan-col">{{if not $row.Reported}}<span class="muted">—</span>{{else if $cell.Need}}<span class="pill {{if $cell.Bad}}bad{{else}}warn{{end}}"{{with $cell.Title}} title="{{.}}"{{end}}>{{$cell.Text}}</span>{{else}}<span class="muted">{{or $cell.Text "—"}}</span>{{end}}</td>{{end}}
     <td>{{if not .VerifiedAt.IsZero}}<span class="badge ok">verified</span>{{else if not .DoneAt.IsZero}}<span class="badge">done{{if .DoneBy}} by {{.DoneBy}}{{end}}</span> <span class="muted">waiting for a clean check-in</span>{{else}}to do{{end}}</td>
     {{if $can}}<td>
       <form method="post" action="/plans/{{$id}}/{{if .DoneAt.IsZero}}done{{else}}undo{{end}}" class="inline">
@@ -21,7 +27,7 @@
         <button type="submit" class="link">remove</button>
       </form>
     </td>{{end}}
-  </tr>{{else}}<tr><td colspan="5" class="muted">No hosts in this plan yet.</td></tr>{{end}}</tbody>
+  </tr>{{else}}<tr><td colspan="99" class="muted">No hosts in this plan yet.</td></tr>{{end}}</tbody>
 </table></div>
 {{if $can}}
 {{if .Candidates}}<section class="card">
