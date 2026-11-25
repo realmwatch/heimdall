@@ -166,13 +166,13 @@
   {{else}}<p class="empty">No open findings in OS packages.</p>{{end}}
 </section>
 
-{{if .Sites}}
+{{if or .Sites .DisabledSites .HiddenArchived}}
 <section id="sites">
   <h2>Sites</h2>
   {{if gt (len .Sites) 1}}<ul class="site-index small">{{range .Sites}}<li><a href="#{{.ID}}">{{with first .ServerNames}}{{if eq . "_"}}Default server{{else}}{{.}}{{end}}{{else}}{{.Root}}{{end}}</a> {{if or .Fixable .Watch}}<span class="muted">{{attn .Fixable .Watch}}</span>{{else if .Findings}}<span class="muted">nothing to act on</span>{{else}}<span class="muted">no findings</span>{{end}}</li>{{end}}</ul>{{end}}
   {{range .Sites}}
   <div class="card site" id="{{.ID}}">
-    <h3><a href="{{siteURL $.Body.Org $.Body.Name .Root}}">{{with first .ServerNames}}{{if eq . "_"}}Default server{{else}}{{.}}{{end}}{{else}}{{.Root}}{{end}}</a> {{with .Label}}<span class="site-label label-{{.}}">{{.}}</span>{{end}} {{template "sitebadges" .Site}}</h3>
+    <h3><a href="{{siteURL $.Body.Org $.Body.Name .Root}}">{{with first .ServerNames}}{{if eq . "_"}}Default server{{else}}{{.}}{{end}}{{else}}{{.Root}}{{end}}</a> {{with .Label}}<span class="site-label label-{{.}}">{{.}}</span>{{end}} {{template "sitebadges" .Site}}{{if .Archived}} <span class="badge warn" title="Archived, but nginx still serves it: disable it to take it out of service">archived, still served</span>{{end}}</h3>
     <p class="site-root"><code class="path">{{pathBreak .Root}}</code>{{if and .DocumentRoot (ne .DocumentRoot .Root)}} <span class="muted">serving</span> <code class="path">{{pathBreak (relPath .Root .DocumentRoot)}}</code>{{end}}{{if gt (len .ServerNames) 1}} <span class="muted">· also</span> {{join (slice .ServerNames 1) ", "}}{{end}}</p>
     <ul class="site-facts">
       <li><span class="k">Web server</span><span class="v">{{with .WebServer}}{{.}}{{else}}<span class="muted">listed in HEIMDALL_SITES</span>{{end}}{{with .HTTP2Label}} · HTTP/2 {{.}}{{end}}</span></li>
@@ -184,6 +184,7 @@
       {{if .NpmPackages}}<li><span class="k">npm packages</span><span class="v">{{.NpmPackages}}{{with .NpmDev}} <span class="muted">({{.}} dev)</span>{{end}}</span></li>{{end}}
       {{with .Repo}}<li class="repo-fact"><span class="k">Repository</span><span class="v">{{with repoWeb .}}<a href="{{.}}" rel="noopener noreferrer"><code class="path">{{repoShort .}}</code></a>{{else}}<code class="path">{{.}}</code>{{end}}</span></li>{{end}}
     </ul>
+    {{if or .DisableURL $.Body.CanOperate}}<p class="site-archive">{{with .DisableURL}}<a class="button change-btn" href="{{.}}" target="_blank" rel="noopener noreferrer" title="Opens your change-management tool to draft taking the site out of service: its nginx vhost, workers and scheduled jobs. Nothing is deleted.">Propose disable</a> {{end}}{{if $.Body.CanOperate}}{{template "sitearchiveform" (dict "CSRF" $csrf "Org" $.Body.Org "Host" $.Body.Name "Root" .Root "Archived" .Archived "Back" (print (hostURL $.Body.Org $.Body.Name) "#" .ID))}}{{end}}</p>{{end}}
     {{if .PRHandoff}}{{template "prhandoff" .PRHandoff}}{{else}}{{with .HandoffURL}}<p class="site-handoff"><a class="button secondary handoff-btn" href="{{.}}">Hand off to agent</a></p>{{end}}{{end}}
     {{if .Findings}}
     {{$open := eq (len $.Body.Sites) 1}}{{$pr := ne .PRHandoff ""}}
@@ -191,6 +192,15 @@
     {{with .Npm}}{{if .Findings}}{{template "siteeco" (siteEco "npm" "package-lock.json" . $open $pr)}}{{end}}{{end}}
     {{else if .Readable}}<p class="empty">No open findings in {{if .NpmPackages}}Composer or npm{{else}}Composer{{end}} packages.</p>{{end}}
   </div>
+  {{end}}
+  {{if or .DisabledSites .HiddenArchived}}
+  <h3 id="disabled-sites">Disabled sites</h3>
+  <p class="muted small">Their nginx vhost is there but not enabled, so nothing serves them and Heimdall doesn't check their packages. Nothing was deleted: <em>Propose enable</em> puts a site back.</p>
+  {{if .DisabledSites}}<ul class="disabled-sites">{{range .DisabledSites}}
+    <li><strong>{{with first .Names}}{{if eq . "_"}}Default server{{else}}{{.}}{{end}}{{else}}{{.Root}}{{end}}</strong>{{if .Archived}} <span class="badge muted">archived</span>{{end}} <code class="path">{{pathBreak .Root}}</code>{{with .Vhost}} <span class="muted small">{{.}}</span>{{end}}
+      <span class="disabled-actions">{{with .EnableURL}}<a class="button secondary change-btn" href="{{.}}" target="_blank" rel="noopener noreferrer" title="Opens your change-management tool to draft putting the site back in service">Propose enable</a> {{end}}{{if .CanOperate}}{{template "sitearchiveform" (dict "CSRF" $csrf "Org" .Org "Host" .Host "Root" .Root "Archived" .Archived "Back" .Back)}}{{end}}</span></li>{{end}}
+  </ul>{{end}}
+  {{if .HiddenArchived}}<p class="small"><a href="{{hostURL .Org .Name}}?archived=1#disabled-sites">Show archived ({{.HiddenArchived}})</a></p>{{else if .ShowArchived}}<p class="small"><a href="{{hostURL .Org .Name}}#disabled-sites">Hide archived</a></p>{{end}}
   {{end}}
 </section>
 {{end}}

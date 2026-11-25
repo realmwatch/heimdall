@@ -21,11 +21,11 @@
 </nav>
 {{if .Sites}}
 <div class="scroll"><table>
-  <thead><tr><th>Site</th><th>Label</th><th>Host</th><th>Web server</th><th>PHP-FPM</th><th>Laravel</th><th>Flags</th><th class="num">KEV</th><th class="num">Critical</th><th class="num">High</th><th class="num">Fixable</th></tr></thead>
+  <thead><tr><th>Site</th><th>Label</th><th>Host</th><th>Web server</th><th>PHP-FPM</th><th>Laravel</th><th>Flags</th><th class="num">KEV</th><th class="num">Critical</th><th class="num">High</th><th class="num">Fixable</th><th>Retire</th></tr></thead>
   <tbody>
   {{range .Sites}}{{$row := .}}
   <tr>
-    <td><a class="id" href="{{siteURL .Org .Host .Root}}">{{with first .ServerNames}}{{if eq . "_"}}default server{{else}}{{.}}{{end}}{{else}}{{.Root}}{{end}}</a><div class="muted small">{{.Root}}</div>{{if gt (len .ServerNames) 1}}<div class="muted small">{{join .ServerNames ", "}}</div>{{end}}</td>
+    <td>{{if .Disabled}}<strong>{{with first .ServerNames}}{{if eq . "_"}}default server{{else}}{{.}}{{end}}{{else}}{{.Root}}{{end}}</strong> <span class="badge muted" title="Its nginx vhost is there but not enabled: nothing serves it, and Heimdall doesn't check its packages">disabled</span>{{if .Archived}} <span class="badge muted">archived</span>{{end}}{{else}}<a class="id" href="{{siteURL .Org .Host .Root}}">{{with first .ServerNames}}{{if eq . "_"}}default server{{else}}{{.}}{{end}}{{else}}{{.Root}}{{end}}</a>{{if .Archived}} <span class="badge warn" title="Archived, but nginx still serves it: disable it to take it out of service">archived, still served</span>{{end}}{{end}}<div class="muted small">{{.Root}}</div>{{if gt (len .ServerNames) 1}}<div class="muted small">{{join .ServerNames ", "}}</div>{{end}}</td>
     <td>{{if .Label}}<span class="site-label label-{{.Label}}{{if not .LabelSet}} suggested{{end}}" title="{{if .LabelSet}}set by an admin{{else}}suggested from the site's name{{end}}">{{.Label}}</span>{{else}}<span class="muted small">unlabeled</span>{{end}}
       {{if .CanAdmin}}<details class="label-pick"><summary class="link small">change</summary>
         <form method="post" action="/sites/label" class="inline">
@@ -35,17 +35,21 @@
         </form></details>{{end}}</td>
     <td><a href="{{hostURL .Org .Host}}">{{.Host}}</a>{{if $.Body.ShowOrgs}} <span class="muted">({{.Org}})</span>{{end}}</td>
     <td>{{with .WebServer}}{{.}}{{else}}<span class="muted">listed</span>{{end}}</td>
+    {{if .Disabled}}<td colspan="7" class="muted small">Not served, so not checked</td>{{else}}
     <td>{{with .PHPFPM}}{{.}}{{else}}<span class="muted">unknown</span>{{end}} {{template "lifebadge" .PHPLife}}</td>
     <td>{{if .FrameworkVersion}}{{.FrameworkVersion}} {{template "lifebadge" .FrameworkLife}}{{else}}<span class="muted">—</span>{{end}}</td>
     <td>{{template "sitebadges" .Site}}</td>
     <td class="num">{{if .Counts.KEV}}<span class="badge kev">{{.Counts.KEV}}</span>{{else}}0{{end}}</td>
     <td class="num">{{.Counts.Critical}}</td>
     <td class="num">{{.Counts.High}}</td>
-    <td class="num">{{.Counts.Fixable}}{{with .Counts.Dev}}<div class="muted small" title="findings on npm dev dependencies: needed to build the site, not to run it, so they aren't in these counts">+{{.}} dev</div>{{end}}</td>
+    <td class="num">{{.Counts.Fixable}}{{with .Counts.Dev}}<div class="muted small" title="findings on npm dev dependencies: needed to build the site, not to run it, so they aren't in these counts">+{{.}} dev</div>{{end}}</td>{{end}}
+    <td class="retire">{{with .DisableURL}}<a class="button change-btn" href="{{.}}" target="_blank" rel="noopener noreferrer" title="Opens your change-management tool to draft taking the site out of service: its nginx vhost, workers and scheduled jobs. Nothing is deleted.">Propose disable</a>{{end}}{{with .EnableURL}}<a class="button secondary change-btn" href="{{.}}" target="_blank" rel="noopener noreferrer" title="Opens your change-management tool to draft putting the site back in service">Propose enable</a>{{end}}{{if .CanOperate}}{{template "sitearchiveform" (dict "CSRF" $csrf "Org" .Org "Host" .Host "Root" .Root "Archived" .Archived "Back" $.Body.Back)}}{{end}}</td>
   </tr>
   {{end}}
   </tbody>
 </table></div>
+{{if .HiddenArchived}}<p class="small"><a href="{{.ArchivedURL}}">Show archived ({{.HiddenArchived}})</a></p>{{else if .ShowArchived}}<p class="small"><a href="{{.Back}}">Hide archived</a></p>{{end}}
+{{else if .HiddenArchived}}<p class="empty">Every site here is archived. <a href="{{.ArchivedURL}}">Show archived ({{.HiddenArchived}})</a></p>
 {{else}}
 <p class="empty">No sites found yet. The collector (0.2.0+) discovers sites from enabled nginx and Apache vhosts, plus any app roots listed in <code>HEIMDALL_SITES</code>.</p>
 {{end}}

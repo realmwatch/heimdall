@@ -232,6 +232,7 @@ func New(cfg Config, st *store.Store, a Authenticator, search SearchFunc, log *s
 	mux.HandleFunc("POST /drift/tag", s.requireAuth(s.driftTag))
 	mux.HandleFunc("POST /hosts/{org}/{host}/env", s.requireAuth(s.hostEnv))
 	mux.HandleFunc("POST /sites/label", s.requireAuth(s.siteLabel))
+	mux.HandleFunc("POST /sites/archive", s.requireAuth(s.siteArchive))
 	mux.HandleFunc("POST /sites/repo", s.requireAuth(s.siteRepo))
 	mux.HandleFunc("POST /sites/branch", s.requireAuth(s.siteBranch))
 	mux.HandleFunc("GET /hosts/{org}/{host}/handoff", s.requireAuth(s.handoffPage))
