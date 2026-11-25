@@ -226,9 +226,11 @@ func WriteStatus(dir string, s Status) error {
 	return os.Rename(tmp, filepath.Join(dir, statusFile))
 }
 
-// ShareWithHub gives a file in dir dir's group (heimdall-hub), so the hub
-// can read it; root's files are otherwise root's group.
+// ShareWithHub gives a file in dir dir's group (heimdall-hub) and makes it
+// group-readable, so the hub can read it: root's files are otherwise root's
+// group, and heimdall's umask (077) leaves them 0600.
 func ShareWithHub(dir, path string) {
+	os.Chmod(path, 0o640)
 	if g := groupOf(dir); g >= 0 {
 		os.Chown(path, -1, g)
 	}
