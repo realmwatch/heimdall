@@ -98,3 +98,19 @@ func TestSiteArchive(t *testing.T) {
 		t.Error("viewer sees the archive form")
 	}
 }
+
+func TestSiteParams(t *testing.T) {
+	t.Parallel()
+	for vhost, want := range map[string]string{
+		"/etc/nginx/sites-enabled/a":     "root=%2Fsrv%2Fa&vhost=%2Fetc%2Fnginx%2Fsites-enabled%2Fa",
+		"/etc/nginx/sites-available/a":   "root=%2Fsrv%2Fa&vhost=%2Fetc%2Fnginx%2Fsites-available%2Fa",
+		"/etc/nginx/conf.d/a.conf":       "root=%2Fsrv%2Fa&vhost=%2Fetc%2Fnginx%2Fconf.d%2Fa.conf",
+		"/etc/nginx/acme-disabled/a.2":   "root=%2Fsrv%2Fa",
+		"/etc/nginx/sites-enabled/sub/a": "root=%2Fsrv%2Fa",
+		"":                               "root=%2Fsrv%2Fa",
+	} {
+		if got := siteParams("/srv/a", vhost).Encode(); got != want {
+			t.Errorf("siteParams(%q) = %s, want %s", vhost, got, want)
+		}
+	}
+}

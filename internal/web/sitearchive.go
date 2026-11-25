@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"path"
 	"slices"
 	"strings"
 
@@ -46,10 +47,18 @@ func (c ChangeLink) siteEnableLink(org, host, root, vhost string) string {
 	return c.actionLink("site.enable", org, host, siteParams(root, vhost))
 }
 
+// siteParams are a site link's params. vhost is only sent when it's a file
+// directly in sites-enabled, sites-available or conf.d, the places the
+// tool takes a hint from (a set-aside file isn't one: the tool's own
+// record says where it goes back).
 func siteParams(root, vhost string) url.Values {
 	p := url.Values{"root": {root}}
-	if vhost != "" {
-		p.Set("vhost", vhost)
+	dir, file := path.Split(vhost)
+	switch dir {
+	case "/etc/nginx/sites-enabled/", "/etc/nginx/sites-available/", "/etc/nginx/conf.d/":
+		if file != "" {
+			p.Set("vhost", vhost)
+		}
 	}
 	return p
 }

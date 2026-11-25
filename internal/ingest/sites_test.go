@@ -16,12 +16,12 @@ import (
 func TestParseSites(t *testing.T) {
 	got, ok := parseSites("v1 on /home/acme/example.com /etc/nginx/sites-enabled/example.com;on /var/www/b -;" +
 		"off /home/acme/old.example.com /etc/nginx/sites-available/old old.example.com,www.old.example.com,BAD_NAME;" +
-		"off /home/acme/example.com /x dup;off relative /x;bogus /a /b;off /home/acme/gone /etc/nginx/heimdall-disabled/gone")
+		"off /home/acme/example.com /x dup;off relative /x;bogus /a /b;off /home/acme/gone /etc/nginx/acme-disabled/gone")
 	want := []store.SiteVhost{
 		{Root: "/home/acme/example.com", Vhost: "/etc/nginx/sites-enabled/example.com", Enabled: true},
 		{Root: "/var/www/b", Enabled: true},
 		{Root: "/home/acme/old.example.com", Vhost: "/etc/nginx/sites-available/old", Names: []string{"old.example.com", "www.old.example.com"}},
-		{Root: "/home/acme/gone", Vhost: "/etc/nginx/heimdall-disabled/gone"},
+		{Root: "/home/acme/gone", Vhost: "/etc/nginx/acme-disabled/gone"},
 	}
 	if !ok || !reflect.DeepEqual(got, want) {
 		t.Fatalf("parseSites = %+v, %v", got, ok)

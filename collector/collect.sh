@@ -609,8 +609,10 @@ sites_json() {
 # ── Site vhosts (sent as X-Heimdall-Sites) ─────────────────────────────────
 # The nginx file that serves each site, and the sites whose vhost is there
 # but not enabled: in sites-available with nothing in sites-enabled
-# pointing at it, or set aside in heimdall-disabled/ by the
-# change-management tool's site.disable. A disabled site drops out of the
+# pointing at it, or set aside by the change-management tool's
+# site.disable in a folder whose name ends in -disabled
+# (/etc/nginx/<tool>-disabled/, where a vhost that was a regular file in
+# sites-enabled or conf.d goes). A disabled site drops out of the
 # snapshot (no packages, no findings, no PHP in use), so this is how the
 # hub still knows it's there:
 #
@@ -632,7 +634,7 @@ sites_state() {
 		# shellcheck disable=SC2086
 		nginx_parse $NGINX_VHOSTS | sed 's/^/on|/'
 		set --
-		for f in "$NGINX_DIR"/sites-available/* "$NGINX_DIR"/heimdall-disabled/*; do
+		for f in "$NGINX_DIR"/sites-available/* "$NGINX_DIR"/*-disabled/*; do
 			[ -f "$f" ] || continue
 			real=$(readlink -f "$f" 2>/dev/null) || continue
 			if printf '%s\n' "$enabled" | grep -qxF "$real"; then continue; fi
