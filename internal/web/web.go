@@ -72,6 +72,7 @@ type SearchFunc func(ctx context.Context, query string, scope store.Scope) (*sea
 
 type Config struct {
 	Updates     func() (updates.Release, bool) // newer release for the admin banner; nil = off
+	Upgrades    *Upgrades                      // Admin > Updates (upgrades.go); nil = checks off
 	IngestURL   string                         // ingest.public_url, for install commands
 	BaseURL     string                         // e.g. https://heimdall.internal or http://127.0.0.1:8080
 	StaleAfter  time.Duration                  // hosts.stale_after
@@ -287,6 +288,9 @@ func New(cfg Config, st *store.Store, a Authenticator, search SearchFunc, log *s
 	mux.HandleFunc("POST /admin/users/mcp-revoke", s.requireAuth(s.requireAdmin(s.adminTokenRevoke)))
 	// Branding: the hub's name, accent, logo and app icon (branding.go).
 	mux.HandleFunc("GET /admin/branding", s.requireAuth(s.requireAdmin(s.brandingPage)))
+	mux.HandleFunc("GET /admin/updates", s.requireAuth(s.requireAdmin(s.updatesPage)))
+	mux.HandleFunc("POST /admin/updates/check", s.requireAuth(s.requireAdmin(s.updatesCheck)))
+	mux.HandleFunc("POST /admin/updates/install", s.requireAuth(s.requireAdmin(s.updatesInstall)))
 	mux.HandleFunc("POST /admin/branding/{action}", s.requireAuthUpload(s.requireAdmin(s.brandingAction)))
 	mux.HandleFunc("GET /branding/{file}", s.brandFile)
 	mux.HandleFunc("GET /admin/security", s.requireAuth(s.requireAdmin(s.securityPage))) // step-up codes (stepup.go)
@@ -571,11 +575,12 @@ type page struct {
 	Counts     navCounts // the sidebar's badges
 	Brand      brandView // the hub's name, logo and icons (branding.go)
 	StepUp     string    // paths app.js asks a step-up code for (stepup.go), or ""
+	UpdatesOn  bool      // Admin > Updates exists (release checks are on)
 	Body       any
 }
 
 func (s *server) render(w http.ResponseWriter, r *http.Request, status int, name string, v *auth.Viewer, title, nav string, body any) {
-	p := page{Title: title, Nav: nav, Viewer: v, Body: body}
+	p := page{Title: title, Nav: nav, Viewer: v, Body: body, UpdatesOn: s.cfg.Upgrades != nil}
 	if v != nil {
 		p.Perm, p.Counts = navPermOf(v), s.navCountsFor(r, v)
 		p.StepUp = s.stepUpDialog(r, v)
@@ -675,6 +680,7 @@ func parsePages() (map[string]*template.Template, error) {
 	names = append(names, "offline")                             // the app's offline page (pwa.go)
 	names = append(names, "alerts", "defense", "more")           // the phone layout's tabs (phone.go)
 	names = append(names, "notifications")                       // push notifications (notifications.go)
+	names = append(names, "updates")                             // Admin > Updates (upgrades.go)
 	pages := make(map[string]*template.Template, len(names))
 	for _, n := range names {
 		t, err := template.New(n).Funcs(funcs).ParseFS(templatesFS, "templates/layout.html", "templates/partials.html", "templates/ai.html", "templates/"+n+".html")

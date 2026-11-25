@@ -98,9 +98,16 @@ sources  = [
 interval = "1h"
 
 [updates]
-# Once a day, ask GitHub for the latest release's version number and show
-# admins a banner when a newer one exists. Nothing is downloaded.
+# Every hour, ask GitHub for the latest release's version number and show
+# admins a banner when a newer one exists.
 check = true
+# Install a newer release on its own once it has been out for soak. The hub
+# can't upgrade itself: it asks the root heimdall-upgrade service, which
+# installs only a newer release signed by Heimdall's GitHub Actions, and
+# rolls back if the new hub doesn't come up. Admins can also install from
+# Admin > Updates. Off: only the banner and the button.
+auto_install = true
+soak = "2h"
 
 [notify]
 # Counts-only digest (no hostnames, packages or CVEs), e.g. every = "24h".

@@ -2,8 +2,9 @@
 
 // Package updates checks whether a newer Heimdall release exists, so the
 // UI can tell admins. It only reads the latest release's version; the hub
-// never downloads or installs anything itself (upgrades are a deliberate
-// root action with the verified installer).
+// never downloads or installs anything itself. To upgrade, it asks the
+// root heimdall-upgrade service (install.go), which verifies the release
+// and runs its installer.
 package updates
 
 import (
@@ -25,8 +26,9 @@ var tagRe = regexp.MustCompile(`^v(\d{1,4})\.(\d{1,4})\.(\d{1,4})$`)
 
 // Release is a newer version admins should know about.
 type Release struct {
-	Version string // e.g. v0.5.0
-	URL     string // release notes
+	Version   string    // e.g. v0.5.0
+	URL       string    // release notes
+	Published time.Time // when it was published; zero if GitHub didn't say
 }
 
 type Checker struct {
@@ -34,8 +36,14 @@ type Checker struct {
 	URL     string // LatestURL if empty
 	Current string // this build's version; checks are skipped unless it's a release tag
 
-	mu     sync.Mutex
-	latest Release
+	// Every is how often Run checks (daily if zero), and OnCheck is called
+	// after each successful check with the newer release, if any.
+	Every   time.Duration
+	OnCheck func(ctx context.Context, r Release, newer bool)
+
+	mu      sync.Mutex
+	latest  Release
+	checked time.Time
 }
 
 // Enabled reports whether this build can be compared with releases.
@@ -53,6 +61,7 @@ func (c *Checker) Check(ctx context.Context) error {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.checked = time.Now()
 	if r.Version != "" && Newer(r.Version, c.Current) {
 		c.latest = r
 	} else {
@@ -71,10 +80,11 @@ func Latest(ctx context.Context, hc *netx.Client, url string) (Release, error) {
 		url = LatestURL
 	}
 	var r struct {
-		TagName string `json:"tag_name"`
-		HTMLURL string `json:"html_url"`
-		Draft   bool   `json:"draft"`
-		Pre     bool   `json:"prerelease"`
+		TagName   string    `json:"tag_name"`
+		HTMLURL   string    `json:"html_url"`
+		Draft     bool      `json:"draft"`
+		Pre       bool      `json:"prerelease"`
+		Published time.Time `json:"published_at"`
 	}
 	if err := hc.GetJSON(ctx, url, 1<<20, &r); err != nil {
 		return Release{}, err
@@ -83,7 +93,7 @@ func Latest(ctx context.Context, hc *netx.Client, url string) (Release, error) {
 		!strings.HasPrefix(r.HTMLURL, "https://github.com/realmwatch/heimdall/releases/") {
 		return Release{}, ErrNoRelease
 	}
-	return Release{Version: r.TagName, URL: r.HTMLURL}, nil
+	return Release{Version: r.TagName, URL: r.HTMLURL, Published: r.Published}, nil
 }
 
 // IsTag reports whether v is a plain release tag (vX.Y.Z).
@@ -94,6 +104,13 @@ func (c *Checker) Available() (Release, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.latest, c.latest.Version != ""
+}
+
+// Checked is when the last successful check ran (zero: none yet).
+func (c *Checker) Checked() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.checked
 }
 
 // Newer reports whether release tag a is newer than b (both vX.Y.Z).
@@ -112,7 +129,8 @@ func Newer(a, b string) bool {
 	return false
 }
 
-// Run checks shortly after start and then daily until ctx ends.
+// Run checks shortly after start and then every Every (daily) until ctx
+// ends.
 func (c *Checker) Run(ctx context.Context, logf func(string, ...any)) {
 	if !c.Enabled() {
 		return
@@ -126,10 +144,20 @@ func (c *Checker) Run(ctx context.Context, logf func(string, ...any)) {
 		case <-t.C:
 			if err := c.Check(ctx); err != nil {
 				logf("update check failed", "err", err)
-			} else if r, ok := c.Available(); ok {
-				logf("a newer Heimdall release is available", "version", r.Version, "running", c.Current)
+			} else {
+				r, ok := c.Available()
+				if ok {
+					logf("a newer Heimdall release is available", "version", r.Version, "running", c.Current)
+				}
+				if c.OnCheck != nil {
+					c.OnCheck(ctx, r, ok)
+				}
 			}
-			t.Reset(24 * time.Hour)
+			every := c.Every
+			if every <= 0 {
+				every = 24 * time.Hour
+			}
+			t.Reset(every)
 		}
 	}
 }

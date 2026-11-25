@@ -85,6 +85,20 @@ sudo sh "$dist/install-hub.sh" --from-dir "$dist" --org acme --no-tailscale --sk
 systemctl is-active --quiet heimdall || fail "hub not running"
 curl -fs -o /dev/null http://127.0.0.1:8080/login || fail "UI not answering"
 expect 'v' sudo heimdall version
+
+step "Upgrade requests from the hub"
+systemctl is-active --quiet heimdall-upgrade.path || fail "heimdall-upgrade.path not active"
+[ "$(sudo stat -c '%U %G %a' /var/lib/heimdall-upgrade)" = "root heimdall-hub 750" ] ||
+	fail "status folder is $(sudo stat -c '%U %G %a' /var/lib/heimdall-upgrade)"
+# A request that isn't a release tag is refused, and the hub can read why.
+sudo runuser -u heimdall-hub -- sh -c 'printf "not-a-tag\n" >/var/lib/heimdall/upgrade-request'
+i=0
+until sudo runuser -u heimdall-hub -- cat /var/lib/heimdall-upgrade/status.json 2>/dev/null | grep -q '"result": "refused"'; do
+	i=$((i + 1))
+	[ "$i" -lt 30 ] || fail "no refused status after a bad request: $(sudo cat /var/lib/heimdall-upgrade/status.json 2>&1; journalctl -u heimdall-upgrade --no-pager -n 20 2>&1)"
+	sleep 1
+done
+systemctl is-active --quiet heimdall || fail "a refused request stopped the hub"
 expect 'acme' sudo heimdall org list
 expect 'config' sudo heimdall config update
 # secrets_ok: the hub's secrets key is there, root-only, 32 bytes, and the

@@ -38,6 +38,7 @@ COLLECTOR_OUT ?= $(CURDIR)/bin/collector-out
 shellcheck:
 	docker run --rm -v "$(CURDIR)/collector:/mnt:ro" $(SHELLCHECK_IMAGE) -s sh /mnt/collect.sh /mnt/install.sh /mnt/privilege-watch.sh /mnt/privilege-hook /mnt/login-watch.sh /mnt/test/run-containers.sh /mnt/test/sites-fixture.sh /mnt/test/events-deploys.sh /mnt/test/site-branches.sh /mnt/test/set-hub.sh /mnt/test/privilege-hook.sh /mnt/test/ssh-state.sh /mnt/test/apt-origins.sh /mnt/test/nginx-state.sh /mnt/test/php-state.sh /mnt/test/livepatch-state.sh /mnt/test/sites-state.sh
 	docker run --rm -v "$(CURDIR)/deploy:/mnt:ro" $(SHELLCHECK_IMAGE) -s sh /mnt/install-hub.sh /mnt/test/installed-smoke.sh
+	docker run --rm -v "$(CURDIR)/scripts:/mnt:ro" $(SHELLCHECK_IMAGE) -s sh /mnt/release.sh
 
 # Runs collect.sh as an unprivileged user on Debian, Ubuntu, Rocky and
 # Alpine, then validates every snapshot with the hub's strict decoder.

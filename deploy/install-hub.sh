@@ -316,6 +316,44 @@ collector_version=$(sed -n 's/^VERSION=//p' "$work/collect.sh" | head -n 1)
 collector_sha=$(sha256sum "$work/collect.sh" | cut -d ' ' -f 1)
 hd collector trust --version "$collector_version" --note "release $version" "$collector_sha" >/dev/null 2>&1 || true
 
+# The root service that installs releases the hub asks for (Admin >
+# Updates, or [updates] auto_install): the hub, unprivileged, writes the
+# version to /var/lib/heimdall/upgrade-request; this path unit then starts
+# `heimdall upgrade --request`, which installs only a newer release whose
+# signature checks out, and records how it went in /var/lib/heimdall-upgrade
+# (root's, readable by the hub). See internal/updates/install.go.
+setup_upgrade_service() {
+	install -d -m 0750 -o root -g heimdall-hub /var/lib/heimdall-upgrade
+	cat >/etc/systemd/system/heimdall-upgrade.path <<'UNIT'
+[Unit]
+Description=Heimdall hub: watch for upgrade requests
+Documentation=https://github.com/realmwatch/heimdall/blob/main/docs/deployment.md
+
+[Path]
+PathChanged=/var/lib/heimdall/upgrade-request
+Unit=heimdall-upgrade.service
+
+[Install]
+WantedBy=paths.target
+UNIT
+	cat >/etc/systemd/system/heimdall-upgrade.service <<'UNIT'
+[Unit]
+Description=Heimdall hub: install the release the hub asked for
+Documentation=https://github.com/realmwatch/heimdall/blob/main/docs/deployment.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/heimdall upgrade --request /var/lib/heimdall/upgrade-request
+TimeoutStartSec=30min
+UNIT
+	chmod 0644 /etc/systemd/system/heimdall-upgrade.path /etc/systemd/system/heimdall-upgrade.service
+	systemctl daemon-reload
+	systemctl enable --now heimdall-upgrade.path >/dev/null 2>&1 || say "couldn't start heimdall-upgrade.path; upgrades from the UI won't run"
+}
+setup_upgrade_service
+
 # Caddy and `tailscale serve` share port 443 on this box: serve listens on
 # the tailnet addresses only (the UI, and 8443/8444), Caddy on the others.
 # A Caddy site with no bind line listens on every address, so whichever of
