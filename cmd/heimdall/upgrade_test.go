@@ -19,6 +19,7 @@ import (
 
 	"github.com/realmwatch/heimdall/internal/config"
 	"github.com/realmwatch/heimdall/internal/netx"
+	"github.com/realmwatch/heimdall/internal/updates"
 )
 
 func stub[T any](t *testing.T, p *T, v T) {
@@ -298,5 +299,80 @@ func TestSignaturePinsMatch(t *testing.T) {
 		if re.MatchString(id) != want {
 			t.Errorf("signer %q accepted = %v, want %v", id, !want, want)
 		}
+	}
+}
+
+// heimdall-upgrade.service: only a newer, signed release the hub asked
+// for is installed, and how it went is recorded for the hub.
+func TestUpgradeFromRequest(t *testing.T) {
+	script := []byte("#!/bin/sh\necho installer\n")
+	sum := sha256.Sum256(script)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/SHA256SUMS"):
+			w.Write([]byte(hex.EncodeToString(sum[:]) + "  install-hub.sh\n"))
+		case strings.HasSuffix(r.URL.Path, "/install-hub.sh"):
+			w.Write(script)
+		case strings.HasSuffix(r.URL.Path, "/SHA256SUMS.sigstore.json"):
+			w.Write([]byte(`{"bundle":1}`))
+		case r.URL.Path == "/cosign/v3.1.4/cosign-linux-amd64":
+			w.Write(fakeCosign)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	stub(t, &upgradeHTTP, func() *netx.Client { return netx.NewForTest(srv.Client()) })
+	stub(t, &releaseBase, srv.URL+"/dl/")
+	stub(t, &version, "v0.5.0")
+	stub(t, &isRoot, func() bool { return true })
+	sigOK := true
+	stubCosign(t, srv.URL+"/cosign/", func([]string) bool { return sigOK })
+	var ran []string
+	fail := false
+	stub(t, &runShell, func(a *app, path string, args []string) error {
+		ran = args
+		a.stderr.Write([]byte("installer says hello\n"))
+		if fail {
+			return errors.New("exit status 1")
+		}
+		return nil
+	})
+	d := t.TempDir()
+	req, dir := filepath.Join(d, "request"), filepath.Join(d, "status")
+	os.Mkdir(dir, 0o750)
+	upgrade := func(tag string) (updates.Status, error) {
+		t.Helper()
+		os.WriteFile(req, []byte(tag+"\n"), 0o600)
+		ran = nil
+		var out, errb bytes.Buffer
+		err := run(t.Context(), []string{"upgrade", "--request", req, "--status", dir}, &out, &errb)
+		s, _ := (&updates.Installer{Dir: dir}).Status()
+		return s, err
+	}
+	s, err := upgrade("v0.6.0")
+	if err != nil || s.Result != updates.ResultOK || s.Version != "v0.6.0" || s.From != "v0.5.0" || s.Finished.IsZero() ||
+		strings.Join(ran, " ") != "--version v0.6.0" || !strings.Contains(s.Log, "installer says hello") {
+		t.Fatalf("upgrade: %v %+v ran %v", err, s, ran)
+	}
+	// Not newer, or not a tag: refused, nothing run.
+	for _, tag := range []string{"v0.4.0", "v0.6.0 --skip-signature-check", "../../etc/passwd"} {
+		if s, err := upgrade(tag); err == nil || s.Result != updates.ResultRefused || ran != nil {
+			t.Errorf("%q: %v %+v ran %v", tag, err, s, ran)
+		}
+	}
+	// A bad signature or a failing installer: failed, and recorded.
+	sigOK = false
+	if s, err := upgrade("v0.6.1"); err == nil || s.Result != updates.ResultFailed || ran != nil {
+		t.Errorf("bad signature: %v %+v ran %v", err, s, ran)
+	}
+	sigOK, fail = true, true
+	if s, err := upgrade("v0.6.1"); err == nil || s.Result != updates.ResultFailed || !strings.Contains(s.Log, "FAILED") {
+		t.Errorf("failing installer: %v %+v", err, s)
+	}
+	// Only root.
+	stub(t, &isRoot, func() bool { return false })
+	if _, err := upgrade("v0.6.2"); err == nil || !strings.Contains(err.Error(), "root") {
+		t.Errorf("non-root: %v", err)
 	}
 }

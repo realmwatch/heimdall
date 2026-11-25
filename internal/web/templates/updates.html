@@ -1,0 +1,46 @@
+{{define "content"}}{{$csrf := .CSRF}}{{with .Body}}
+<h1>Updates</h1>
+{{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
+{{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
+<p class="muted">This hub checks GitHub every hour for a newer Heimdall release. Installing one is done by a separate root service on the hub, which installs only a newer release signed by Heimdall's GitHub Actions, keeps the previous version and database, and rolls back if the new hub doesn't come up.</p>
+
+<section class="card" aria-labelledby="up-now">
+  <h2 id="up-now">This hub</h2>
+  <ul class="site-facts">
+    <li><span class="k">Running</span><span class="v"><code>{{.Current}}</code></span></li>
+    <li><span class="k">Latest release</span><span class="v">{{with .Latest}}<code>{{.Version}}</code> <a href="{{.URL}}" rel="noopener">release notes</a>{{with $.Body.Published}} <span class="muted small" title="{{fullDate .}}">published {{dayAgo .}}</span>{{end}}{{else}}{{if not .Checked}}<span class="muted">not checked yet</span>{{else}}this one{{end}}{{end}}</span></li>
+    <li><span class="k">Last check</span><span class="v">{{with .Checked}}<span title="{{fullDate .}}">{{dayAgo .}}</span>{{else}}<span class="muted">not yet</span>{{end}}</span></li>
+    <li><span class="k">Automatic install</span><span class="v">{{if .Auto}}on: a release is installed once it has been out for {{.Soak}}{{else}}off (<code>[updates] auto_install</code>){{end}}</span></li>
+  </ul>
+  <form method="post" action="/admin/updates/check" class="inline"><input type="hidden" name="csrf" value="{{$csrf}}"><button type="submit" class="secondary">Check now</button></form>
+</section>
+
+{{if not .Ready}}
+<section class="card" aria-labelledby="up-setup">
+  <h2 id="up-setup">Set up installing from here</h2>
+  <p>The root upgrade service isn't installed on this hub yet. Upgrade once on the hub with <code>sudo heimdall upgrade</code>: that release's installer adds it, and later releases can be installed from this page, or on their own.</p>
+</section>
+{{else if .Pending}}
+<section class="card" aria-labelledby="up-run">
+  <h2 id="up-run">Installing {{.Pending}}</h2>
+  <p>The upgrade service is installing it. The hub restarts at the end, so this page may stop answering for a minute; reload it.</p>
+</section>
+{{else}}{{with .Latest}}
+<section class="card" aria-labelledby="up-new">
+  <h2 id="up-new">{{.Version}} is available</h2>
+  {{with $.Body.AutoNote}}{{if $.Body.Auto}}<p class="muted small">Not installing it on its own yet: {{.}}.</p>{{end}}{{else}}<p class="muted small">It will be installed on its own at the next hourly check.</p>{{end}}
+  <form method="post" action="/admin/updates/install" class="inline"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="version" value="{{.Version}}"><button type="submit">Install {{.Version}} now</button></form>
+</section>
+{{end}}{{end}}
+
+{{with .Status}}
+<section class="card" aria-labelledby="up-last">
+  <h2 id="up-last">Last upgrade</h2>
+  <p>{{if eq .Result "ok"}}<span class="pill ok">installed</span>{{else if eq .Result "running"}}<span class="pill warn">running</span>{{else if eq .Result "refused"}}<span class="pill muted">refused</span>{{else}}<span class="pill bad">failed</span>{{end}}
+    {{with .From}}<code>{{.}}</code> → {{end}}<code>{{or .Version "?"}}</code>{{with $.Body.Started}} <span class="muted small" title="{{fullDate .}}">{{dayAgo .}}</span>{{end}}</p>
+  {{with .Message}}<p class="small">{{.}}</p>{{end}}
+  {{if eq .Result "failed"}}<p class="small muted">The previous version and database were put back if the new hub didn't come up. Automatic install won't try this release again; install it here once the problem is fixed, or wait for the next release.</p>{{end}}
+  {{with .Log}}<details><summary class="small">Installer output</summary><pre class="code small">{{.}}</pre></details>{{end}}
+</section>
+{{end}}
+{{end}}{{end}}

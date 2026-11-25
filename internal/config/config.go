@@ -304,10 +304,15 @@ func (n News) Hosts() []string {
 	return out
 }
 
-// Updates controls the daily check for a newer release (admins see a
-// banner). It reads only the latest version number from GitHub.
+// Updates controls the hourly check for a newer release (admins see a
+// banner), which reads only the latest version number from GitHub, and
+// whether the hub installs new releases on its own: once one has been out
+// for Soak, it asks the root heimdall-upgrade service to install it
+// (internal/updates/install.go).
 type Updates struct {
-	Check bool `toml:"check"`
+	Check       bool     `toml:"check"`
+	AutoInstall bool     `toml:"auto_install"`
+	Soak        Duration `toml:"soak"`
 }
 
 // MCP configures the read-only Model Context Protocol endpoint for AI
@@ -469,7 +474,7 @@ func Default() Config {
 		Hosts:   Hosts{StaleAfter: Duration{72 * time.Hour}, AlertAfter: Duration{3 * time.Hour}, KeepFor: Duration{180 * 24 * time.Hour}, KeepMin: 30},
 		Notify:  Notify{SMTPPort: 587, WebhookFormat: "slack", AlertAnomalies: true},
 		MCP:     MCP{Listen: "127.0.0.1:8090", BaseURL: "http://127.0.0.1:8090"},
-		Updates: Updates{Check: true},
+		Updates: Updates{Check: true, AutoInstall: true, Soak: Duration{2 * time.Hour}},
 		News:    News{Sources: slices.Clone(DefaultNewsSources), Interval: Duration{time.Hour}},
 		AI: AI{API: AIResponses, BriefEvery: Duration{24 * time.Hour}, MaxOutputTokens: 8000,
 			MaxInputTokens: 24000, Timeout: Duration{2 * time.Minute}},
@@ -628,6 +633,9 @@ func (c Config) Validate() error {
 		if n.Every.Duration < time.Hour {
 			add("notify.every must be at least 1h")
 		}
+	}
+	if u := c.Updates; u.Soak.Duration < 0 || u.Soak.Duration > 30*24*time.Hour {
+		add("updates.soak must be between 0 and 720h")
 	}
 	if n := c.News; n.Enabled {
 		if len(n.Sources) == 0 {

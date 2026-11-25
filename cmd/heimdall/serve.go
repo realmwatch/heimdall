@@ -220,6 +220,7 @@ func newUIServer(cfg config.Config, s *store.Store, log *slog.Logger, aiSvc *ai.
 		}
 		return res, nil
 	}
+	upd := updateChecker(cfg, log)
 	wcfg := web.Config{
 		BaseURL:      cfg.UI.BaseURL,
 		StaleAfter:   cfg.Hosts.StaleAfter.Duration,
@@ -230,7 +231,8 @@ func newUIServer(cfg config.Config, s *store.Store, log *slog.Logger, aiSvc *ai.
 		LocalLogin:   cfg.Auth.LocalLogin,
 		EntraTenants: cfg.Auth.Entra.AllowedTenants,
 		IngestURL:    cfg.Ingest.PublicURL,
-		Updates:      updateChecker(cfg, log),
+		Updates:      upd.Available,
+		Upgrades:     upd.Upgrades,
 		News:         cfg.News.Enabled,
 		NewsSources:  cfg.News.Sources,
 		MCP:          web.MCPSetup{Enabled: cfg.MCP.Enabled, BaseURL: cfg.MCP.BaseURL, Name: cfg.MCP.ConnectorName()},
@@ -580,13 +582,35 @@ func cmdCollectorList(a *app, args []string) error {
 	return table(a, "STATUS\tVERSION\tSHA256\tHOSTS\tNOTE", rows)
 }
 
-// updateChecker starts the daily release check (if enabled) and returns
-// what the UI asks for its admin banner.
-func updateChecker(cfg config.Config, log *slog.Logger) func() (updates.Release, bool) {
+// hubUpdates is the release check and installer serve hands the UI.
+type hubUpdates struct {
+	Available func() (updates.Release, bool) // the admin banner; nil = checks off
+	Upgrades  *web.Upgrades                  // Admin > Updates; nil = checks off
+}
+
+// updateChecker starts the hourly release check (if enabled). With
+// auto_install, each check that finds a release out for soak asks the
+// root upgrade service to install it.
+func updateChecker(cfg config.Config, log *slog.Logger) hubUpdates {
 	if !cfg.Updates.Check {
-		return nil
+		return hubUpdates{}
 	}
-	c := &updates.Checker{HTTP: netx.New(netx.ReleaseHosts, "heimdall/"+version), Current: version}
+	log = log.With("component", "updates")
+	inst := &updates.Installer{Current: version, Auto: cfg.Updates.AutoInstall, Soak: cfg.Updates.Soak.Duration}
+	c := &updates.Checker{HTTP: netx.New(netx.ReleaseHosts, "heimdall/"+version), Current: version, Every: time.Hour,
+		OnCheck: func(_ context.Context, r updates.Release, newer bool) {
+			if !newer {
+				return
+			}
+			switch asked, err := inst.Consider(r, time.Now()); {
+			case err != nil:
+				log.Warn("automatic upgrade not requested", "version", r.Version, "err", err)
+			case asked:
+				log.Info("automatic upgrade requested", "version", r.Version, "running", version)
+			case inst.Auto:
+				log.Info("automatic upgrade not yet", "version", r.Version, "why", inst.AutoReason(r, time.Now()))
+			}
+		}}
 	go c.Run(context.Background(), func(msg string, args ...any) { log.Info(msg, args...) })
-	return c.Available
+	return hubUpdates{Available: c.Available, Upgrades: &web.Upgrades{Checker: c, Installer: inst}}
 }

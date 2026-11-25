@@ -168,7 +168,21 @@ The plaintext copy exists only briefly, owner-only, and is removed on exit. Sche
 
 ## Upgrades
 
-Admins see a banner in the UI when a newer release exists. The hub checks GitHub once a day for the latest version number; turn this off with `[updates] check = false`. The hub never downloads or installs anything itself.
+The hub checks GitHub every hour for the latest release. Admins see a banner when there's a newer one, and **Admin > Updates** shows it with its release notes, **Check now** and **Install**. Turn the check off with `[updates] check = false`.
+
+### Upgrading from the UI, or on its own
+
+With `[updates] auto_install = true` (the default), the hub installs a newer release once it has been out for `soak` (`"2h"` by default), at the next hourly check. Set `auto_install = false` to install only when an admin clicks **Install**.
+
+The hub can't upgrade itself: it runs unprivileged and can't replace its own binary. It only writes the version it wants to `/var/lib/heimdall/upgrade-request`. A root path unit, `heimdall-upgrade.path`, then starts `heimdall-upgrade.service`, which runs `heimdall upgrade --request`. That:
+1. Reads the version, refusing anything but a `vX.Y.Z` newer than the hub that's installed (never a symlink: the folder is the hub's).
+2. Checks the release's [signature](#release-signatures) and checksums, as `sudo heimdall upgrade` does, with no way to skip it.
+3. Runs the release's installer, which upgrades as below and rolls back if the new hub doesn't come up.
+4. Records how it went, and the installer's output, in `/var/lib/heimdall-upgrade` (root's, readable by the hub), which **Admin > Updates** shows.
+
+So the most a compromised hub can do is ask for a genuine, newer release. A release that failed isn't retried on its own: the next release is, or **Install** once the problem is fixed. `install-hub.sh` sets this up, so a hub gets it the first time it's upgraded by hand to a release that has it; after that, `sudo` is only needed to change settings.
+
+### Upgrading by hand
 
 **Upgrade the hub** with one command:
 ```sh
