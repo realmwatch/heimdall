@@ -95,7 +95,7 @@ sudo runuser -u heimdall-hub -- sh -c 'printf "not-a-tag\n" >/var/lib/heimdall/u
 i=0
 until sudo runuser -u heimdall-hub -- cat /var/lib/heimdall-upgrade/status.json 2>/dev/null | grep -q '"result": "refused"'; do
 	i=$((i + 1))
-	[ "$i" -lt 30 ] || fail "no refused status after a bad request: $(sudo cat /var/lib/heimdall-upgrade/status.json 2>&1; journalctl -u heimdall-upgrade --no-pager -n 20 2>&1)"
+	[ "$i" -lt 30 ] || fail "no refused status after a bad request: $(sudo ls -lna /var/lib/heimdall-upgrade 2>&1; id heimdall-hub; sudo runuser -u heimdall-hub -- cat /var/lib/heimdall-upgrade/status.json 2>&1; journalctl -u heimdall-upgrade --no-pager -n 20 2>&1)"
 	sleep 1
 done
 systemctl is-active --quiet heimdall || fail "a refused request stopped the hub"
