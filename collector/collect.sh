@@ -29,7 +29,7 @@ export LC_ALL=C
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
-VERSION=0.5.45
+VERSION=0.5.46
 FORMAT=heimdall.snapshot/v4
 
 die() { printf 'heimdall-collect: %s\n' "$*" >&2; exit 1; }
@@ -355,7 +355,8 @@ reboot_apk() {
 # composer.lock and package-lock.json. Never reads .env, never runs php,
 # composer, npm or artisan.
 
-NGINX_VHOSTS='/etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf /etc/nginx/http.d/*.conf'
+NGINX_DIR=${HEIMDALL_NGINX_DIR:-/etc/nginx} # a test hook
+NGINX_VHOSTS="$NGINX_DIR/sites-enabled/* $NGINX_DIR/conf.d/*.conf $NGINX_DIR/http.d/*.conf"
 APACHE_VHOSTS='/etc/apache2/sites-enabled/* /etc/httpd/conf.d/*.conf'
 
 # awk helpers shared by the parsers. They mirror the hub's validation, so a
@@ -396,8 +397,16 @@ function addname(v) {
 
 # Prints "nginx|docroot|php|names" per server block.
 nginx_vhosts() {
-	for f in $NGINX_VHOSTS; do
+	# shellcheck disable=SC2086 # word splitting is intended
+	nginx_parse $NGINX_VHOSTS | cut -d '|' -f 2-
+}
+
+# nginx_parse FILE...: "file|nginx|docroot|php|names" per server block in
+# the given vhost files (file is "-" when its path isn't a plain one).
+nginx_parse() {
+	for f in "$@"; do
 		if [ ! -f "$f" ] || [ ! -r "$f" ]; then continue; fi
+		case $f in *[!A-Za-z0-9._@+/-]*) echo ' __FILE__ - ' ;; *) echo " __FILE__ $f " ;; esac
 		sed -e 's/#.*$//' -e 's/[{};]/ & /g' "$f"
 		echo ' __EOF__ '
 	done | awk "$AWK_SITE_LIB"'
@@ -405,6 +414,7 @@ nginx_vhosts() {
 		END {
 			for (i = 1; i <= n; i++) {
 				t = tok[i]
+				if (t == "__FILE__") { file = tok[++i]; if (!validpath(file)) file = "-"; continue }
 				if (t == "__EOF__") { if (insrv) emit(); depth = 0; insrv = 0; nst = 0; continue }
 				if (t == "{") {
 					if (!insrv && nst == 1 && st[1] == "server") {
@@ -432,7 +442,7 @@ nginx_vhosts() {
 				php = phpver(st[2])
 			}
 		}
-		function emit() { if (root != "") printf "nginx|%s|%s|%s\n", root, php, names }'
+		function emit() { if (root != "") printf "%s|nginx|%s|%s|%s\n", file, root, php, names }'
 }
 
 # Prints "apache|docroot|php|names" per VirtualHost.
@@ -594,6 +604,64 @@ sites_json() {
 		done
 		[ "$n" -eq 0 ] || printf '\n  '
 	}
+}
+
+# ── Site vhosts (sent as X-Heimdall-Sites) ─────────────────────────────────
+# The nginx file that serves each site, and the sites whose vhost is there
+# but not enabled: in sites-available with nothing in sites-enabled
+# pointing at it, or set aside in heimdall-disabled/ by the
+# change-management tool's site.disable. A disabled site drops out of the
+# snapshot (no packages, no findings, no PHP in use), so this is how the
+# hub still knows it's there:
+#
+#	v1 on <root> <file>;off <root> <file> <name>,<name>
+#
+# <file> is "-" when its path isn't a plain one. nginx only. Reads vhost
+# files and, to find the app root, whether composer.json exists; nothing
+# else in the site. The stock default (/var/www/html) is never listed as a
+# disabled site.
+sites_state() {
+	if [ "${HEIMDALL_DISCOVER_SITES:-1}" = 0 ]; then
+		printf v1
+		return
+	fi
+	# The real path of every enabled vhost, to tell which others aren't.
+	# shellcheck disable=SC2086 # word splitting is intended
+	enabled=$(for f in $NGINX_VHOSTS; do [ ! -e "$f" ] || readlink -f "$f"; done 2>/dev/null)
+	{
+		# shellcheck disable=SC2086
+		nginx_parse $NGINX_VHOSTS | sed 's/^/on|/'
+		set --
+		for f in "$NGINX_DIR"/sites-available/* "$NGINX_DIR"/heimdall-disabled/*; do
+			[ -f "$f" ] || continue
+			real=$(readlink -f "$f" 2>/dev/null) || continue
+			if printf '%s\n' "$enabled" | grep -qxF "$real"; then continue; fi
+			set -- "$@" "$f"
+		done
+		[ $# -eq 0 ] || nginx_parse "$@" | sed 's/^/off|/'
+	} | while IFS='|' read -r state file _ docroot _ names; do
+		[ -n "$docroot" ] || continue
+		printf '%s|%s|%s|%s\n' "$state" "$(resolve_root "$docroot")" "$file" "$names"
+	done | awk -F '|' "$AWK_SITE_LIB"'
+		!validpath($2) { next }
+		$1 == "on" { if (!($2 in on) && non < 200) { on[$2] = $3; ord[++non] = $2 }; next }
+		{
+			if (!($2 in off) && noff < 100) { off[$2] = $3; ordoff[++noff] = $2 }
+			k = split($4, nm, " ")
+			for (i = 1; i <= k; i++)
+				if (!seen[$2 SUBSEP nm[i]]++ && cnt[$2]++ < 20) nms[$2] = nms[$2] (nms[$2] == "" ? "" : ",") nm[i]
+		}
+		END {
+			out = "v1"; sep = " "
+			for (i = 1; i <= non; i++) add("on " ord[i] " " on[ord[i]])
+			for (i = 1; i <= noff; i++) {
+				r = ordoff[i]
+				if ((r in on) || r == "/var/www/html") continue
+				add("off " r " " off[r] (nms[r] == "" ? "" : " " nms[r]))
+			}
+			printf "%s", out
+		}
+		function add(e) { if (length(out) + length(e) + 1 <= 7900) { out = out sep e; sep = ";" } }'
 }
 
 # ── Deploys ─────────────────────────────────────────────────────────────────
@@ -1920,6 +1988,9 @@ push() {
 	repos_header="header = \"X-Heimdall-Site-Repos: $(site_repos <"$tmp/snapshot.json" | tr -cd 'A-Za-z0-9._~:/@+, -' | cut -c1-4096)\""
 	# Each site's checked-out branch, from .git/HEAD (site_branches).
 	branches_header="header = \"X-Heimdall-Site-Branches: $(site_branches <"$tmp/snapshot.json" | tr -cd 'A-Za-z0-9._~:/@+, -' | cut -c1-4096)\""
+	# The vhost file of each site, and the sites whose vhost isn't enabled
+	# (sites_state).
+	sites_header="header = \"X-Heimdall-Sites: $(sites_state | tr -cd 'A-Za-z0-9._@+/*,;_ -' | cut -c1-8000)\""
 	# The PHP versions in use outside the sites' sockets (php_state).
 	php_header="header = \"X-Heimdall-PHP: $(php_state | tr -cd 'a-z0-9.=, -' | cut -c1-200)\""
 	# Live patching: applied, and the CVEs the patch fixes (livepatch_state).
@@ -1955,7 +2026,7 @@ push() {
 	status=$(printf '%s\n' \
 		"header = \"Authorization: Bearer $token\"" \
 		'header = "Content-Type: application/json"' \
-		"$encoding" "$cacert" "$hostname_header" "$machine_header" "$triggers_header" "$agents_header" "$repos_header" "$branches_header" "$php_header" "$apt_header" "$livepatch_header" "$ssh_header" "$release_header" "$origins_header" "$nginx_header" "$(privilege_config)" "$(logins_config)" |
+		"$encoding" "$cacert" "$hostname_header" "$machine_header" "$triggers_header" "$agents_header" "$repos_header" "$branches_header" "$sites_header" "$php_header" "$apt_header" "$livepatch_header" "$ssh_header" "$release_header" "$origins_header" "$nginx_header" "$(privilege_config)" "$(logins_config)" |
 		"$curl" --config - --silent --show-error \
 			--proto '=https,http' --tlsv1.2 \
 			--connect-timeout 10 --max-time 120 \
@@ -2287,7 +2358,7 @@ set_hub() {
 usage() {
 	cat >&2 <<'EOF'
 usage: heimdall-collect --print | --push | --push-trips | --trips |
-                        --site-repos | --site-branches | --php | --apt |
+                        --site-repos | --site-branches | --sites | --php | --apt |
                         --livepatch | --ssh |
                         --release | --origins | --nginx | --deploy-watches |
                         --logins | --version
@@ -2307,6 +2378,8 @@ usage: heimdall-collect --print | --push | --push-trips | --trips |
   --site-repos  print the site repositories --push would send
   --site-branches
                 print the sites' checked-out branches --push would send
+  --sites       print each site's nginx file and the disabled sites, as --push
+                would send them
   --php         print the PHP versions in use --push would send (the command
                 line's and the running PHP-FPMs')
   --apt         print when apt last refreshed its package lists, as --push
@@ -2366,7 +2439,7 @@ case $1 in
 deployed) deployed; exit 0 ;; # any user, root too: it only touches a file
 # For heimdall-collect-soon.service (root), not for people:
 event-allowed) if event_allowed; then exit 0; else exit 1; fi ;;
---print | --push | --push-trips | --trips | --site-repos | --site-branches | --php | --apt | --livepatch | --ssh | --release | --origins | --nginx | --deploy-watches | --logins) ;;
+--print | --push | --push-trips | --trips | --site-repos | --site-branches | --sites | --php | --apt | --livepatch | --ssh | --release | --origins | --nginx | --deploy-watches | --logins) ;;
 *) usage ;;
 esac
 
@@ -2399,6 +2472,7 @@ case $1 in
 --site-repos) sites_json | site_repos; echo ;;
 --site-branches) sites_json | site_branches; echo ;;
 --php) php_state; echo ;;
+--sites) sites_state; echo ;;
 --apt) apt_state; echo ;;
 --livepatch) livepatch_state; echo ;;
 --ssh) ssh_state; echo ;;

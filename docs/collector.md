@@ -564,6 +564,18 @@ sudo setfacl -m u:heimdall:r /home/forge/example.com/.git/HEAD
 **How it's sent:** in a request header, `X-Heimdall-Site-Branches: v1 <root> branch:<name>,<root> commit:<sha>` (just `v1` when none are known), at most about 4 KB, for the same reason as the repositories' header: a snapshot field would make an older hub refuse the push. A push without it (an older collector) leaves the hub's stored branches alone, and an older hub ignores it. `heimdall-collect --site-branches` prints the value; `HEIMDALL_DETECT_REPOS=0` turns it off too.
 
 
+### Retiring a site
+
+A site that's no longer used can be retired without deleting anything: its files, database and certificates stay where they are.
+
+1. **Archive it** with **Archive** on the host page, the site's page or the Sites list (operators). This only records that you mean to retire it; it changes nothing on the server. An archived site that nginx still serves stays visible, flagged **archived, still served**, so the list never looks smaller than what's actually exposed.
+2. **Disable it** with **Propose disable**, which drafts `site.disable` in your change-management tool (`[change_link] action_url`, params `root` and `vhost`). The tool takes the nginx vhost out of service, stops the site's queue workers, supervisor programs and systemd units, and comments out its scheduled jobs. It keeps a record so `site.enable` (**Propose enable**) can put back exactly what it changed.
+3. Once the collector reports the vhost as disabled, the site leaves the snapshot: it has no Composer or npm findings, doesn't count as using its PHP version, and isn't in deploy checks or plans. It shows under **Disabled sites** on the host page and as **disabled** in the Sites list. An archived, disabled site is hidden by default; **Show archived** brings it back into view.
+
+**How disabled sites are found:** nginx vhost files in `/etc/nginx/sites-available/` that nothing in `sites-enabled/` points at, and files the change tool set aside in `/etc/nginx/heimdall-disabled/`. The stock default (`/var/www/html`) is never listed. nginx only; a disabled Apache site simply drops out of the list.
+
+**How it's sent:** in a request header, `X-Heimdall-Sites: v1 on <root> <file>;off <root> <file> <name>,<name>`, at most about 8 KB: the vhost file of each enabled site (the hint the change tool checks before acting), and each disabled site with its server names. A push without it (an older collector) leaves the stored list alone, and an older hub ignores it. `heimdall-collect --sites` prints the value; `HEIMDALL_DISCOVER_SITES=0` turns it off.
+
 ### PHP in use
 
 To tell an installed PHP version that nothing uses, the hub needs more than the sites' PHP-FPM sockets, so each push also says (Debian and Ubuntu):

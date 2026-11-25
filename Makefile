@@ -36,7 +36,7 @@ SHELLCHECK_IMAGE := koalaman/shellcheck:v0.10.0
 COLLECTOR_OUT ?= $(CURDIR)/bin/collector-out
 
 shellcheck:
-	docker run --rm -v "$(CURDIR)/collector:/mnt:ro" $(SHELLCHECK_IMAGE) -s sh /mnt/collect.sh /mnt/install.sh /mnt/privilege-watch.sh /mnt/privilege-hook /mnt/login-watch.sh /mnt/test/run-containers.sh /mnt/test/sites-fixture.sh /mnt/test/events-deploys.sh /mnt/test/site-branches.sh /mnt/test/set-hub.sh /mnt/test/privilege-hook.sh /mnt/test/ssh-state.sh /mnt/test/apt-origins.sh /mnt/test/nginx-state.sh /mnt/test/php-state.sh /mnt/test/livepatch-state.sh
+	docker run --rm -v "$(CURDIR)/collector:/mnt:ro" $(SHELLCHECK_IMAGE) -s sh /mnt/collect.sh /mnt/install.sh /mnt/privilege-watch.sh /mnt/privilege-hook /mnt/login-watch.sh /mnt/test/run-containers.sh /mnt/test/sites-fixture.sh /mnt/test/events-deploys.sh /mnt/test/site-branches.sh /mnt/test/set-hub.sh /mnt/test/privilege-hook.sh /mnt/test/ssh-state.sh /mnt/test/apt-origins.sh /mnt/test/nginx-state.sh /mnt/test/php-state.sh /mnt/test/livepatch-state.sh /mnt/test/sites-state.sh
 	docker run --rm -v "$(CURDIR)/deploy:/mnt:ro" $(SHELLCHECK_IMAGE) -s sh /mnt/install-hub.sh /mnt/test/installed-smoke.sh
 
 # Runs collect.sh as an unprivileged user on Debian, Ubuntu, Rocky and
@@ -50,10 +50,12 @@ test-collector: shellcheck
 	collector/test/nginx-state.sh
 	collector/test/php-state.sh
 	collector/test/livepatch-state.sh
+	collector/test/sites-state.sh
 	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/release-state.sh 'busybox sh'
 	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/ssh-state.sh 'busybox sh'
 	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/apt-origins.sh 'busybox sh'
 	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/nginx-state.sh 'busybox sh'
+	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/sites-state.sh 'busybox sh'
 	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/php-state.sh 'busybox sh'
 	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/livepatch-state.sh 'busybox sh'
 	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/site-branches.sh 'busybox sh'

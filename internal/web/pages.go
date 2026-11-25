@@ -150,25 +150,31 @@ type hostBody struct {
 	PHPRemoveAll    string            // one link removing every version in PHPRemove, when there are 2+
 	PHPRemoveAllN   int
 	RebootURL       string // drafts a reboot when one is required or a newer kernel waits (changelink.go)
-	CleanupURL      string // drafts cleaning up release-upgrade leftovers (changelink.go)
-	NginxHTTP2Off   string // drafts turning off nginx's HTTP/2 (changelink.go)
-	NginxRestart    string // drafts restarting nginx onto its updated binary
-	NginxSwitch     string // drafts moving nginx from the removed ondrej/nginx PPA to nginx.org
-	NginxUpdate     string // drafts upgrading nginx to the version that fixes its findings
-	PHPMove         string // drafts moving PHP from the deprecated ondrej/php PPA to packages.sury.org
-	PHPPPAFindings  int    // open findings from PHP's own advisories, which wait on that move
-	CollectorKnown  bool   // this hub is a release build, so the comparison means something
-	ShowAll         bool   // show every finding instead of the first findingsCap
-	Packages        []store.InventoryPackage
-	Commands        []command
-	Anomalies       []store.AnomalyRow
-	Privilege       *privilegeView // nil on Windows
-	SSH             sshView
-	PackageMgr      string
-	ShowOrgName     bool
-	News            []newsRow // incidents in the news affecting this host
-	ChangeWatch     string    // "on", "off", or "" if the collector doesn't report its triggers
-	AI              *aiView   // AI triage card (nil when [ai] is off); see ai.go
+	// Disabled sites (vhost not enabled), with the archived ones only when
+	// ShowArchived (?archived=1); HiddenArchived counts those left out
+	// (sitearchive.go).
+	DisabledSites  []disabledSite
+	ShowArchived   bool
+	HiddenArchived int
+	CleanupURL     string // drafts cleaning up release-upgrade leftovers (changelink.go)
+	NginxHTTP2Off  string // drafts turning off nginx's HTTP/2 (changelink.go)
+	NginxRestart   string // drafts restarting nginx onto its updated binary
+	NginxSwitch    string // drafts moving nginx from the removed ondrej/nginx PPA to nginx.org
+	NginxUpdate    string // drafts upgrading nginx to the version that fixes its findings
+	PHPMove        string // drafts moving PHP from the deprecated ondrej/php PPA to packages.sury.org
+	PHPPPAFindings int    // open findings from PHP's own advisories, which wait on that move
+	CollectorKnown bool   // this hub is a release build, so the comparison means something
+	ShowAll        bool   // show every finding instead of the first findingsCap
+	Packages       []store.InventoryPackage
+	Commands       []command
+	Anomalies      []store.AnomalyRow
+	Privilege      *privilegeView // nil on Windows
+	SSH            sshView
+	PackageMgr     string
+	ShowOrgName    bool
+	News           []newsRow // incidents in the news affecting this host
+	ChangeWatch    string    // "on", "off", or "" if the collector doesn't report its triggers
+	AI             *aiView   // AI triage card (nil when [ai] is off); see ai.go
 
 	Tailnet *tailnetView // the host's tailnet device (nil when [tailscale] is off); see tailscale.go
 	Logins  *loginsView  // failed logins (nil on Windows); see logins.go
@@ -259,6 +265,21 @@ func (s *server) hostPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 		s.fail(w, r, v, err)
 		return
 	}
+	archived, err := s.st.ArchivedSites(ctx)
+	if err != nil {
+		s.fail(w, r, v, err)
+		return
+	}
+	vhosts, err := s.st.HostSiteVhosts(ctx, host.ID)
+	if err != nil {
+		s.fail(w, r, v, err)
+		return
+	}
+	body.ShowArchived = r.URL.Query().Get("archived") == "1"
+	body.DisabledSites, body.HiddenArchived = s.hostDisabledSites(host.OrgSlug, host.Name, vhosts, archived, body.CanOperate, body.ShowArchived)
+	if n, ok := siteArchiveNotices[r.URL.Query().Get("site_archive")]; ok {
+		body.Notice = n
+	}
 	for i := range body.Sites {
 		site := &body.Sites[i]
 		if l, ok := labels[store.SiteLabelKey(host.OrgSlug, host.Name, site.Root)]; ok {
@@ -267,6 +288,9 @@ func (s *server) hostPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 			site.Label = suggestSiteLabel(site.ServerNames)
 		}
 		site.Repo = repos[site.Root].Repo()
+		if _, site.Archived = archived[store.SiteLabelKey(host.OrgSlug, host.Name, site.Root)]; site.Archived && site.WebServer == "nginx" {
+			site.DisableURL = s.cfg.ChangeLink.siteDisableLink(host.OrgSlug, host.Name, site.Root, vhosts[site.Root].Vhost)
+		}
 		if s.canHandoff(v, host.OrgID) && len(handoffFindings(body.Report, site.Root)) > 0 {
 			site.HandoffURL = handoffURL(host.OrgSlug, host.Name, site.Root, "")
 			if site.Repo != "" {
@@ -472,10 +496,15 @@ func (s *server) searchPage(w http.ResponseWriter, r *http.Request, v *auth.View
 // siteRow is one web app with the host it runs on.
 type siteRow struct {
 	report.Site
-	Org, Host string
-	Label     string // production, staging, development, or "" if unknown
-	LabelSet  bool   // set by an admin (otherwise suggested from the names)
-	CanAdmin  bool
+	Org, Host  string
+	Label      string // production, staging, development, or "" if unknown
+	LabelSet   bool   // set by an admin (otherwise suggested from the names)
+	CanAdmin   bool
+	CanOperate bool // may archive it
+	Archived   bool // retired by an operator (sitearchive.go)
+	Disabled   bool // its nginx vhost isn't enabled: no snapshot data
+	DisableURL string
+	EnableURL  string
 }
 
 // suggestSiteLabel guesses a site's label from its first server name:
@@ -508,9 +537,9 @@ func (s *server) labelSites(r *http.Request, v *auth.Viewer, rows []siteRow) err
 	if err != nil {
 		return err
 	}
-	admin := map[string]bool{}
+	admin, operate := map[string]bool{}, map[string]bool{}
 	for _, o := range orgs {
-		admin[o.Slug] = v.Scope.CanAdmin(o.ID)
+		admin[o.Slug], operate[o.Slug] = v.Scope.CanAdmin(o.ID), v.Scope.CanOperate(o.ID)
 	}
 	for i := range rows {
 		row := &rows[i]
@@ -519,7 +548,7 @@ func (s *server) labelSites(r *http.Request, v *auth.Viewer, rows []siteRow) err
 		} else {
 			row.Label = suggestSiteLabel(row.ServerNames)
 		}
-		row.CanAdmin = admin[row.Org]
+		row.CanAdmin, row.CanOperate = admin[row.Org], operate[row.Org]
 	}
 	return nil
 }
@@ -558,6 +587,13 @@ type sitesBody struct {
 	Counts   map[string]int // sites per label, before filtering
 	Labels   []string
 	Notice   string
+	// ShowArchived lists archived, disabled sites too (?archived=1);
+	// HiddenArchived counts them when it doesn't.
+	ShowArchived   bool
+	HiddenArchived int
+	// Back is this list without archived sites (the archive form returns
+	// to it), and ArchivedURL with them.
+	Back, ArchivedURL string
 }
 
 func (s *server) sitesPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer) {
@@ -572,11 +608,10 @@ func (s *server) sitesPage(w http.ResponseWriter, r *http.Request, v *auth.Viewe
 		return
 	}
 	body := sitesBody{Org: org, Orgs: orgs, ShowOrgs: len(orgs) > 1, Labels: store.SiteLabels, Counts: map[string]int{}}
-	var all []siteRow
-	for _, h := range rep.Hosts {
-		for _, site := range h.Sites {
-			all = append(all, siteRow{Site: site, Org: h.Org, Host: h.Name})
-		}
+	all, err := s.siteRows(r.Context(), v, org, rep)
+	if err != nil {
+		s.fail(w, r, v, err)
+		return
 	}
 	if err := s.labelSites(r, v, all); err != nil {
 		s.fail(w, r, v, err)
@@ -585,7 +620,25 @@ func (s *server) sitesPage(w http.ResponseWriter, r *http.Request, v *auth.Viewe
 	if l := r.URL.Query().Get("label"); slices.Contains(store.SiteLabels, l) {
 		body.Label = l
 	}
+	body.ShowArchived = r.URL.Query().Get("archived") == "1"
+	q := url.Values{}
+	if org != "" {
+		q.Set("org", org)
+	}
+	if body.Label != "" {
+		q.Set("label", body.Label)
+	}
+	body.Back = "/sites"
+	if len(q) > 0 {
+		body.Back += "?" + q.Encode()
+	}
+	q.Set("archived", "1")
+	body.ArchivedURL = "/sites?" + q.Encode()
 	for _, row := range all {
+		if row.Archived && row.Disabled && !body.ShowArchived {
+			body.HiddenArchived++
+			continue
+		}
 		body.Counts[row.Label]++
 		if body.Label == "" || row.Label == body.Label {
 			body.Sites = append(body.Sites, row)
@@ -593,6 +646,9 @@ func (s *server) sitesPage(w http.ResponseWriter, r *http.Request, v *auth.Viewe
 	}
 	if r.URL.Query().Get("labeled") == "1" {
 		body.Notice = "Label saved."
+	}
+	if n, ok := siteArchiveNotices[r.URL.Query().Get("site_archive")]; ok {
+		body.Notice = n
 	}
 	sortSites(body.Sites)
 	s.render(w, r, http.StatusOK, "sites", v, "Sites", "sites", body)
@@ -636,6 +692,8 @@ type siteSection struct {
 	Npm        ecoSection
 	Label      string
 	LabelSet   bool
+	Archived   bool   // retired by an operator, though nginx still serves it
+	DisableURL string // drafts site.disable, for an archived nginx site
 	Repo       string // the site's repository ("" if unknown)
 	HandoffURL string // "Hand off to agent", when allowed and there's something to fix
 	// PRHandoff is HandoffURL when the site's repository is known: then the
@@ -992,7 +1050,9 @@ type siteBody struct {
 	Notice         string
 	// The site's repository: the one in use, and where it came from.
 	Repo          store.SiteRepo
-	CanOperate    bool   // may set the repository
+	CanOperate    bool   // may set the repository, and archive the site
+	Archived      bool   // retired by an operator, though nginx still serves it (sitearchive.go)
+	DisableURL    string // drafts site.disable for an archived nginx site
 	RepoNotice    string // fixed text after saving it
 	RepoError     bool
 	BranchNotice  string // fixed text after saving the branch
@@ -1074,6 +1134,22 @@ func (s *server) sitePage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 		return
 	}
 	body.Repo, body.CanOperate = repos[root], v.Scope.CanOperate(host.OrgID)
+	archived, err := s.st.ArchivedSites(ctx)
+	if err != nil {
+		s.fail(w, r, v, err)
+		return
+	}
+	if _, body.Archived = archived[store.SiteLabelKey(host.OrgSlug, host.Name, root)]; body.Archived && body.Site.WebServer == "nginx" {
+		vhosts, err := s.st.HostSiteVhosts(ctx, host.ID)
+		if err != nil {
+			s.fail(w, r, v, err)
+			return
+		}
+		body.DisableURL = s.cfg.ChangeLink.siteDisableLink(host.OrgSlug, host.Name, root, vhosts[root].Vhost)
+	}
+	if n, ok := siteArchiveNotices[r.URL.Query().Get("site_archive")]; ok {
+		body.Notice = n
+	}
 	rn := r.URL.Query().Get("repo")
 	body.RepoNotice, body.RepoError = repoNotices[rn], rn == "invalid"
 	bn := r.URL.Query().Get("branch")

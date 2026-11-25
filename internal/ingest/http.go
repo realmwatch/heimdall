@@ -290,6 +290,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.recordPrivilege(r.Context(), log, host, res.SnapshotID, r) // opt-in privilege watch (privilege.go)
 		h.recordSiteRepos(r.Context(), log, host, r)                 // repos.go
 		h.recordSiteBranches(r.Context(), log, host, r)              // branches.go
+		h.recordSites(r.Context(), log, host, r)                     // sites.go
 		h.recordAgents(r.Context(), log, host, r)                    // agents.go
 		h.recordPHP(r.Context(), log, host, r)                       // php.go
 		h.recordApt(r.Context(), log, host, r)                       // php.go

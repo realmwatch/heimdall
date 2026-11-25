@@ -163,3 +163,11 @@ func validateSites(s *Snapshot, unavailable map[string]bool, bad func(field, for
 		}
 	}
 }
+
+// ValidSitePath reports whether p is an app root or file path the snapshot
+// would accept for a site.
+func ValidSitePath(p string) bool { return validSitePath(p) }
+
+// ValidServerName reports whether n is a server name the snapshot would
+// accept for a site.
+func ValidServerName(n string) bool { return validServerName(n) }

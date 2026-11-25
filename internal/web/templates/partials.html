@@ -6,6 +6,9 @@
 {{/* sitebadges: problem badges for a report.Site. */}}
 {{define "sitebadges"}}{{if unmet .PHPSatisfied}}<span class="badge warn" title="composer.json requires PHP {{.PHPRequirement}}, but the PHP-FPM serving it runs {{.PHPFPM}}">PHP version not allowed</span> {{end}}{{if not .Readable}}<span class="badge muted" title="the collector couldn't read composer.json/composer.lock">unreadable</span>{{end}}{{end}}
 
+{{/* sitearchiveform archives a site or brings it back: dict CSRF Org Host Root Archived Back. */}}
+{{define "sitearchiveform"}}<form method="post" action="/sites/archive" class="inline archive-form"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="org" value="{{.Org}}"><input type="hidden" name="host" value="{{.Host}}"><input type="hidden" name="root" value="{{.Root}}"><input type="hidden" name="back" value="{{.Back}}"><input type="hidden" name="archive" value="{{if .Archived}}0{{else}}1{{end}}"><button type="submit" class="secondary"{{if .Archived}} title="No longer retired: it shows in the site lists again"{{else}} title="Mark it retired. Once its vhost is disabled, it's hidden from the site lists. Changes nothing on the server."{{end}}>{{if .Archived}}Unarchive{{else}}Archive{{end}}</button></form>{{end}}
+
 {{/* findings renders a findings table ([]report.Finding). */}}
 {{define "findings"}}
 <div class="scroll"><table class="findings">

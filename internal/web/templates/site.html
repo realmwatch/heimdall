@@ -12,11 +12,12 @@
       <button type="submit">Save</button>
     </form>
   </details>{{end}}
-  {{template "sitebadges" .Site}}
+  {{template "sitebadges" .Site}}{{if .Archived}} <span class="badge warn" title="Archived, but nginx still serves it: disable it to take it out of service">archived, still served</span>{{end}}
   <span class="site-meta">{{template "icon" "server"}} on <a href="{{hostURL .Org .Host}}">{{.Host}}</a> <span aria-hidden="true">·</span> {{.Env}}</span>
   <a class="button secondary head-action" href="{{hostURL .Org .Host}}">Open host</a>
 </div>
 {{with .Notice}}<p class="notice" role="status">{{.}}</p>{{end}}
+{{if or .DisableURL .CanOperate}}<p class="site-archive">{{with .DisableURL}}<a class="button change-btn" href="{{.}}" target="_blank" rel="noopener noreferrer" title="Opens your change-management tool to draft taking the site out of service: its nginx vhost, workers and scheduled jobs. Nothing is deleted.">Propose disable</a> {{end}}{{if .CanOperate}}{{template "sitearchiveform" (dict "CSRF" $csrf "Org" .Org "Host" .Host "Root" .Site.Root "Archived" .Archived "Back" (siteURL .Org .Host .Site.Root))}}{{end}}</p>{{end}}
 {{with .HandoffNote}}<p class="notice{{if $.Body.HandoffError}} notice-bad{{end}}" role="status">{{.}}{{with $.Body.HandoffThread}} <a href="{{.}}" rel="noopener noreferrer">Open the Amp thread ↗</a>{{end}}</p>{{end}}
 
 <section class="facts card site-facts">

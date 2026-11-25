@@ -1008,6 +1008,13 @@ a.button.handoff-btn, a.button.handoff-all { padding: 5px 12px; font-size: 13px;
 .change-link { margin: 8px 0; }
 a.button.change-btn { padding: 5px 12px; font-size: 13px; }
 .site-handoff { margin: 0 0 12px; }
+.site-archive { margin: 0 0 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.archive-form { display: inline; margin: 0; }
+.disabled-sites { list-style: none; padding: 0; margin: 0 0 12px; }
+.disabled-sites li { padding: 8px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.disabled-actions { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-left: 8px; }
+td.retire { white-space: nowrap; }
+td.retire .button { margin-right: 6px; }
 .ai-handoff { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
 .repo-row { gap: 6px 10px; }
 .repo-row code.path { overflow-wrap: anywhere; }
