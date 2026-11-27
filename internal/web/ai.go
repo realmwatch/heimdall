@@ -22,6 +22,7 @@ type AIService interface {
 	Stale() time.Duration
 	StartHost(ctx context.Context, actor string, org store.Org, host store.IngestHost) error
 	StartBrief(ctx context.Context, actor string, org store.Org) error
+	StartLeftovers(ctx context.Context, actor string, org store.Org, host store.IngestHost) error
 }
 
 // aiNotices are the fixed messages a regenerate redirect can carry.
@@ -226,6 +227,80 @@ func (s *server) aiBriefRun(w http.ResponseWriter, r *http.Request, v *auth.View
 		}
 	}
 	http.Redirect(w, r, "/?ai="+notice+"#ai-brief-"+url.PathEscape(org.Slug), http.StatusSeeOther)
+}
+
+// leftoverAIView is the leftovers card's AI plan, as host.html sees it.
+type leftoverAIView struct {
+	ai.LeftoverView
+	At, ErrorAt *time.Time
+	CanRun      bool
+	Action      string
+	Notice      string
+	CSRF        string
+	// Advice maps a package to the plan's advice, for the tables.
+	Advice map[string]ai.LeftoverAdvice
+}
+
+// leftoverAIFor builds the leftovers card's AI block: nil when AI is off
+// or the host has no leftovers.
+func (s *server) leftoverAIFor(r *http.Request, v *auth.Viewer, host store.IngestHost, has bool) (*leftoverAIView, error) {
+	if s.cfg.AI == nil || !has {
+		return nil, nil
+	}
+	runs, err := s.st.AIRunsOf(r.Context(), host.OrgID, host.ID, store.AILeftovers, 5)
+	if err != nil {
+		return nil, err
+	}
+	view := &leftoverAIView{LeftoverView: ai.LeftoverViewOf(runs, s.now(), s.cfg.AI.Stale()), CanRun: v.Scope.CanOperate(host.OrgID),
+		Action: "/hosts/" + url.PathEscape(host.OrgSlug) + "/" + url.PathEscape(host.Name) + "/ai/leftovers",
+		CSRF:   auth.CSRFToken(v.SessionToken)}
+	if r.URL.Query().Get("for") == "leftovers" {
+		view.Notice = aiNotices[r.URL.Query().Get("ai")]
+	}
+	if view.Running && view.Notice == aiNotices["started"] {
+		view.Notice = ""
+	}
+	if !view.LeftoverView.At.IsZero() {
+		t := view.LeftoverView.At
+		view.At = &t
+	}
+	if !view.LeftoverView.ErrorAt.IsZero() {
+		t := view.LeftoverView.ErrorAt
+		view.ErrorAt = &t
+	}
+	if view.Plan != nil {
+		view.Advice = map[string]ai.LeftoverAdvice{}
+		for _, a := range view.Plan.Packages {
+			view.Advice[a.Name] = a
+		}
+	}
+	return view, nil
+}
+
+// aiLeftoversRun starts a host's leftovers plan (operator or admin).
+func (s *server) aiLeftoversRun(w http.ResponseWriter, r *http.Request, v *auth.Viewer) {
+	host, err := s.st.HostByName(r.Context(), r.PathValue("org"), r.PathValue("host"))
+	var verr *store.ValidationError
+	if errors.Is(err, store.ErrNotFound) || errors.As(err, &verr) || (err == nil && !v.Scope.CanView(host.OrgID)) {
+		s.notFound(w, r, v)
+		return
+	}
+	if err != nil {
+		s.fail(w, r, v, err)
+		return
+	}
+	notice := "denied"
+	if v.Scope.CanOperate(host.OrgID) {
+		org, err := s.orgByID(r.Context(), host.OrgID)
+		if err == nil {
+			err = s.cfg.AI.StartLeftovers(r.Context(), actorOf(v), org, host)
+		}
+		if notice = aiNoticeFor(err); notice == "" {
+			s.fail(w, r, v, err)
+			return
+		}
+	}
+	http.Redirect(w, r, "/hosts/"+url.PathEscape(host.OrgSlug)+"/"+url.PathEscape(host.Name)+"?for=leftovers&ai="+notice+"#release-leftovers", http.StatusSeeOther)
 }
 
 // aiHostRun starts "explain this host" (operator or admin).

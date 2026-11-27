@@ -106,27 +106,42 @@ func (s *Service) runBrief(id int64, actor string, org store.Org) {
 // never logged or stored.
 func (s *Service) finish(ctx context.Context, id int64, actor, action string, org store.Org, target, task string,
 	facts []byte, allowed Allowed, err error) {
-	var resp *Response
-	var res *Result
+	var req *Request
 	if err == nil {
-		resp, err = s.Provider.Complete(ctx, buildPrompt(task, facts))
+		r := buildPrompt(task, facts)
+		req = &r
+	}
+	s.finishWith(ctx, id, actor, action, org, target, req, len(facts), func(text string) ([]byte, error) {
+		res, err := Parse(text, allowed)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(Reconcile(res, allowed))
+	}, err)
+}
+
+// finishWith is finish for any kind of run: req is the prompt (nil when
+// gathering the facts failed with err), and parse validates the model's
+// text into the JSON to store.
+func (s *Service) finishWith(ctx context.Context, id int64, actor, action string, org store.Org, target string,
+	req *Request, factsLen int, parse func(string) ([]byte, error), err error) {
+	var resp *Response
+	var result []byte
+	if err == nil {
+		resp, err = s.Provider.Complete(ctx, *req)
 	}
 	if err == nil {
-		if res, err = Parse(resp.Text, allowed); err == nil {
-			res = Reconcile(res, allowed)
-		}
+		result, err = parse(resp.Text)
 	}
 	status, msg, model, in, out := "ok", "", "", 0, 0
 	var latency time.Duration
 	if resp != nil {
 		model, in, out, latency = clip(resp.Model, 100), resp.InputTokens, resp.OutputTokens, resp.Latency
 	}
-	var result []byte
 	if err != nil {
-		status, msg = "error", KindOf(err).String()
+		status, msg, result = "error", KindOf(err).String(), nil
 		s.Log.Warn("AI analysis failed", "action", action, "org", org.Slug, "target", target, "err", err)
 	} else {
-		result, _ = json.Marshal(res)
 		s.Log.Info("AI analysis done", "action", action, "org", org.Slug, "target", target, "deployment", s.Deployment(),
 			"input_tokens", in, "output_tokens", out, "latency_ms", latency.Milliseconds())
 	}
@@ -137,7 +152,7 @@ func (s *Service) finish(ctx context.Context, id int64, actor, action string, or
 		s.Log.Error("storing AI analysis failed", "err", ferr)
 	}
 	detail := map[string]any{"deployment": s.Deployment(), "status": status, "input_tokens": in, "output_tokens": out,
-		"latency_ms": latency.Milliseconds(), "facts_bytes": len(facts)}
+		"latency_ms": latency.Milliseconds(), "facts_bytes": factsLen}
 	if err != nil {
 		detail["error"] = KindOf(err).String()
 	}

@@ -87,3 +87,36 @@ several an "All N" button for them all (handoffbatch.go). */}}
 {{else if and (not .Result) (not .Running) (not .Host)}}<p class="muted small ai-empty">No brief yet.{{if .CanRun}} The first one is written on the schedule, or now with “Write a brief”.{{end}}</p>{{end}}{{end}}
 
 {{define "aispinner"}}<span class="ai-spin" aria-hidden="true"></span>{{end}}
+
+{{/* leftoverai: the leftovers card's AI plan (leftoverAIView), or nothing when AI is off. */}}
+{{define "leftoverai"}}{{with .}}{{$v := .}}<div class="ai-leftovers">
+  <div class="ai-head">
+    <h3>AI plan</h3>
+    <span class="pill muted" title="Written by your AI deployment from Heimdall's leftovers analysis. Advisory only; check before acting.">AI</span>
+    {{if .CanRun}}<form method="post" action="{{.Action}}" class="ai-run">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button type="submit" class="secondary"{{if .Running}} disabled{{end}}>{{if .Running}}Working…{{else if .Plan}}Ask again{{else}}Ask AI for a plan{{end}}</button>
+    </form>{{end}}
+  </div>
+  {{with .Notice}}<p class="muted small ai-notice" role="status">{{.}}</p>{{end}}
+  {{if .Running}}<p class="muted small ai-running" data-ai-running>{{template "aispinner"}}Working out a plan for these packages. This page refreshes when it's ready.</p>{{end}}
+  {{with .Plan}}
+  <p class="ai-summary">{{.Summary}}</p>
+  {{with .Steps}}<ol class="ai-actions">{{range .}}<li>
+    <div class="ai-title"><strong>{{.Title}}</strong></div>
+    {{with .Why}}<div class="muted small ai-why">{{.}}</div>{{end}}
+    {{with .Packages}}<div class="pkg-chips small">{{range .}}<code>{{.}}</code> {{end}}</div>{{end}}
+  </li>{{end}}</ol>{{end}}
+  {{with .Packages}}<details class="ai-pkgs"><summary>Per package ({{len .}})</summary>
+    <div class="scroll"><table class="small"><thead><tr><th>Package</th><th>Do</th><th>Why</th></tr></thead><tbody>{{range .}}<tr>
+      <td>{{.Name}}</td><td>{{template "leftoveraction" .Action}}</td>
+      <td>{{.Why}}{{with .Heimdall}} <span class="pill muted ai-by-heimdall" title="Heimdall changed the model's answer: {{.}}">changed by Heimdall: {{.}}</span>{{end}}</td>
+    </tr>{{end}}</tbody></table></div>
+  </details>{{end}}
+  {{with .Notes}}<ul class="muted small ai-notes">{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}
+  {{else}}{{if and (not .Running) (not .Error)}}<p class="muted small ai-empty">{{if .CanRun}}Not sure what to do? Ask your AI deployment for a plan: the order of steps, and what to do with each package and why. It sees only this card's data.{{else}}No AI plan yet. An operator can ask for one.{{end}}</p>{{end}}{{end}}
+  {{if and .Error (not .Running)}}<p class="ai-error small" role="status">{{if .Plan}}The last attempt didn't work: {{else}}Couldn't get an answer: {{end}}{{.Error}}.{{with .ErrorAt}} <span class="muted">{{dayAgo .}}</span>{{end}}</p>{{end}}
+  {{with .At}}<p class="muted small ai-foot">Generated <span title="{{time .}}">{{dayAgo .}}</span> by {{$v.Deployment}} · advisory only, Heimdall never runs anything</p>{{end}}
+</div>{{end}}{{end}}
+
+{{define "leftoveraction"}}{{if eq . "fix_source"}}<span class="badge">fix the source</span>{{else if eq . "reinstall"}}<span class="badge">reinstall</span>{{else if eq . "replace"}}<span class="badge">replace</span>{{else if eq . "remove"}}<span class="badge warn">remove</span>{{else if eq . "keep"}}<span class="badge ok">keep</span>{{else}}<span class="badge bad">wait</span>{{end}}{{end}}

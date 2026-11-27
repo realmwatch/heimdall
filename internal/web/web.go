@@ -33,6 +33,7 @@ import (
 	"github.com/realmwatch/heimdall/internal/feeds/php"
 	"github.com/realmwatch/heimdall/internal/handoff"
 	"github.com/realmwatch/heimdall/internal/ipinfo"
+	"github.com/realmwatch/heimdall/internal/leftovers"
 	"github.com/realmwatch/heimdall/internal/privilege"
 	"github.com/realmwatch/heimdall/internal/report"
 	"github.com/realmwatch/heimdall/internal/search"
@@ -315,6 +316,7 @@ func New(cfg Config, st *store.Store, a Authenticator, search SearchFunc, log *s
 	if cfg.AI != nil { // AI analysis: regenerate a brief or explain a host (operator+)
 		mux.HandleFunc("POST /ai/brief/{org}", s.requireAuth(s.aiBriefRun))
 		mux.HandleFunc("POST /hosts/{org}/{host}/ai", s.requireAuth(s.aiHostRun))
+		mux.HandleFunc("POST /hosts/{org}/{host}/ai/leftovers", s.requireAuth(s.aiLeftoversRun))
 	}
 	mux.HandleFunc("GET /static/{file}", s.static)
 	mux.HandleFunc("/", s.requireAuth(func(w http.ResponseWriter, r *http.Request, v *auth.Viewer) {
@@ -722,8 +724,9 @@ var funcs = template.FuncMap{
 	"aititle": func(l *aiLinker, text string, hosts []string) template.HTML { return l.HTMLExcept(text, hosts) },
 	// aicmds and ainotes pass a step's commands and a result's notes to
 	// their partials (templates/ai.html).
-	"aicmds":  func(v aiView, a ai.Action, id string) aiCmds { return aiCmds{V: v, A: a, ID: id} },
-	"ainotes": func(l *aiLinker, n ai.Notes) aiNotes { return aiNotes{Links: l, Notes: n} },
+	"leftoverSteps": leftovers.Steps,
+	"aicmds":        func(v aiView, a ai.Action, id string) aiCmds { return aiCmds{V: v, A: a, ID: id} },
+	"ainotes":       func(l *aiLinker, n ai.Notes) aiNotes { return aiNotes{Links: l, Notes: n} },
 	// time is an instant in UTC, for tooltips; ts shows it in the viewer's
 	// time zone (times.go), iso is its datetime attribute.
 	"time": utcText,
