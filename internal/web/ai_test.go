@@ -17,8 +17,8 @@ import (
 )
 
 type fakeAI struct {
-	hosts, briefs []string
-	err           error
+	hosts, briefs, leftovers []string
+	err                      error
 }
 
 func (f *fakeAI) Deployment() string   { return "my-deployment" }
@@ -29,6 +29,10 @@ func (f *fakeAI) StartHost(_ context.Context, actor string, org store.Org, h sto
 }
 func (f *fakeAI) StartBrief(_ context.Context, actor string, org store.Org) error {
 	f.briefs = append(f.briefs, actor+" "+org.Slug)
+	return f.err
+}
+func (f *fakeAI) StartLeftovers(_ context.Context, actor string, org store.Org, h store.IngestHost) error {
+	f.leftovers = append(f.leftovers, actor+" "+org.Slug+"/"+h.Name)
 	return f.err
 }
 

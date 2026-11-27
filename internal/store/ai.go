@@ -13,6 +13,8 @@ import (
 const (
 	AIBrief = "brief" // the org's fleet brief
 	AIHost  = "host"  // "explain this host"
+	// AILeftovers is a host's release-leftovers plan.
+	AILeftovers = "leftovers"
 )
 
 var (
@@ -49,7 +51,7 @@ const AIRunsKept = 10
 // two clicks can't start two runs.
 func (s *Store) StartAIRun(ctx context.Context, orgID, hostID int64, kind, actor, deployment string,
 	now time.Time, minGap, stale time.Duration) (int64, error) {
-	if (kind != AIBrief && kind != AIHost) || (kind == AIHost) != (hostID != 0) {
+	if (kind != AIBrief && kind != AIHost && kind != AILeftovers) || (kind != AIBrief) != (hostID != 0) {
 		return 0, &ValidationError{"kind", "invalid AI run kind"}
 	}
 	var id int64
@@ -123,6 +125,12 @@ func (s *Store) AIRuns(ctx context.Context, orgID, hostID int64, limit int) ([]A
 	if hostID != 0 {
 		kind = AIHost
 	}
+	return s.AIRunsOf(ctx, orgID, hostID, kind, limit)
+}
+
+// AIRunsOf lists one kind of run for an org (hostID 0) or a host, newest
+// first.
+func (s *Store) AIRunsOf(ctx context.Context, orgID, hostID int64, kind string, limit int) ([]AIRun, error) {
 	rows, err := s.rd.QueryContext(ctx, `SELECT id, org_id, coalesce(host_id, 0), kind, status, created_at, finished_at,
 		requested_by, deployment, model, input_tokens, output_tokens, error, result
 		FROM ai_runs WHERE org_id = ? AND kind = ? AND coalesce(host_id, 0) = ? ORDER BY id DESC LIMIT ?`,

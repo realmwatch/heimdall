@@ -172,9 +172,10 @@ type hostBody struct {
 	SSH            sshView
 	PackageMgr     string
 	ShowOrgName    bool
-	News           []newsRow // incidents in the news affecting this host
-	ChangeWatch    string    // "on", "off", or "" if the collector doesn't report its triggers
-	AI             *aiView   // AI triage card (nil when [ai] is off); see ai.go
+	News           []newsRow       // incidents in the news affecting this host
+	ChangeWatch    string          // "on", "off", or "" if the collector doesn't report its triggers
+	AI             *aiView         // AI triage card (nil when [ai] is off); see ai.go
+	LeftoverAI     *leftoverAIView // the leftovers card's AI plan (nil when [ai] is off or nothing is left)
 
 	Tailnet *tailnetView // the host's tailnet device (nil when [tailscale] is off); see tailscale.go
 	Logins  *loginsView  // failed logins (nil on Windows); see logins.go
@@ -390,6 +391,10 @@ func (s *server) hostPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 		return
 	}
 	if body.SSH, err = s.sshFor(r, v, host.ID); err != nil {
+		s.fail(w, r, v, err)
+		return
+	}
+	if body.LeftoverAI, err = s.leftoverAIFor(r, v, host, body.Report.ReleaseLeftovers != nil); err != nil {
 		s.fail(w, r, v, err)
 		return
 	}

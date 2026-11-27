@@ -1457,3 +1457,13 @@ fieldset.push-kind .choice { grid-column: 2; grid-row: 1 / span 2; }
 details.cmd-alt { margin: 6px 0 10px; }
 details.cmd-alt > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 details.cmd-alt[open] > summary { margin-bottom: 8px; }
+
+/* Release leftovers: the ordered steps, and the AI plan (host.html, ai.html) */
+.leftover-steps { display: grid; gap: 10px; padding-left: 22px; }
+.leftover-steps li.waiting > strong { color: var(--muted); }
+.leftover-steps .small, .ai-leftovers .ai-why { margin-top: 2px; }
+.pkg-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.ai-leftovers { margin: 14px 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
+.ai-leftovers .ai-head h3 { margin: 0; }
+.leftover-details { margin-top: 12px; }
+.leftover-details > summary { cursor: pointer; font-weight: 600; }
