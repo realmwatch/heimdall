@@ -68,6 +68,15 @@ func TestIPCommands(t *testing.T) {
 	if out := c.ok("ip", "policy", "--count-services", "on"); !strings.Contains(out, "count-services  on") || !strings.Contains(out, "allow-services  off") {
 		t.Errorf("count-services on:\n%s", out)
 	}
+	if out := c.ok("ip", "policy", "--agent-account", "agent"); !strings.Contains(out, "agent-account   agent") || !strings.Contains(out, "count-services  on") {
+		t.Errorf("agent-account:\n%s", out)
+	}
+	if out := c.ok("ip", "policy", "--agent-account", "none"); !strings.Contains(out, "agent-account   -") {
+		t.Errorf("agent-account none:\n%s", out)
+	}
+	if _, _, err := c.run("ip", "policy", "--agent-account", "root"); err == nil {
+		t.Error("root accepted as the agent account")
+	}
 	if _, _, err := c.run("ip", "policy", "--tailnet-only", "maybe"); err == nil {
 		t.Error("a bad policy value was accepted")
 	}

@@ -95,3 +95,98 @@ func TestAccessSummaryNamesSources(t *testing.T) {
 		t.Fatalf("anomalies = %v", got)
 	}
 }
+
+// agentPlan sets the org's agent account and, if open, puts the host in
+// an open patch plan.
+func (e *ruleEnv) agentPlan(account string, open bool) {
+	e.t.Helper()
+	ctx := e.t.Context()
+	if err := e.st.SetIPPolicy(ctx, "test", store.IPPolicy{OrgID: e.host.OrgID, AllowServices: true, AgentAccount: account}, now); err != nil {
+		e.t.Fatal(err)
+	}
+	if !open {
+		return
+	}
+	p, err := e.st.CreatePlan(ctx, "test", 0, "acme", "November patching")
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	if err := e.st.AddToPlan(ctx, "test", p.ID, e.host, 1); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+func TestAgentSudoInOpenPlanExempt(t *testing.T) {
+	e := newRuleEnv(t)
+	e.agentPlan("agent", true)
+	e.report(ev(-3*time.Hour, "sudo", "agent", ""), ev(-2*time.Hour, "sudo", "agent", ""), ev(-time.Hour, "sudo", "agent", ""))
+	if got := e.accessSummaries(); len(got) != 0 {
+		t.Fatalf("the agent's sudo in an open plan counted: %v", got)
+	}
+}
+
+func TestAgentSudoOutsidePlanCounted(t *testing.T) {
+	e := newRuleEnv(t)
+	e.agentPlan("agent", false)
+	e.report(ev(-3*time.Hour, "sudo", "agent", ""), ev(-2*time.Hour, "sudo", "agent", ""), ev(-time.Hour, "sudo", "agent", ""))
+	if got := e.accessSummaries(); len(got) != 1 || !strings.Contains(got[0], "3 sudo by agent") {
+		t.Fatalf("anomalies = %v", got)
+	}
+}
+
+func TestAgentExemptionIsNarrow(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ev   store.PrivilegeEvent
+		want string
+	}{
+		{"remote source", ev(-time.Hour, "sudo", "agent", "192.0.2.10"), "1 sudo by agent from 192.0.2.10"},
+		{"unknown source", ev(-time.Hour, "sudo", "agent", "?"), "1 sudo by agent"},
+		{"another account", ev(-time.Hour, "sudo", "alice", ""), "1 sudo by alice"},
+		{"root SSH", ev(-time.Hour, "root-ssh", "agent", ""), "1 root SSH by agent"},
+		{"su", ev(-time.Hour, "su", "agent", ""), "1 su by agent"},
+		{"no username", ev(-time.Hour, "sudo", "", ""), "1 sudo"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newRuleEnv(t)
+			e.agentPlan("agent", true)
+			e.report(tc.ev)
+			if got := e.accessSummaries(); len(got) != 1 || !strings.HasSuffix(got[0], tc.want) {
+				t.Fatalf("anomalies = %v, want one ending %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAgentMixedDay(t *testing.T) {
+	e := newRuleEnv(t)
+	e.agentPlan("agent", true)
+	e.report(ev(-3*time.Hour, "sudo", "agent", ""), ev(-2*time.Hour, "sudo", "agent", ""), ev(-time.Hour, "sudo", "alice", ""))
+	if got := e.accessSummaries(); len(got) != 1 || !strings.HasPrefix(got[0], "1 privileged access ") || !strings.HasSuffix(got[0], ": 1 sudo by alice") {
+		t.Fatalf("anomalies = %v", got)
+	}
+}
+
+func TestAgentAccountUnsetCounts(t *testing.T) {
+	e := newRuleEnv(t)
+	e.agentPlan("", true) // in a plan, but no account set: nothing is exempt
+	e.report(ev(-time.Hour, "sudo", "agent", ""))
+	if got := e.accessSummaries(); len(got) != 1 {
+		t.Fatalf("anomalies = %v", got)
+	}
+}
+
+func TestAgentAccountValidated(t *testing.T) {
+	e := newRuleEnv(t)
+	for _, bad := range []string{"root", "Agent", "a b", "-x", strings.Repeat("a", 33)} {
+		if err := e.st.SetIPPolicy(t.Context(), "test", store.IPPolicy{OrgID: e.host.OrgID, AgentAccount: bad}, now); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	if err := e.st.SetIPPolicy(t.Context(), "test", store.IPPolicy{OrgID: e.host.OrgID, AgentAccount: " deploy-agent "}, now); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := e.st.IPPolicy(t.Context(), e.host.OrgID); p.AgentAccount != "deploy-agent" {
+		t.Fatalf("stored %q", p.AgentAccount)
+	}
+}

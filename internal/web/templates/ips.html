@@ -19,6 +19,7 @@
     <label class="check"><input type="checkbox" name="tailnet_only"{{if .Policy.TailnetOnly}} checked{{end}}> SSH only from the tailnet</label>
     <label class="check" title="Forge, Ploi and the like deploy over the public internet from published ranges"><input type="checkbox" name="allow_services"{{if .Policy.AllowServices}} checked{{end}}> except deploy services</label>
     <label class="check" title="Forge, Ploi and the like SSH in as root on every deploy"><input type="checkbox" name="count_services"{{if .Policy.CountServices}} checked{{end}}> count deploy-service sessions as privileged access</label>
+    <label title="The local account your change-management tool's agent runs sudo as. While a host is in an open patch plan, that account's local sudo isn't counted as privileged access. Leave empty to count it always.">change agent account <input type="text" name="agent_account" value="{{.Policy.AgentAccount}}" size="12" maxlength="32" pattern="[a-z_][a-z0-9_.\-]{0,31}" autocomplete="off" spellcheck="false"></label>
     <button type="submit" class="secondary">Save policy</button>
   </form>
   <p class="muted small">With the policy on, a privileged session from anywhere but the tailnet, a private network or the server itself raises an alert, even from a labeled address.{{if not .Policy.UpdatedAt.IsZero}} Last changed {{dayAgo (timep .Policy.UpdatedAt)}} by {{.Policy.UpdatedBy}}.{{end}}</p>

@@ -72,7 +72,10 @@ type Rules struct {
 //   - privileged_access: events outside a maintenance window, one anomaly
 //     per host per (UTC) day, its count growing as more arrive. Sessions
 //     from a deploy service's synced range don't count unless the org's IP
-//     policy counts services (an account name alone isn't enough).
+//     policy counts services (an account name alone isn't enough). While
+//     the host is in an open patch plan, local sudo by the org's
+//     change-management agent account (IPPolicy.AgentAccount) doesn't
+//     count either: see agentSudo.
 //   - privilege_watch_disabled: the host reported "on" before and now
 //     reports "off" or "partial". Hosts that never enabled it never alert.
 //   - privilege_unknown_source, privilege_off_tailnet: where sessions came
@@ -109,6 +112,15 @@ func (e *Rules) OnReport(ctx context.Context, host store.IngestHost, snapshotID 
 	if err != nil {
 		return raised, err
 	}
+	// Whether the host is in an open plan now, at report time, not at each
+	// event's time: an event that arrives after its plan closed counts,
+	// as with the anomaly engine's own use of InOpenPlan.
+	inPlan := false
+	if policy.AgentAccount != "" {
+		if inPlan, err = e.Store.InOpenPlan(ctx, host.ID); err != nil {
+			return raised, err
+		}
+	}
 	resolve := e.resolver(ctx, host.OrgID)
 	type day struct {
 		counts map[string]int
@@ -120,6 +132,9 @@ func (e *Rules) OnReport(ctx context.Context, host store.IngestHost, snapshotID 
 			continue
 		}
 		if !policy.CountServices && ev.Source != "" && ev.Source != "?" && resolve(ev).SyncedAutomation() {
+			continue
+		}
+		if inPlan && agentSudo(ev, policy.AgentAccount) {
 			continue
 		}
 		k := ev.At.UTC().Format(time.DateOnly)
@@ -164,6 +179,17 @@ func (e *Rules) OnReport(ctx context.Context, host store.IngestHost, snapshotID 
 	}
 	more, err := e.sourceRules(ctx, host, snapshotID, fresh, windows, policy, resolve, now) // source.go
 	return append(raised, more...), err
+}
+
+// agentSudo reports whether ev is the change-management agent's own sudo:
+// sudo, by account, in a local session. An unknown source ("?") isn't
+// known to be local, and su or root SSH are never the agent's. A name on
+// its own isn't trusted anywhere else; here it's narrowed to open plans,
+// when the operator has asked for changes on the host, and to an account
+// whose sudoers rules allow only the agent's commands. Hosts that don't
+// record usernames (--watch-privilege-users) never match.
+func agentSudo(ev store.PrivilegeEvent, account string) bool {
+	return account != "" && ev.Kind == "sudo" && ev.Source == "" && ev.User == account
 }
 
 // resolver returns a lookup of events' source verdicts for an org, loading
