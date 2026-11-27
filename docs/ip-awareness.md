@@ -106,7 +106,27 @@ It's acknowledged as `heimdall` with a note such as "resolved: 203.0.113.4 is no
 
 `privilege_off_tailnet` never closes this way: a label says whose an address is, not that it's allowed. `privileged_access` doesn't either.
 
-The privilege watch's own rule, `privileged_access` (medium), counts every session outside a maintenance window, except deploy-service sessions (below).
+The privilege watch's own rule, `privileged_access` (medium), counts every session outside a maintenance window, except deploy-service sessions (below) and, during an open patch plan, the change agent's own sudo ([below](#the-change-agents-sudo-during-an-open-patch-plan)).
+
+### The change agent's sudo during an open patch plan
+
+A change-management tool's agent runs `sudo` on each server it works on, for example to refresh the package lists when you open an "install updates" link for a plan batch. Each of those is a privileged access, so without an exemption every host in the batch would raise `privileged_access` on the same day.
+
+Set the account the agent runs as, per org, under **change agent account** on the IP addresses page (`/ips`), or:
+
+```sh
+heimdall ip policy --org acme --agent-account deploy-agent   # set it
+heimdall ip policy --org acme --agent-account none           # always count it (the default)
+```
+
+An event is then left out of `privileged_access` only when all of these hold:
+
+- the host is in an **open patch plan** when the report arrives (an event reported after the plan is closed counts);
+- it's `sudo`, not `su` or root SSH;
+- it's a **local** session, with no remote address (an unknown source, `?`, isn't known to be local, so it counts);
+- the user is the agent's account. Usernames are recorded only on servers installed with `--watch-privilege-users`; elsewhere nothing matches, and every sudo counts.
+
+Everything else still counts: a person's sudo, su, root SSH, any remote session, and the agent's sudo outside an open plan. On a mixed day only the others are counted. An account name alone isn't trusted anywhere else in Heimdall; here it's narrowed to the hosts you've asked for changes on, and the agent's sudoers rules should allow only its own commands. `root` can't be set. Changes are audited (`ip_policy.set`).
 
 ### Deploy-service sessions and privileged access
 

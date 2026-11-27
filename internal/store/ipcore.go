@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -161,9 +162,16 @@ type IPPolicy struct {
 	// CountServices counts sessions from those ranges toward
 	// privileged_access. Off unless turned on: deploys aren't news.
 	CountServices bool
-	UpdatedBy     string
-	UpdatedAt     time.Time
+	// AgentAccount is the local account a change-management tool's agent
+	// runs sudo as. While a host is in an open patch plan, local sudo by
+	// it doesn't count toward privileged_access. Empty: off.
+	AgentAccount string
+	UpdatedBy    string
+	UpdatedAt    time.Time
 }
+
+// agentAccountRE is a Linux account name, as useradd accepts by default.
+var agentAccountRE = regexp.MustCompile(`^[a-z_][a-z0-9_.-]{0,31}$`)
 
 // IPPolicy returns an org's policy (off, services allowed and not
 // counted, if never set).
@@ -171,8 +179,8 @@ func (s *Store) IPPolicy(ctx context.Context, orgID int64) (IPPolicy, error) {
 	p := IPPolicy{OrgID: orgID, AllowServices: true}
 	var at string
 	err := s.rd.QueryRowContext(ctx, `
-		SELECT tailnet_only, allow_services, count_services, updated_by, updated_at FROM ip_policies WHERE org_id = ?`, orgID).
-		Scan(&p.TailnetOnly, &p.AllowServices, &p.CountServices, &p.UpdatedBy, &at)
+		SELECT tailnet_only, allow_services, count_services, agent_account, updated_by, updated_at FROM ip_policies WHERE org_id = ?`, orgID).
+		Scan(&p.TailnetOnly, &p.AllowServices, &p.CountServices, &p.AgentAccount, &p.UpdatedBy, &at)
 	if errors.Is(err, sql.ErrNoRows) {
 		return p, nil
 	}
@@ -185,18 +193,24 @@ func (s *Store) SetIPPolicy(ctx context.Context, actor string, p IPPolicy, now t
 	if p.OrgID == 0 {
 		return &ValidationError{"org", "is required"}
 	}
+	if p.AgentAccount = strings.TrimSpace(p.AgentAccount); p.AgentAccount != "" && !agentAccountRE.MatchString(p.AgentAccount) {
+		return &ValidationError{"agent account", "must be a Linux account name (lowercase letters, digits, _ . -; up to 32)"}
+	}
+	if p.AgentAccount == "root" {
+		return &ValidationError{"agent account", "can't be root"}
+	}
 	return s.tx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO ip_policies (org_id, tailnet_only, allow_services, count_services, updated_by, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?)
+			INSERT INTO ip_policies (org_id, tailnet_only, allow_services, count_services, agent_account, updated_by, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (org_id) DO UPDATE SET tailnet_only = excluded.tailnet_only,
-			  allow_services = excluded.allow_services, count_services = excluded.count_services, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
-			p.OrgID, p.TailnetOnly, p.AllowServices, p.CountServices, actor, now.UTC().Format(timeLayout)); err != nil {
+			  allow_services = excluded.allow_services, count_services = excluded.count_services, agent_account = excluded.agent_account, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+			p.OrgID, p.TailnetOnly, p.AllowServices, p.CountServices, p.AgentAccount, actor, now.UTC().Format(timeLayout)); err != nil {
 			return err
 		}
 		return audit(ctx, tx, AuditEntry{Actor: actor, Action: "ip_policy.set", OrgID: p.OrgID,
 			Detail: map[string]any{"tailnet_only": p.TailnetOnly, "allow_services": p.AllowServices,
-				"count_services": p.CountServices}})
+				"count_services": p.CountServices, "agent_account": p.AgentAccount}})
 	})
 }
 

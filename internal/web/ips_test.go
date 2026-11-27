@@ -144,15 +144,18 @@ func TestIPLabelAddRemove(t *testing.T) {
 	}
 
 	// The policy toggle.
-	if w := e.post("/ips/policy", csrfForm("org", "acme", "tailnet_only", "on", "count_services", "on"), origin(e.baseURL), signedIn(e)); w.Code != http.StatusSeeOther {
+	if w := e.post("/ips/policy", csrfForm("org", "acme", "tailnet_only", "on", "count_services", "on", "agent_account", "agent"), origin(e.baseURL), signedIn(e)); w.Code != http.StatusSeeOther {
 		t.Fatalf("policy: %d", w.Code)
 	}
-	if p, _ := e.st.IPPolicy(ctx, acme); !p.TailnetOnly || p.AllowServices || !p.CountServices || p.UpdatedBy != "user:1" {
+	if p, _ := e.st.IPPolicy(ctx, acme); !p.TailnetOnly || p.AllowServices || !p.CountServices || p.AgentAccount != "agent" || p.UpdatedBy != "user:1" {
 		t.Errorf("policy = %+v", p)
 	}
 	if body := e.get("/ips", signedIn(e)).Body.String(); !strings.Contains(body, `name="tailnet_only" checked`) ||
-		!strings.Contains(body, `name="count_services" checked`) {
+		!strings.Contains(body, `name="count_services" checked`) || !strings.Contains(body, `name="agent_account" value="agent"`) {
 		t.Error("policy not shown on")
+	}
+	if w := e.post("/ips/policy", csrfForm("org", "acme", "agent_account", "root"), origin(e.baseURL), signedIn(e)); w.Code == http.StatusSeeOther {
+		t.Error("root accepted as the agent account")
 	}
 }
 

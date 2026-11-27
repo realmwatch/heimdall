@@ -226,11 +226,12 @@ func cmdIPShow(a *app, args []string) error {
 }
 
 func cmdIPPolicy(a *app, args []string) error {
-	fs := a.flags("ip policy", "[--org <org>] [--tailnet-only on|off] [--allow-services on|off] [--count-services on|off]")
+	fs := a.flags("ip policy", "[--org <org>] [--tailnet-only on|off] [--allow-services on|off] [--count-services on|off] [--agent-account <name>|none]")
 	org := fs.String("org", "", "organization slug (optional if there is only one)")
 	tailnet := fs.String("tailnet-only", "", "on: alert on privileged SSH from anywhere but the tailnet or a private network")
 	services := fs.String("allow-services", "", "on (the default): exempt deploy services' synced ranges from --tailnet-only")
 	count := fs.String("count-services", "", "on: count sessions from deploy services' synced ranges as privileged access (off by default)")
+	agent := fs.String("agent-account", "", "the local account a change-management tool's agent runs sudo as: its local sudo doesn't count as privileged access while the host is in an open patch plan (none: always count it)")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
@@ -247,7 +248,14 @@ func cmdIPPolicy(a *app, args []string) error {
 	if err != nil {
 		return err
 	}
-	if *tailnet != "" || *services != "" || *count != "" {
+	if *tailnet != "" || *services != "" || *count != "" || *agent != "" {
+		switch *agent {
+		case "":
+		case "none":
+			p.AgentAccount = ""
+		default:
+			p.AgentAccount = *agent
+		}
 		for flag, v := range map[string]struct {
 			s string
 			b *bool
@@ -268,7 +276,7 @@ func cmdIPPolicy(a *app, args []string) error {
 		}
 	}
 	onOff := map[bool]string{true: "on", false: "off"}
-	fmt.Fprintf(a.stdout, "org             %s\ntailnet-only    %s\nallow-services  %s\ncount-services  %s\n",
-		slug, onOff[p.TailnetOnly], onOff[p.AllowServices], onOff[p.CountServices])
+	fmt.Fprintf(a.stdout, "org             %s\ntailnet-only    %s\nallow-services  %s\ncount-services  %s\nagent-account   %s\n",
+		slug, onOff[p.TailnetOnly], onOff[p.AllowServices], onOff[p.CountServices], orDash(p.AgentAccount))
 	return nil
 }
