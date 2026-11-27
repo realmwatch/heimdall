@@ -49,6 +49,7 @@
       </form>
       {{template "themetoggle"}}
     </div>
+    {{if and .UpdatesOn .Perm.Admin}}<a class="side-version" href="/admin/updates" title="Heimdall {{.Version}}{{with .Update}}: {{.Version}} is available{{end}}">{{.Version}}{{if .Update}}<span class="side-text"> · update available</span>{{end}}</a>{{else}}<span class="side-version" title="Heimdall {{.Version}}">{{.Version}}</span>{{end}}
   </div>
 </aside>
 {{/* Phones: the tab bar replaces the sidebar (phone.go). */}}

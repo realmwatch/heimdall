@@ -47,6 +47,9 @@ func TestUpdatesPage(t *testing.T) {
 	if b := body("/admin/updates"); !strings.Contains(b, "not checked yet") || !strings.Contains(b, "Check now") {
 		t.Error("before a check")
 	}
+	if b := body("/hosts"); !strings.Contains(b, `<a class="side-version" href="/admin/updates" title="Heimdall v0.5.0">v0.5.0</a>`) {
+		t.Error("the sidebar doesn't show the running version")
+	}
 	if w := e.post("/admin/updates/check", url.Values{"csrf": {csrf}}, signedIn(e), origin(e.baseURL)); w.Code != http.StatusSeeOther {
 		t.Fatalf("check: %d", w.Code)
 	}
@@ -55,6 +58,9 @@ func TestUpdatesPage(t *testing.T) {
 		if !strings.Contains(b, want) {
 			t.Errorf("updates page missing %q", want)
 		}
+	}
+	if !strings.Contains(body("/hosts"), `title="Heimdall v0.5.0: v9.9.9 is available">v0.5.0<span class="side-text"> · update available</span></a>`) {
+		t.Error("the sidebar version doesn't mention the update")
 	}
 	if !strings.Contains(body("/hosts"), `<a href="/admin/updates">Install it</a>`) {
 		t.Error("banner doesn't link to the updates page")
