@@ -1330,6 +1330,12 @@ h3.dang-zone { margin: 18px 0 6px; font-size: 15px; }
 .dash-list.card { padding: 12px 14px; }
 .side-foot a.email { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 .side-foot a.email:hover { color: var(--text); }
+/* The running version, at the foot of the sidebar; it replaces the page
+   footer wherever the sidebar shows (phones keep the footer). */
+.side-version { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+a.side-version:hover { color: var(--text); }
+[data-side="rail"] .side-version { font-size: 10px; }
+@media (min-width: 761px) { body.has-side > footer { display: none; } }
 
 /* Notifications (notifications.go): this device, then the settings. Each
    event kind's choice is a row of segmented radio buttons. */
