@@ -293,6 +293,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.recordSites(r.Context(), log, host, r)                     // sites.go
 		h.recordAgents(r.Context(), log, host, r)                    // agents.go
 		h.recordPHP(r.Context(), log, host, r)                       // php.go
+		h.recordNode(r.Context(), log, host, r)                      // node.go
 		h.recordApt(r.Context(), log, host, r)                       // php.go
 		h.recordLivepatch(r.Context(), log, host, r)                 // livepatch.go
 		h.recordSSH(r.Context(), log, host, r)                       // ssh.go

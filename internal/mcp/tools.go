@@ -99,6 +99,7 @@ func (s *Server) registerTools() {
 	s.add("host", tool{
 		description: "One host: OS and lifecycle, runtimes, finding counts and top findings, sites, containers, last check-in, " +
 			"release_leftovers (apt sources and packages an in-place release upgrade left, and what loads them), " +
+			"node_installs (every Node.js binary: path, version, major, kind apt/opt/nvm/other, whether it runs, the sites using it; each site has node_bin, node_version and node_requirement), " +
 			"and its machine ID hash. Name it by hostname, or by machine (the hex SHA-256 of \"heimdall-machine:\" and /etc/machine-id).",
 		schema: obj(map[string]any{"host": str("Hostname"), "machine": str("Machine ID hash, instead of host"), "org": orgArg}),
 		run: func(ctx context.Context, c caller, a map[string]any) (any, error) {
@@ -118,7 +119,7 @@ func (s *Server) registerTools() {
 				if rh.Name == h.Name {
 					truncated := len(rh.Findings) > maxItems
 					rh.Findings = first(rh.Findings, maxItems)
-					return map[string]any{"host": rh, "machine": machine, "findings_truncated": truncated}, nil
+					return map[string]any{"host": rh, "machine": machine, "findings_truncated": truncated, "node_installs": rh.NodeInstalls()}, nil
 				}
 			}
 			return map[string]any{"host": h.Name, "org": h.OrgSlug, "machine": machine, "status": "registered, never reported"}, nil

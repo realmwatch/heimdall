@@ -144,10 +144,11 @@ type hostBody struct {
 	Pending         []store.InventoryPackage
 	PendingSecurity int
 	OSView          findingsView
-	CollectorBehind bool              // upgrading the host's collector would change it (updates.CollectorChanged)
-	CollectorURL    string            // drafts the upgrade in a change-management tool (changelink.go)
-	PHPRemove       map[string]string // unused PHP version to its removal link (changelink.go)
-	PHPRemoveAll    string            // one link removing every version in PHPRemove, when there are 2+
+	CollectorBehind bool                 // upgrading the host's collector would change it (updates.CollectorChanged)
+	CollectorURL    string               // drafts the upgrade in a change-management tool (changelink.go)
+	NodeLinks       map[string]nodeLinks // Node.js proposals by binary path, for operators (node.go)
+	PHPRemove       map[string]string    // unused PHP version to its removal link (changelink.go)
+	PHPRemoveAll    string               // one link removing every version in PHPRemove, when there are 2+
 	PHPRemoveAllN   int
 	RebootURL       string // drafts a reboot when one is required or a newer kernel waits (changelink.go)
 	// Disabled sites (vhost not enabled), with the archived ones only when
@@ -362,6 +363,14 @@ func (s *server) hostPage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 		}
 	}
 	body.PHPRemove = s.cfg.ChangeLink.phpRemoveLinks(host.OrgSlug, host.Name, body.Report.Runtimes)
+	if body.CanOperate && s.cfg.ChangeLink.ActionURL != "" && slices.ContainsFunc(body.Report.Runtimes, func(rt report.Runtime) bool { return rt.Path != "" }) {
+		cycles, err := s.st.EOLCycles(ctx, eol.ProductNodeJS)
+		if err != nil {
+			s.fail(w, r, v, err)
+			return
+		}
+		body.NodeLinks = s.cfg.ChangeLink.nodeHostLinks(host.OrgSlug, host.Name, body.Report, cycles, s.now())
+	}
 	body.PHPRemoveAll, body.PHPRemoveAllN = s.cfg.ChangeLink.phpRemoveAllLink(host.OrgSlug, host.Name, body.PHPRemove)
 	if raw, err := s.st.HostTriggers(ctx, host.ID); err == nil {
 		if t, err := triggers.Parse(raw); err == nil {
@@ -1073,6 +1082,12 @@ type siteBody struct {
 	// PHPHandoffURL hands the code side of a PHP upgrade to an Amp agent
 	// (phphandoff.go): operators, with an Amp agent and a known PHP-FPM.
 	PHPHandoffURL string
+	// Node.js (node.go), for operators: NodeInstallURL installs the major
+	// the site's requirement names, NodeUpgradeURL moves it to NodeNewest
+	// (an LTS); NodeBuild: no running process was seen, so the upgrade is
+	// a change to what its deploy builds with.
+	NodeInstallURL, NodeUpgradeURL, NodeNewest string
+	NodeBuild                                  bool
 
 	Cloudflare cloudflareHTML // the Cloudflare card, or "" (cloudflare.go)
 	Surface    surfaceHTML    // "public as ..." line, or "" (surface.go)
@@ -1184,6 +1199,14 @@ func (s *server) sitePage(w http.ResponseWriter, r *http.Request, v *auth.Viewer
 		}
 		body.PHPNewest = newerPHP(cycles, body.Site.PHPFPM, s.now())
 		body.PHPUpgradeURL = s.cfg.ChangeLink.phpUpgradeLink(host.OrgSlug, host.Name, body.Site, body.PHPNewest)
+	}
+	if body.CanOperate && s.cfg.ChangeLink.ActionURL != "" && (body.Site.NodeBin != "" || body.Site.NodeRequirement != "") {
+		cycles, err := s.st.EOLCycles(ctx, eol.ProductNodeJS)
+		if err != nil {
+			s.fail(w, r, v, err)
+			return
+		}
+		body.NodeInstallURL, body.NodeUpgradeURL, body.NodeNewest, body.NodeBuild = s.cfg.ChangeLink.nodeSiteLinks(host.OrgSlug, host.Name, body.Site, cycles, s.now())
 	}
 	if s.canHandoff(v, host.OrgID) && len(ampAgents(s.cfg.Agents)) > 0 && handoff.PHPMinorRe.MatchString(body.Site.PHPFPM) {
 		body.PHPHandoffURL = phpHandoffURL(host.OrgSlug, host.Name, root, "", "")
