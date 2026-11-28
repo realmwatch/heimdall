@@ -160,7 +160,7 @@ type Runtime struct {
 	StatusNote string `json:"status_note,omitempty"`
 	// DistroBuild names the distro that builds and patches this runtime
 	// on its own schedule ("Ubuntu"), when upstream's end-of-life dates
-	// don't apply to it (nginx).
+	// don't apply to it (nginx, and the Python python3 runs).
 	DistroBuild string `json:"distro_build,omitempty"`
 }
 
@@ -391,13 +391,15 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 		for _, rt := range findings.HostRuntimes(inv) {
 			out := Runtime{Name: rt.Name, Version: rt.Version, Package: rt.Package}
 			// The distro patches its own nginx whatever nginx.org's
-			// branch dates say: only a third-party build ends with its
-			// branch.
-			distroNginx := rt.Name == eol.ProductNginx && !thirdPartyNginx(inv.Packages, rt.Package, origins)
-			if distroNginx {
+			// branch dates say, and its own Python (the one python3
+			// runs) for the OS release's life: only a third-party build,
+			// or another Python, ends with its branch.
+			distro := rt.Name == eol.ProductNginx && !thirdPartyNginx(inv.Packages, rt.Package, origins) ||
+				rt.Name == eol.ProductPython && systemPython(pm, inv.Packages, rt.Package, origins)
+			if distro {
 				out.DistroBuild, _, _ = strings.Cut(host.Ecosystem, ":")
 			}
-			if cycle, ok := eol.RuntimeCycle(rt.Name, rt.Version); ok && !distroNginx {
+			if cycle, ok := eol.RuntimeCycle(rt.Name, rt.Version); ok && !distro {
 				if out.Life, err = lifecycle(rt.Name, cycle); err != nil {
 					return nil, err
 				}
