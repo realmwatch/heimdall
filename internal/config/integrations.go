@@ -47,7 +47,7 @@ type ChangeLink struct {
 // BulkActionNames are the actions a patch plan can propose for several
 // hosts at once, in the plan's column order.
 var BulkActionNames = []string{"updates.install", "system.reboot", "kernel.remove", "collector.upgrade",
-	"php.source.sury_org", "nginx.source.nginx_org", "service.restart"}
+	"php.source.sury_org", "nginx.source.nginx_org", "service.restart", "nodejs.default_upgrade"}
 
 // DefaultBulkActions are BulkActions when they aren't set: what the tool
 // took for several hosts when the setting was added.

@@ -50,6 +50,7 @@ test-collector: shellcheck
 	collector/test/apt-origins.sh
 	collector/test/nginx-state.sh
 	collector/test/php-state.sh
+	collector/test/node-state.sh
 	collector/test/livepatch-state.sh
 	collector/test/sites-state.sh
 	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/release-state.sh 'busybox sh'
@@ -58,6 +59,7 @@ test-collector: shellcheck
 	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/nginx-state.sh 'busybox sh'
 	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/sites-state.sh 'busybox sh'
 	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/php-state.sh 'busybox sh'
+	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/node-state.sh 'busybox sh'
 	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/livepatch-state.sh 'busybox sh'
 	docker run --rm --user 65534:65534 -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/site-branches.sh 'busybox sh'
 	docker run --rm -v "$(CURDIR)/collector:/opt/heimdall:ro" alpine:3.20 sh /opt/heimdall/test/set-hub.sh

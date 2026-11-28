@@ -29,7 +29,7 @@ export LC_ALL=C
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
-VERSION=0.5.50
+VERSION=0.5.51
 FORMAT=heimdall.snapshot/v4
 
 die() { printf 'heimdall-collect: %s\n' "$*" >&2; exit 1; }
@@ -1058,6 +1058,120 @@ php_state() {
 	printf 'v2 cli=%s fpm=%s' "$cli" "${fpm:--}"
 }
 
+# ── Node.js (sent as X-Heimdall-Node) ──────────────────────────────────────
+# Which Node.js binaries the host has, which run, and each site's: so a
+# host can keep a Node major per site side by side (/opt/node/<major>,
+# nodejs.org's tarballs, next to the distro's or NodeSource's
+# /usr/bin/node) and the hub still sees every one. dpkg sees only the
+# apt one.
+#
+#	v1 bin=<path>@<version>@<running> ... site=<root>|<bin>|<requirement> ...
+#
+# bin: every /opt/node/*/bin/node, /usr/bin/node, and every node binary a
+# process runs by absolute path (/proc/*/cmdline, which any user can
+# read). <version> comes from the install's include/node/node_version.h,
+# or an nvm path's /vX.Y.Z/; "-" when unknown. <running> is 1 when a
+# process runs it.
+# site: a site with a running node process given a path inside the site
+# (its <bin>), or whose .nvmrc, .node-version or package.json engines.node
+# says which Node it builds with (<requirement>, spaces as "+"); "-" for
+# either when unknown. Most PHP sites only build with Node, so their
+# requirement is all there is. Reads those three files in each site and
+# nothing else. HEIMDALL_PROC, HEIMDALL_NODE_OPT and HEIMDALL_NODE_USR are
+# for tests.
+
+# node_version_h PREFIX: x.y.z from PREFIX/include/node/node_version.h.
+node_version_h() {
+	[ -r "$1/include/node/node_version.h" ] || return 1
+	awk '$1 == "#define" && $2 ~ /^NODE_(MAJOR|MINOR|PATCH)_VERSION$/ && $3 ~ /^[0-9]+$/ { v[$2] = $3 }
+		END {
+			if (!("NODE_MAJOR_VERSION" in v) || !("NODE_MINOR_VERSION" in v) || !("NODE_PATCH_VERSION" in v)) exit 1
+			printf "%s.%s.%s", v["NODE_MAJOR_VERSION"], v["NODE_MINOR_VERSION"], v["NODE_PATCH_VERSION"]
+		}' "$1/include/node/node_version.h"
+}
+
+# node_bin_version BIN: BIN's version, or "-".
+node_bin_version() {
+	case $1 in
+	*/.nvm/versions/node/v[0-9]*/bin/node)
+		v=${1%/bin/node}
+		v=${v##*/v}
+		case $v in *[!0-9.]* | '') ;; *) printf '%s' "$v" && return ;; esac
+		;;
+	esac
+	p=${1%/*}
+	node_version_h "${p%/*}" || printf -
+}
+
+# node_procs: "<bin>" then "<bin>\t<arg>" for each absolute argument, per
+# process whose argv0 is an absolute path to node or nodejs.
+node_procs() {
+	proc=${HEIMDALL_PROC:-/proc}
+	grep -l node "$proc"/[0-9]*/cmdline 2>/dev/null | while IFS= read -r f; do
+		tr '\000' '\n' 2>/dev/null <"$f" | awk -v tab='	' '
+			NR == 1 { if ($0 !~ /^\/[^ \t,|@]*\/(node|nodejs)$/) exit; bin = $0; print bin; next }
+			/^\// { print bin tab $0 }'
+	done
+}
+
+# node_requirement ROOT: the Node the site builds with, or nothing.
+node_requirement() {
+	r=
+	for f in .nvmrc .node-version; do
+		if [ -f "$1/$f" ] && [ -r "$1/$f" ]; then
+			r=$(head -n 1 "$1/$f" 2>/dev/null | head -c 200)
+			[ -n "$r" ] && break
+		fi
+	done
+	if [ -z "$r" ] && [ -f "$1/package.json" ] && [ -r "$1/package.json" ]; then
+		r=$(head -c 262144 "$1/package.json" 2>/dev/null | tr -d '\r\n' |
+			sed -n 's/.*"engines"[[:space:]]*:[[:space:]]*{[^}]*"node"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -c 200)
+	fi
+	printf '%s' "$r" | tr -cd '0-9A-Za-z./^~<>=|*+ -' | sed 's/^ *//; s/ *$//' | tr ' ' '+' | cut -c1-64
+}
+
+node_state() {
+	out=v1
+	opt=${HEIMDALL_NODE_OPT:-/opt/node}
+	usr=${HEIMDALL_NODE_USR:-/usr}
+	tmpd=$(mktemp -d) || { printf '%s' "$out"; return; }
+	node_procs >"$tmpd/procs"
+	cut -f1 "$tmpd/procs" | sort -u >"$tmpd/running"
+	{
+		for d in "$opt"/*; do
+			[ -e "$d/bin/node" ] && printf '%s\n' "$d/bin/node"
+		done
+		[ -e "$usr/bin/node" ] && printf '%s\n' "$usr/bin/node"
+		cat "$tmpd/running"
+	} | awk '!seen[$0]++' >"$tmpd/bins"
+	while IFS= read -r b; do
+		case $b in *[!A-Za-z0-9._~/+-]*) continue ;; esac
+		run=0
+		grep -qxF "$b" "$tmpd/running" && run=1
+		entry="bin=$b@$(node_bin_version "$b")@$run"
+		[ $((${#out} + ${#entry} + 1)) -le 4000 ] || break
+		out="$out $entry"
+	done <"$tmpd/bins"
+	sed -n 's/^ *{"root": "\([^"]*\)", "document_root".*/\1/p' >"$tmpd/roots"
+	while IFS= read -r root; do
+		case $root in /*) ;; *) continue ;; esac
+		case $root in *[!A-Za-z0-9._~/+@-]*) continue ;; esac
+		phys=$(phys_dir "$root")
+		bin=$(awk -F '	' -v r="$root" -v p="$phys" 'NF == 2 {
+				a = $2
+				if (a == r || index(a, r "/") == 1 || (p != "" && (a == p || index(a, p "/") == 1))) { print $1; exit }
+			}' "$tmpd/procs")
+		case $bin in '' | *[!A-Za-z0-9._~/+-]*) bin=- ;; esac
+		req=$(node_requirement "$root")
+		[ "$bin" != - ] || [ -n "$req" ] || continue
+		entry="site=$root|$bin|${req:--}"
+		[ $((${#out} + ${#entry} + 1)) -le 4000 ] || break
+		out="$out $entry"
+	done <"$tmpd/roots"
+	rm -rf "$tmpd"
+	printf '%s' "$out"
+}
+
 # apt_state: the X-Heimdall-Apt value, "v1 refreshed=<unix time>", when
 # apt's package lists were last refreshed successfully (the stamp apt's
 # update hook touches on every successful apt-get update, on Ubuntu and
@@ -1995,6 +2109,8 @@ push() {
 	sites_header="header = \"X-Heimdall-Sites: $(sites_state | tr -cd 'A-Za-z0-9._@+/*,;_ -' | cut -c1-8000)\""
 	# The PHP versions in use outside the sites' sockets (php_state).
 	php_header="header = \"X-Heimdall-PHP: $(php_state | tr -cd 'a-z0-9.=, -' | cut -c1-200)\""
+	# Node.js binaries, which run, and each site's (node_state).
+	node_header="header = \"X-Heimdall-Node: $(node_state <"$tmp/snapshot.json" | tr -cd 'A-Za-z0-9._~/@+=|*^<>: -' | cut -c1-4096)\""
 	# Live patching: applied, and the CVEs the patch fixes (livepatch_state).
 	livepatch_header=
 	lp_state=$(livepatch_state | tr -cd 'A-Za-z0-9.=,_ -' | cut -c1-6000)
@@ -2028,7 +2144,7 @@ push() {
 	status=$(printf '%s\n' \
 		"header = \"Authorization: Bearer $token\"" \
 		'header = "Content-Type: application/json"' \
-		"$encoding" "$cacert" "$hostname_header" "$machine_header" "$triggers_header" "$agents_header" "$repos_header" "$branches_header" "$sites_header" "$php_header" "$apt_header" "$livepatch_header" "$ssh_header" "$release_header" "$origins_header" "$nginx_header" "$(privilege_config)" "$(logins_config)" |
+		"$encoding" "$cacert" "$hostname_header" "$machine_header" "$triggers_header" "$agents_header" "$repos_header" "$branches_header" "$sites_header" "$php_header" "$node_header" "$apt_header" "$livepatch_header" "$ssh_header" "$release_header" "$origins_header" "$nginx_header" "$(privilege_config)" "$(logins_config)" |
 		"$curl" --config - --silent --show-error \
 			--proto '=https,http' --tlsv1.2 \
 			--connect-timeout 10 --max-time 120 \
@@ -2360,7 +2476,7 @@ set_hub() {
 usage() {
 	cat >&2 <<'EOF'
 usage: heimdall-collect --print | --push | --push-trips | --trips |
-                        --site-repos | --site-branches | --sites | --php | --apt |
+                        --site-repos | --site-branches | --sites | --php | --node | --apt |
                         --livepatch | --ssh |
                         --release | --origins | --nginx | --deploy-watches |
                         --logins | --version
@@ -2384,6 +2500,8 @@ usage: heimdall-collect --print | --push | --push-trips | --trips |
                 would send them
   --php         print the PHP versions in use --push would send (the command
                 line's and the running PHP-FPMs')
+  --node        print the Node.js binaries, which run, and each site's Node,
+                as --push would send them
   --apt         print when apt last refreshed its package lists, as --push
                 would send it
   --livepatch   print the live patch state --push would send (nothing where
@@ -2441,7 +2559,7 @@ case $1 in
 deployed) deployed; exit 0 ;; # any user, root too: it only touches a file
 # For heimdall-collect-soon.service (root), not for people:
 event-allowed) if event_allowed; then exit 0; else exit 1; fi ;;
---print | --push | --push-trips | --trips | --site-repos | --site-branches | --sites | --php | --apt | --livepatch | --ssh | --release | --origins | --nginx | --deploy-watches | --logins) ;;
+--print | --push | --push-trips | --trips | --site-repos | --site-branches | --sites | --php | --node | --apt | --livepatch | --ssh | --release | --origins | --nginx | --deploy-watches | --logins) ;;
 *) usage ;;
 esac
 
@@ -2474,6 +2592,7 @@ case $1 in
 --site-repos) sites_json | site_repos; echo ;;
 --site-branches) sites_json | site_branches; echo ;;
 --php) php_state; echo ;;
+--node) sites_json | node_state; echo ;;
 --sites) sites_state; echo ;;
 --apt) apt_state; echo ;;
 --livepatch) livepatch_state; echo ;;

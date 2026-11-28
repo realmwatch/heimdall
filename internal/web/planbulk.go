@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/realmwatch/heimdall/internal/config"
+	"github.com/realmwatch/heimdall/internal/report"
 	"github.com/realmwatch/heimdall/internal/store"
 )
 
@@ -48,8 +49,21 @@ func (r planRow) needs(action string) bool {
 		return h.R.NginxSuryBuild != ""
 	case "service.restart":
 		return h.NginxRestart
+	case "nodejs.default_upgrade":
+		return aptNodeEOL(h.R.Runtimes) != ""
 	}
 	return false
+}
+
+// aptNodeEOL is the host's default (apt) Node.js version when its major
+// is end-of-life, or "".
+func aptNodeEOL(rts []report.Runtime) string {
+	for _, rt := range rts {
+		if rt.Kind == "apt" && rt.Life != nil && rt.Life.EOL {
+			return rt.Version
+		}
+	}
+	return ""
 }
 
 // Needs is the actions the row's host needs, space-separated (the row
@@ -117,6 +131,12 @@ func (r planRow) Cell(action string) planCell {
 			return planCell{}
 		}
 		return planCell{Text: "needed", Title: "nginx runs the code from before its update", Need: true}
+	case "nodejs.default_upgrade":
+		if !need {
+			return planCell{}
+		}
+		v := aptNodeEOL(h.R.Runtimes)
+		return planCell{Text: "Node.js " + report.NodeMajor(v), Title: "The default Node.js (apt), " + v + ", is end-of-life", Need: true, Bad: true}
 	}
 	return planCell{}
 }
@@ -153,6 +173,7 @@ var planActions = []struct {
 	{"php.source.sury_org", "PHP source", "Move PHP to packages.sury.org", false},
 	{"nginx.source.nginx_org", "nginx source", "Move nginx to nginx.org", false},
 	{"service.restart", "nginx restart", "Restart nginx", false},
+	{"nodejs.default_upgrade", "Default Node.js", "Upgrade default Node.js", false},
 }
 
 // The placeholders a column's URL leaves for the page to fill.

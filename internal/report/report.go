@@ -130,6 +130,18 @@ type Site struct {
 	NpmPackages      int        `json:"npm_packages"` // from package-lock.json (collector snapshot v4)
 	NpmDev           int        `json:"npm_dev_packages"`
 	Counts           Counts     `json:"counts"` // Composer and npm findings
+	// Node.js (node.go), from a collector 0.5.51 on: NodeBin is the binary
+	// a running process of the site uses ("" when none was seen: most PHP
+	// sites only build with Node), NodeVersion its version,
+	// NodeRequirement the Node its .nvmrc, .node-version or package.json
+	// engines.node asks for, NodeSatisfied whether an installed Node
+	// meets it (nil when unknown), and NodeWant the one major it names,
+	// if it names one.
+	NodeBin         string `json:"node_bin,omitempty"`
+	NodeVersion     string `json:"node_version,omitempty"`
+	NodeRequirement string `json:"node_requirement,omitempty"`
+	NodeSatisfied   *bool  `json:"node_requirement_met,omitempty"`
+	NodeWant        string `json:"node_want,omitempty"`
 	// HTTP2: nginx serves the site's document root over HTTP/2 (nil when
 	// unknown: an older collector, or not nginx).
 	HTTP2 *bool `json:"http2,omitempty"`
@@ -158,6 +170,17 @@ type Runtime struct {
 	// one of its findings, "" otherwise. StatusNote says why.
 	Status     string `json:"status,omitempty"`
 	StatusNote string `json:"status_note,omitempty"`
+	// Node.js (node.go): Kind is where the binary comes from ("apt" for
+	// the nodejs package at /usr/bin/node, "opt" for /opt/node/<major>,
+	// "nvm", or "other"), Path the binary, Running whether a process runs
+	// it, Sites the sites whose running processes use it, and Latest the
+	// newest release in its major when that's newer than Version (not for
+	// apt, whose updates are pending updates).
+	Kind    string   `json:"kind,omitempty"`
+	Path    string   `json:"path,omitempty"`
+	Running bool     `json:"running,omitempty"`
+	Sites   []string `json:"sites,omitempty"`
+	Latest  string   `json:"latest,omitempty"`
 	// DistroBuild names the distro that builds and patches this runtime
 	// on its own schedule ("Ubuntu"), when upstream's end-of-life dates
 	// don't apply to it (nginx, and the Python python3 runs).
@@ -299,6 +322,10 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 		return nil, err
 	}
 	phps, err := st.HostPHPs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	nodes, err := st.HostNodes(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -467,6 +494,9 @@ func Build(ctx context.Context, st *store.Store, f Filter, now time.Time) (*Repo
 		if at, ok := apts[h.ID]; ok && !at.IsZero() {
 			host.AptRefreshed = &at
 			host.AptStale = now.Sub(at) > AptStaleAfter
+		}
+		if err := nodeRuntimes(&host, nodes[h.ID], lifecycle, cycles); err != nil {
+			return nil, err
 		}
 		if p, ok := phps[h.ID]; ok && findings.PackageManager(inv) == "dpkg" {
 			phpUse(&host, p, inv.Packages)
