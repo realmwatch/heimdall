@@ -72,12 +72,18 @@ func (h Host) NodeInstalls() []NodeInstall {
 	return out
 }
 
+// PHPMet is PHPSatisfied for a template: "yes", "no", or "" when unknown.
+// A template's if is true for any non-nil pointer, even one to false.
+func (s Site) PHPMet() string { return met(s.PHPSatisfied) }
+
 // NodeMet is NodeSatisfied for templates: "yes", "no" or "" (unknown).
-func (s Site) NodeMet() string {
+func (s Site) NodeMet() string { return met(s.NodeSatisfied) }
+
+func met(b *bool) string {
 	switch {
-	case s.NodeSatisfied == nil:
+	case b == nil:
 		return ""
-	case *s.NodeSatisfied:
+	case *b:
 		return "yes"
 	}
 	return "no"
